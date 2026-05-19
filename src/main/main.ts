@@ -1,10 +1,10 @@
 import { app, BrowserWindow, ipcMain, type Tray } from 'electron';
 
-import { askHermes } from './hermesClient';
+import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray } from './tray';
 import { createCoachWindow } from './coachWindow';
 import { captureWindowSource, listWindowSources } from './windowSources';
-import type { AskHermesInput } from '../shared/types';
+import type { AskHermesInput, HermesConnectionKind, HermesConnectionSettings, HermesEndpointMode } from '../shared/types';
 
 let coachWindow: BrowserWindow | undefined;
 let coachTray: Tray | undefined;
@@ -72,6 +72,10 @@ function registerIpcHandlers(): void {
     return askHermes(assertAskHermesInput(input));
   });
 
+  ipcMain.handle('hermes:test-connection', async (_event, input: unknown) => {
+    return probeHermesConnection(assertHermesConnection(input));
+  });
+
   ipcMain.handle('coach:set-always-on-top', (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
       throw new Error('Always-on-top preference must be a boolean.');
@@ -88,9 +92,7 @@ function assertAskHermesInput(input: unknown): AskHermesInput {
 
   const record = input as AskHermesInput;
 
-  if (typeof record.gatewayUrl !== 'string') {
-    throw new Error('Hermes gateway URL is required.');
-  }
+  assertHermesConnection(record.connection);
 
   if (typeof record.question !== 'string' || !record.question.trim()) {
     throw new Error('Question is required.');
@@ -104,7 +106,63 @@ function assertAskHermesInput(input: unknown): AskHermesInput {
     throw new Error('Selected window is required.');
   }
 
+  if (typeof record.selectedWindow.id !== 'string' || !record.selectedWindow.id.trim()) {
+    throw new Error('Selected window id is required.');
+  }
+
+  if (typeof record.selectedWindow.name !== 'string' || !record.selectedWindow.name.trim()) {
+    throw new Error('Selected window name is required.');
+  }
+
+  if (record.selectedWindow.kind !== 'window' && record.selectedWindow.kind !== 'screen') {
+    throw new Error('Selected window kind is invalid.');
+  }
+
   return record;
+}
+
+function assertHermesConnection(input: unknown): HermesConnectionSettings {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Hermes connection settings are required.');
+  }
+
+  const record = input as HermesConnectionSettings;
+
+  if (!isConnectionKind(record.connectionKind)) {
+    throw new Error('Hermes connection kind is invalid.');
+  }
+
+  if (!isEndpointMode(record.endpointMode)) {
+    throw new Error('Hermes endpoint mode is invalid.');
+  }
+
+  if (typeof record.baseUrl !== 'string' || !record.baseUrl.trim()) {
+    throw new Error('Hermes base URL is required.');
+  }
+
+  try {
+    new URL(record.baseUrl);
+  } catch {
+    throw new Error('Hermes base URL must be a valid URL.');
+  }
+
+  if (typeof record.modelId !== 'string' || !record.modelId.trim()) {
+    throw new Error('Hermes model ID is required.');
+  }
+
+  if (typeof record.bearerToken !== 'string') {
+    throw new Error('Hermes bearer token must be a string.');
+  }
+
+  return record;
+}
+
+function isConnectionKind(value: unknown): value is HermesConnectionKind {
+  return value === 'local' || value === 'hosted' || value === 'custom';
+}
+
+function isEndpointMode(value: unknown): value is HermesEndpointMode {
+  return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom';
 }
 
 app.whenReady().then(() => {

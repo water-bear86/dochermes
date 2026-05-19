@@ -11,13 +11,75 @@ describe('parseLocalSettings', () => {
     expect(
       parseLocalSettings(
         JSON.stringify({
-          gatewayUrl: 'http://localhost:9000/api/coach',
+          connection: {
+            connectionKind: 'hosted',
+            endpointMode: 'openai-chat',
+            baseUrl: 'https://hermes.example.com',
+            modelId: 'hermes-agent',
+            bearerToken: 'secret'
+          },
           keepAlwaysOnTop: false
         })
       )
     ).toEqual({
-      gatewayUrl: 'http://localhost:9000/api/coach',
+      connection: {
+        connectionKind: 'hosted',
+        endpointMode: 'openai-chat',
+        baseUrl: 'https://hermes.example.com',
+        modelId: 'hermes-agent',
+        bearerToken: 'secret'
+      },
       keepAlwaysOnTop: false
+    });
+  });
+
+  it('migrates old gatewayUrl settings into explicit legacy mode', () => {
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          gatewayUrl: 'http://localhost:8787/coach',
+          keepAlwaysOnTop: true
+        })
+      )
+    ).toEqual({
+      connection: {
+        connectionKind: 'custom',
+        endpointMode: 'legacy-coach',
+        baseUrl: 'http://localhost:8787',
+        modelId: 'hermes-agent',
+        bearerToken: ''
+      },
+      keepAlwaysOnTop: true
+    });
+  });
+
+  it('migrates old /coach gateway variants into explicit legacy mode', () => {
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          gatewayUrl: 'http://localhost:8787/coach/'
+        })
+      ).connection
+    ).toEqual({
+      connectionKind: 'custom',
+      endpointMode: 'legacy-coach',
+      baseUrl: 'http://localhost:8787',
+      modelId: 'hermes-agent',
+      bearerToken: ''
+    });
+
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          gatewayUrl: 'http://localhost:8787/coach?token=old'
+        })
+      ).connection
+    ).toEqual({
+      connectionKind: 'custom',
+      endpointMode: 'legacy-coach',
+      baseUrl: 'http://localhost:8787',
+      modelId: 'hermes-agent',
+      bearerToken: ''
     });
   });
 
@@ -25,7 +87,13 @@ describe('parseLocalSettings', () => {
     expect(
       parseLocalSettings(
         JSON.stringify({
-          gatewayUrl: '',
+          connection: {
+            connectionKind: 'nope',
+            endpointMode: 'wat',
+            baseUrl: '',
+            modelId: '',
+            bearerToken: 123
+          },
           keepAlwaysOnTop: 'yes'
         })
       )
@@ -37,9 +105,17 @@ describe('serializeLocalSettings', () => {
   it('serializes only the settings shape the app owns', () => {
     expect(
       serializeLocalSettings({
-        gatewayUrl: 'http://localhost:8787/coach',
+        connection: {
+          connectionKind: 'local',
+          endpointMode: 'auto',
+          baseUrl: 'http://localhost:8642',
+          modelId: 'hermes-agent',
+          bearerToken: ''
+        },
         keepAlwaysOnTop: true
       })
-    ).toBe('{"gatewayUrl":"http://localhost:8787/coach","keepAlwaysOnTop":true}');
+    ).toBe(
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"keepAlwaysOnTop":true}'
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-import type { AskHermesInput, CoachBridgeApi, WindowSourceOption } from '../shared/types';
+import type { AskHermesInput, CoachBridgeApi, HermesConnectionReport, HermesConnectionSettings, WindowSourceOption } from '../shared/types';
 
 const api: CoachBridgeApi & {
   onOpenWindowPicker: (callback: () => void) => () => void;
@@ -9,6 +9,8 @@ const api: CoachBridgeApi & {
   listWindowSources: () => ipcRenderer.invoke('window-sources:list') as Promise<WindowSourceOption[]>,
   captureWindowSource: (sourceId: string) => ipcRenderer.invoke('window-sources:capture', sourceId) as Promise<string>,
   askHermes: (input: AskHermesInput) => ipcRenderer.invoke('hermes:ask', input) as Promise<string>,
+  testHermesConnection: (connection: HermesConnectionSettings) =>
+    ipcRenderer.invoke('hermes:test-connection', connection) as Promise<HermesConnectionReport>,
   setAlwaysOnTop: (enabled: boolean) => ipcRenderer.invoke('coach:set-always-on-top', enabled) as Promise<void>,
   appInfo: () =>
     ipcRenderer.invoke('app:info') as Promise<{

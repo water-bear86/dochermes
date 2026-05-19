@@ -21,6 +21,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -233,6 +234,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid #343b38;
@@ -261,6 +263,12 @@ input {
   font-size: 12px;
 }
 
+select {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 textarea {
   min-height: 92px;
   resize: vertical;
@@ -270,8 +278,53 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: #94c973;
+}
+
+.connection-report {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #343b38;
+  border-radius: 8px;
+  padding: 10px;
+  background: #101312;
+}
+
+.connection-report.connected {
+  border-color: #4e7446;
+}
+
+.connection-report.auth-error,
+.connection-report.disconnected,
+.connection-report.incompatible {
+  border-color: #6b3838;
+}
+
+.connection-report strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.connection-report textarea {
+  min-height: 118px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.capability-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-row span {
+  border: 1px solid #343b38;
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #c7c8bd;
+  font-size: 11px;
 }
 
 .primary {

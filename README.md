@@ -2,12 +2,12 @@
 
 DocHermes is a desktop risk coach add-on for trading workflows. It is not a trading bot, wallet, exchange client, or order router.
 
-The app is designed to stay operating-system, trading-platform, chain, exchange, and strategy agnostic. The local requirements are:
+The app is designed to stay operating-system, trading-platform, chain, exchange, wallet, and strategy agnostic. The local requirements are:
 
-- Docker running the Hermes gateway.
+- A compatible Hermes instance, usually local Hermes API Server.
 - A trading platform or trading window the user can explicitly select for screenshot capture.
 
-## Milestone 1 Loop
+## Current Prototype
 
 The current prototype provides:
 
@@ -17,11 +17,16 @@ The current prototype provides:
 - Explicit window picker before capture.
 - Screenshot preview.
 - Text question input.
-- Local settings for gateway URL and panel always-on-top behavior.
+- Hermes connection settings for local, hosted, or advanced/custom endpoints.
+- OpenAI-compatible Hermes API Server adapter for `POST /v1/chat/completions`.
+- Legacy `/coach` adapter support when explicitly selected or discovered during auto probing.
+- Bearer auth and configurable model ID.
+- Connection test UI with text/image capability checks and copyable masked diagnostics.
+- Successful connection tests apply the discovered effective adapter/base URL to future asks.
+- Local settings for panel always-on-top behavior.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - Compact personal-memory context built from local journal entries.
 - Basic local pattern matching for early-entry risk and confirmation behavior.
-- JSON request to the local Hermes Docker gateway.
 - Hermes response display.
 
 Capture is user initiated. The app does not run hidden background capture and has no execution capability.
@@ -52,58 +57,39 @@ npm run typecheck
 npm run build
 ```
 
-## Hermes Gateway Contract
+## Hermes Connection
 
-Current prototype default:
-
-```text
-http://localhost:8787/coach
-```
-
-If the configured gateway URL is only an origin, such as `http://localhost:8787`, the app sends requests to `/coach`.
-
-Note: `/coach` is a DocHermes prototype/custom-adapter route, not a default Hermes API Server route. The recommended long-term target is Hermes API Server's OpenAI-compatible endpoint:
+Default local base URL:
 
 ```text
-http://localhost:8642/v1/chat/completions
+http://localhost:8642
 ```
+
+Default model ID:
+
+```text
+hermes-agent
+```
+
+In `auto` or `openai-chat` mode, DocHermes sends OpenAI-compatible multimodal chat requests to:
+
+```text
+POST /v1/chat/completions
+```
+
+The settings panel can also test:
+
+- `GET /health`
+- `GET /v1/capabilities`
+- `GET /v1/models`
+- text ping to `POST /v1/chat/completions`
+- image ping to `POST /v1/chat/completions`
+- legacy `/coach` ping when auto mode needs a fallback
+
+Hosted/public Hermes instances can use bearer auth. Debug reports mask bearer tokens and common token query parameters.
+
+Bearer tokens are stored locally in the Electron app's local settings for this prototype. Do not use shared machines for hosted Hermes credentials.
+
+Legacy `/coach` remains available through `legacy-coach` mode for custom adapters, but it is no longer the default.
 
 See [Hermes API integration notes](docs/hermes-api-notes.md) for the recommended payload shape and migration notes.
-
-The current prototype sends JSON:
-
-```json
-{
-  "question": "Should I take this trade now?",
-  "screenshot": {
-    "mimeType": "image/png",
-    "dataBase64": "..."
-  },
-  "selectedWindow": {
-    "id": "window:...",
-    "name": "Trading Platform",
-    "kind": "window"
-  },
-  "constraints": {
-    "executionCapability": false,
-    "platformAgnostic": true,
-    "captureRequiresUserSelection": true
-  }
-}
-```
-
-The response parser accepts any of these shapes:
-
-```json
-{ "answer": "..." }
-```
-
-```json
-{ "response": "..." }
-```
-
-```json
-{ "message": "..." }
-```
-
-It also accepts basic OpenAI-style `choices[].message.content` responses for gateways that proxy model output.

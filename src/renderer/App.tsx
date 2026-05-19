@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 
-import type { AskHermesInput, CoachBridgeApi, LocalSettings, WindowSourceOption } from '../shared/types';
+import type {
+  AskHermesInput,
+  CoachBridgeApi,
+  HermesConnectionKind,
+  HermesConnectionReport,
+  HermesEndpointMode,
+  LocalSettings,
+  WindowSourceOption
+} from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
 import { readLocalSettings, writeLocalSettings } from './localSettings';
 import { buildMemoryContext } from './memoryContext';
@@ -26,6 +34,9 @@ export function App(): ReactElement {
   const [journalNotes, setJournalNotes] = useState('');
   const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
   const [journalSavedMessage, setJournalSavedMessage] = useState('');
+  const [connectionReport, setConnectionReport] = useState<HermesConnectionReport | undefined>();
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [copiedReport, setCopiedReport] = useState(false);
   const [error, setError] = useState('');
   const [requestState, setRequestState] = useState<RequestState>('idle');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -36,6 +47,18 @@ export function App(): ReactElement {
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
   const memoryContext = useMemo(() => buildMemoryContext(journalEntries, question), [journalEntries, question]);
+
+  const updateConnection = useCallback((updates: Partial<LocalSettings['connection']>) => {
+    setConnectionReport(undefined);
+    setCopiedReport(false);
+    setSettings((current) => ({
+      ...current,
+      connection: {
+        ...current.connection,
+        ...updates
+      }
+    }));
+  }, []);
 
   const loadSources = useCallback(async () => {
     if (!bridge) {
@@ -115,7 +138,7 @@ export function App(): ReactElement {
       setRequestState('asking');
 
       const request: AskHermesInput = {
-        gatewayUrl: settings.gatewayUrl,
+        connection: settings.connection,
         question,
         screenshotDataUrl: capture,
         selectedWindow: selectedSource,
@@ -129,7 +152,42 @@ export function App(): ReactElement {
     } finally {
       setRequestState('idle');
     }
-  }, [bridge, hasQuestion, loadSources, memoryContext, question, selectedSource, settings.gatewayUrl]);
+  }, [bridge, hasQuestion, loadSources, memoryContext, question, selectedSource, settings.connection]);
+
+  const testConnection = useCallback(async () => {
+    if (!bridge) {
+      setError('Hermes Coach must be run from the desktop add-on to test the connection.');
+      return;
+    }
+
+    setTestingConnection(true);
+    setCopiedReport(false);
+    setError('');
+
+    try {
+      const report = await bridge.testHermesConnection(settings.connection);
+      setConnectionReport(report);
+      if ((report.status === 'connected' || report.status === 'degraded') && report.effectiveConnection) {
+        setSettings((current) => ({
+          ...current,
+          connection: report.effectiveConnection ?? current.connection
+        }));
+      }
+    } catch (nextError) {
+      setError(readError(nextError));
+    } finally {
+      setTestingConnection(false);
+    }
+  }, [bridge, settings.connection]);
+
+  const copyDebugReport = useCallback(async () => {
+    if (!connectionReport) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(connectionReport.debugReport);
+    setCopiedReport(true);
+  }, [connectionReport]);
 
   const saveJournalEntry = useCallback(() => {
     if (!selectedSource || !response) {
@@ -192,18 +250,75 @@ export function App(): ReactElement {
         </div>
         {settingsOpen ? (
           <div className="settings-grid">
-            <label htmlFor="gateway">Hermes Docker gateway</label>
+            <label htmlFor="connection-kind">Connection</label>
+            <select
+              id="connection-kind"
+              value={settings.connection.connectionKind}
+              onChange={(event) =>
+                updateConnection({
+                  connectionKind: event.target.value as HermesConnectionKind
+                })
+              }
+            >
+              <option value="local">Local Hermes</option>
+              <option value="hosted">Hosted/remote Hermes</option>
+              <option value="custom">Advanced/custom endpoint</option>
+            </select>
+
+            <label htmlFor="endpoint-mode">Endpoint mode</label>
+            <select
+              id="endpoint-mode"
+              value={settings.connection.endpointMode}
+              onChange={(event) =>
+                updateConnection({
+                  endpointMode: event.target.value as HermesEndpointMode
+                })
+              }
+            >
+              <option value="auto">Auto</option>
+              <option value="openai-chat">Hermes API Server</option>
+              <option value="legacy-coach">Legacy /coach</option>
+              <option value="custom">Exact custom endpoint</option>
+            </select>
+
+            <label htmlFor="gateway">Hermes base URL</label>
             <input
               id="gateway"
-              value={settings.gatewayUrl}
+              value={settings.connection.baseUrl}
               onChange={(event) =>
-                setSettings((current) => ({
-                  ...current,
-                  gatewayUrl: event.target.value
-                }))
+                updateConnection({
+                  baseUrl: event.target.value
+                })
               }
               spellCheck={false}
             />
+
+            <label htmlFor="model-id">Model ID</label>
+            <input
+              id="model-id"
+              value={settings.connection.modelId}
+              onChange={(event) =>
+                updateConnection({
+                  modelId: event.target.value
+                })
+              }
+              spellCheck={false}
+            />
+
+            <label htmlFor="bearer-token">Bearer token</label>
+            <input
+              id="bearer-token"
+              type="password"
+              value={settings.connection.bearerToken}
+              placeholder="Required for hosted/public Hermes"
+              onChange={(event) =>
+                updateConnection({
+                  bearerToken: event.target.value
+                })
+              }
+              spellCheck={false}
+            />
+
             <label className="check-row" htmlFor="keep-on-top">
               <input
                 id="keep-on-top"
@@ -218,6 +333,27 @@ export function App(): ReactElement {
               />
               <span>Keep coach panel on top</span>
             </label>
+            <button type="button" onClick={testConnection} disabled={testingConnection}>
+              {testingConnection ? 'Testing...' : 'Test connection'}
+            </button>
+            {connectionReport ? (
+              <div className={`connection-report ${connectionReport.status}`}>
+                <strong>{connectionReport.summary}</strong>
+                <small>
+                  Status: {connectionReport.status}
+                  {connectionReport.activeAdapter ? ` / ${connectionReport.activeAdapter}` : ''}
+                </small>
+                <div className="capability-row">
+                  <span>{connectionReport.textCapable ? 'Text OK' : 'Text failed'}</span>
+                  <span>{connectionReport.imageCapable ? 'Image OK' : 'Image failed'}</span>
+                  <span>{connectionReport.models.length > 0 ? `${connectionReport.models.length} models` : 'Models unknown'}</span>
+                </div>
+                <textarea readOnly value={connectionReport.debugReport} aria-label="Copyable Hermes debug report" />
+                <button type="button" onClick={copyDebugReport}>
+                  {copiedReport ? 'Copied' : 'Copy debug report'}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>

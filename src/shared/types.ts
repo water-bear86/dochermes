@@ -7,6 +7,18 @@ export interface WindowSourceOption {
   thumbnailDataUrl: string;
 }
 
+export type HermesConnectionKind = 'local' | 'hosted' | 'custom';
+export type HermesEndpointMode = 'auto' | 'openai-chat' | 'legacy-coach' | 'custom';
+export type HermesConnectionStatus = 'connected' | 'degraded' | 'disconnected' | 'auth-error' | 'model-error' | 'incompatible';
+
+export interface HermesConnectionSettings {
+  connectionKind: HermesConnectionKind;
+  endpointMode: HermesEndpointMode;
+  baseUrl: string;
+  modelId: string;
+  bearerToken: string;
+}
+
 export interface HermesPayload {
   question: string;
   screenshot: {
@@ -34,13 +46,36 @@ export interface BuildHermesPayloadInput {
 }
 
 export interface AskHermesInput extends BuildHermesPayloadInput {
-  gatewayUrl: string;
+  connection: HermesConnectionSettings;
+}
+
+export interface ProbeAttempt {
+  url: string;
+  method: 'GET' | 'POST';
+  ok: boolean;
+  status: number;
+  label: string;
+  detail: string;
+}
+
+export interface HermesConnectionReport {
+  status: HermesConnectionStatus;
+  activeAdapter?: HermesEndpointMode;
+  effectiveConnection?: HermesConnectionSettings;
+  resolvedEndpoint?: string;
+  textCapable: boolean;
+  imageCapable: boolean;
+  models: string[];
+  attempts: ProbeAttempt[];
+  summary: string;
+  debugReport: string;
 }
 
 export interface CoachBridgeApi {
   listWindowSources: () => Promise<WindowSourceOption[]>;
   captureWindowSource: (sourceId: string) => Promise<string>;
   askHermes: (input: AskHermesInput) => Promise<string>;
+  testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
   appInfo: () => Promise<{
     name: string;
@@ -49,7 +84,7 @@ export interface CoachBridgeApi {
 }
 
 export interface LocalSettings {
-  gatewayUrl: string;
+  connection: HermesConnectionSettings;
   keepAlwaysOnTop: boolean;
 }
 
