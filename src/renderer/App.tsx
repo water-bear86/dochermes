@@ -1,29 +1,34 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 
-import type { AskHermesInput, CoachBridgeApi, WindowSourceOption } from '../shared/types';
+import type { AskHermesInput, CoachBridgeApi, LocalSettings, WindowSourceOption } from '../shared/types';
+import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
+import { readLocalSettings, writeLocalSettings } from './localSettings';
 
 declare global {
   interface Window {
     hermesCoach?: CoachBridgeApi & {
       onOpenWindowPicker: (callback: () => void) => () => void;
+      onOpenSettings: (callback: () => void) => () => void;
     };
   }
 }
 
 type RequestState = 'idle' | 'loading-sources' | 'capturing' | 'asking';
 
-const DEFAULT_GATEWAY_URL = 'http://localhost:8787/coach';
-
 export function App(): ReactElement {
-  const [gatewayUrl, setGatewayUrl] = useState(() => localStorage.getItem('hermes.gatewayUrl') ?? DEFAULT_GATEWAY_URL);
+  const [settings, setSettings] = useState<LocalSettings>(() => readLocalSettings(localStorage));
   const [question, setQuestion] = useState('');
   const [sources, setSources] = useState<WindowSourceOption[]>([]);
   const [selectedSource, setSelectedSource] = useState<WindowSourceOption | undefined>();
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | undefined>();
   const [response, setResponse] = useState('');
+  const [journalNotes, setJournalNotes] = useState('');
+  const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
+  const [journalSavedMessage, setJournalSavedMessage] = useState('');
   const [error, setError] = useState('');
   const [requestState, setRequestState] = useState<RequestState>('idle');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -55,8 +60,11 @@ export function App(): ReactElement {
   }, [bridge]);
 
   useEffect(() => {
-    localStorage.setItem('hermes.gatewayUrl', gatewayUrl);
-  }, [gatewayUrl]);
+    writeLocalSettings(localStorage, settings);
+    void bridge?.setAlwaysOnTop(settings.keepAlwaysOnTop).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
+  }, [bridge, settings]);
 
   useEffect(() => {
     if (!bridge) {
@@ -67,6 +75,16 @@ export function App(): ReactElement {
       void loadSources();
     });
   }, [bridge, loadSources]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return undefined;
+    }
+
+    return bridge.onOpenSettings(() => {
+      setSettingsOpen(true);
+    });
+  }, [bridge]);
 
   const askCoach = useCallback(async () => {
     if (!hasQuestion) {
@@ -95,19 +113,39 @@ export function App(): ReactElement {
       setRequestState('asking');
 
       const request: AskHermesInput = {
-        gatewayUrl,
+        gatewayUrl: settings.gatewayUrl,
         question,
         screenshotDataUrl: capture,
         selectedWindow: selectedSource
       };
       const answer = await bridge.askHermes(request);
       setResponse(answer);
+      setJournalSavedMessage('');
     } catch (nextError) {
       setError(readError(nextError));
     } finally {
       setRequestState('idle');
     }
-  }, [gatewayUrl, hasQuestion, loadSources, question, selectedSource]);
+  }, [bridge, hasQuestion, loadSources, question, selectedSource, settings.gatewayUrl]);
+
+  const saveJournalEntry = useCallback(() => {
+    if (!selectedSource || !response) {
+      setError('A coach response and selected window are required before saving to the journal.');
+      return;
+    }
+
+    const entry = buildJournalEntry({
+      question,
+      response,
+      notes: journalNotes,
+      selectedWindow: selectedSource,
+      screenshotCaptured: Boolean(screenshotDataUrl)
+    });
+    const nextEntries = appendJournalEntry(localStorage, entry);
+    setJournalEntries(nextEntries);
+    setJournalSavedMessage('Saved to local journal.');
+    setJournalNotes('');
+  }, [journalNotes, question, response, screenshotDataUrl, selectedSource]);
 
   const statusText = useMemo(() => {
     switch (requestState) {
@@ -142,6 +180,45 @@ export function App(): ReactElement {
         </button>
       </section>
 
+      <section className="settings-panel" aria-label="Local settings">
+        <div className="section-heading compact">
+          <h2>Local settings</h2>
+          <button type="button" className="ghost" onClick={() => setSettingsOpen((open) => !open)}>
+            {settingsOpen ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {settingsOpen ? (
+          <div className="settings-grid">
+            <label htmlFor="gateway">Hermes Docker gateway</label>
+            <input
+              id="gateway"
+              value={settings.gatewayUrl}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  gatewayUrl: event.target.value
+                }))
+              }
+              spellCheck={false}
+            />
+            <label className="check-row" htmlFor="keep-on-top">
+              <input
+                id="keep-on-top"
+                type="checkbox"
+                checked={settings.keepAlwaysOnTop}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    keepAlwaysOnTop: event.target.checked
+                  }))
+                }
+              />
+              <span>Keep coach panel on top</span>
+            </label>
+          </div>
+        ) : null}
+      </section>
+
       {pickerOpen ? (
         <section className="window-picker" aria-label="Available windows">
           <div className="section-heading">
@@ -172,14 +249,6 @@ export function App(): ReactElement {
       ) : null}
 
       <section className="question-panel" aria-label="Ask Hermes">
-        <label htmlFor="gateway">Hermes Docker gateway</label>
-        <input
-          id="gateway"
-          value={gatewayUrl}
-          onChange={(event) => setGatewayUrl(event.target.value)}
-          spellCheck={false}
-        />
-
         <label htmlFor="question">Question</label>
         <textarea
           id="question"
@@ -213,6 +282,20 @@ export function App(): ReactElement {
         <section className="message response" aria-label="Hermes response">
           <span className="label">Coach assessment</span>
           <p>{response}</p>
+          <label htmlFor="journal-notes">Session notes</label>
+          <textarea
+            id="journal-notes"
+            className="notes"
+            value={journalNotes}
+            onChange={(event) => setJournalNotes(event.target.value)}
+            placeholder="What happened next?"
+          />
+          <div className="journal-actions">
+            <button type="button" onClick={saveJournalEntry}>
+              Save journal
+            </button>
+            <span>{journalSavedMessage || `${journalEntries.length} saved locally`}</span>
+          </div>
         </section>
       ) : null}
 

@@ -39,8 +39,31 @@ export interface CoachBridgeApi {
   listWindowSources: () => Promise<WindowSourceOption[]>;
   captureWindowSource: (sourceId: string) => Promise<string>;
   askHermes: (input: AskHermesInput) => Promise<string>;
+  setAlwaysOnTop: (enabled: boolean) => Promise<void>;
   appInfo: () => Promise<{
     name: string;
     platform: string;
   }>;
+}
+
+export interface LocalSettings {
+  gatewayUrl: string;
+  keepAlwaysOnTop: boolean;
+}
+
+export interface JournalEntry {
+  id: string;
+  createdAt: string;
+  question: string;
+  response: string;
+  notes: string;
+  selectedWindow: {
+    id: string;
+    name: string;
+    kind: WindowSourceKind;
+  };
+  screenshot: {
+    captured: boolean;
+    imageStored: false;
+  };
 }

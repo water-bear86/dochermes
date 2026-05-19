@@ -17,10 +17,14 @@ The current prototype provides:
 - Explicit window picker before capture.
 - Screenshot preview.
 - Text question input.
+- Local settings for gateway URL and panel always-on-top behavior.
+- Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - JSON request to the local Hermes Docker gateway.
 - Hermes response display.
 
 Capture is user initiated. The app does not run hidden background capture and has no execution capability.
+
+The journal intentionally stores screenshot metadata instead of image bytes. That keeps the first local memory loop useful without silently retaining sensitive trading screenshots.
 
 ## Local Development
 

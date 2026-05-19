@@ -4,6 +4,7 @@ interface TrayControls {
   showCoach: () => void;
   hideCoach: () => void;
   capturePrompt: () => void;
+  openSettings: () => void;
   quit: () => void;
 }
 
@@ -23,6 +24,10 @@ export function createCoachTray(controls: TrayControls): Tray {
       {
         label: 'Select Trading Window',
         click: controls.capturePrompt
+      },
+      {
+        label: 'Settings',
+        click: controls.openSettings
       },
       {
         type: 'separator'

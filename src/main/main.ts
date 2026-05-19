@@ -29,6 +29,14 @@ function hideCoach(): void {
 }
 
 function promptWindowSelection(): void {
+  sendRendererCommand('coach:open-window-picker');
+}
+
+function promptSettings(): void {
+  sendRendererCommand('coach:open-settings');
+}
+
+function sendRendererCommand(channel: 'coach:open-window-picker' | 'coach:open-settings'): void {
   showCoach();
   const contents = coachWindow?.webContents;
 
@@ -37,11 +45,11 @@ function promptWindowSelection(): void {
   }
 
   if (contents.isLoading()) {
-    contents.once('did-finish-load', () => contents.send('coach:open-window-picker'));
+    contents.once('did-finish-load', () => contents.send(channel));
     return;
   }
 
-  contents.send('coach:open-window-picker');
+  contents.send(channel);
 }
 
 function registerIpcHandlers(): void {
@@ -62,6 +70,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('hermes:ask', async (_event, input: unknown) => {
     return askHermes(assertAskHermesInput(input));
+  });
+
+  ipcMain.handle('coach:set-always-on-top', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Always-on-top preference must be a boolean.');
+    }
+
+    coachWindow?.setAlwaysOnTop(enabled);
   });
 }
 
@@ -100,6 +116,7 @@ app.whenReady().then(() => {
     showCoach,
     hideCoach,
     capturePrompt: promptWindowSelection,
+    openSettings: promptSettings,
     quit: () => {
       isQuitting = true;
       app.quit();

@@ -110,6 +110,7 @@ small {
 .question-panel,
 .window-picker,
 .preview,
+.settings-panel,
 .message {
   border: 1px solid #2e3431;
   border-radius: 8px;
@@ -144,12 +145,20 @@ small {
   padding: 12px;
 }
 
+.settings-panel {
+  padding: 12px;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.section-heading.compact {
+  margin-bottom: 0;
 }
 
 .section-heading span {
@@ -211,6 +220,12 @@ small {
   padding: 12px;
 }
 
+.settings-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 label {
   color: #c7c8bd;
   font-size: 12px;
@@ -225,6 +240,19 @@ textarea {
   color: #f4f1e8;
   background: #0f1112;
   outline: none;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #a7d977;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f4f1e8;
 }
 
 input {
@@ -282,6 +310,30 @@ textarea:focus {
 .message p {
   margin-top: 6px;
   white-space: pre-wrap;
+}
+
+.notes {
+  min-height: 68px;
+  margin-top: 8px;
+}
+
+.journal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.journal-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.journal-actions span {
+  color: #a9aa9f;
+  font-size: 12px;
+  text-align: right;
 }
 
 .error {
