@@ -31,6 +31,10 @@ const LOCAL_CANDIDATES = [
 const SYSTEM_PROMPT =
   'You are DocHermes, a risk coach for trading workflows. You do not place trades, route orders, access wallets, or provide execution commands. Analyze the selected trading-window screenshot and the user question. Focus on risk, confirmation, invalidation, position sizing discipline, and emotional overtrading.';
 
+// Codex-backed Hermes rejects 1x1 placeholder images, so probe with a tiny synthetic screenshot.
+const PROBE_SCREENSHOT_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
+
 export function resolveHermesEndpoint(connection: HermesConnectionSettings): string {
   const baseUrl = normalizeBaseUrl(connection.baseUrl);
 
@@ -373,8 +377,6 @@ async function probeChatCompletion(
   fetchImpl: FetchLike
 ): Promise<ProbeRouteResult> {
   const endpoint = resolveHermesEndpoint(connection);
-  const probeScreenshot =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
   const selectedWindow = {
     id: 'probe',
     name: 'Connection probe',
@@ -387,7 +389,7 @@ async function probeChatCompletion(
         ? buildOpenAiChatPayload({
             modelId: connection.modelId,
             question: 'DocHermes image ping. Reply with pong.',
-            screenshotDataUrl: probeScreenshot,
+            screenshotDataUrl: PROBE_SCREENSHOT_DATA_URL,
             selectedWindow
           })
         : {
@@ -401,7 +403,7 @@ async function probeChatCompletion(
           }
       : buildHermesPayload({
           question: includeImage ? 'DocHermes image ping. Reply with pong.' : 'DocHermes text ping. Reply with pong.',
-          screenshotDataUrl: probeScreenshot,
+          screenshotDataUrl: PROBE_SCREENSHOT_DATA_URL,
           selectedWindow
         });
 

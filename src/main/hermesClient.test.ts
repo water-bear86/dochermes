@@ -242,6 +242,18 @@ describe('probeHermesConnection', () => {
     expect(result.effectiveConnection).toEqual(defaultConnection({ endpointMode: 'openai-chat' }));
     expect(result.resolvedEndpoint).toBe('http://localhost:8642/v1/chat/completions');
     expect(requests.map((request) => request.url)).toContain('http://localhost:8642/v1/chat/completions');
+
+    const imagePingBody = requests
+      .filter((request) => request.url === 'http://localhost:8642/v1/chat/completions')
+      .map((request) => JSON.parse(String(request.init?.body)))
+      .find((body) => Array.isArray(body.messages?.[1]?.content));
+    const imageUrl = imagePingBody?.messages[1].content.find((item: { type?: string }) => item.type === 'image_url')
+      ?.image_url.url;
+    const png = Buffer.from(String(imageUrl).replace('data:image/png;base64,', ''), 'base64');
+
+    expect(imageUrl).toMatch(/^data:image\/png;base64,/);
+    expect(png.readUInt32BE(16)).toBe(64);
+    expect(png.readUInt32BE(20)).toBe(48);
   });
 
   it('returns an effective connection for non-default local candidates and asks use it', async () => {
