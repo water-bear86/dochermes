@@ -347,6 +347,27 @@ textarea:focus {
   background: #171f18;
 }
 
+.memory {
+  border-color: #594d2c;
+  background: #211d12;
+}
+
+.memory-pattern {
+  margin-top: 6px;
+}
+
+.memory-pattern strong {
+  display: block;
+  color: #f6e4a9;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.memory-pattern small {
+  display: block;
+  margin-top: 6px;
+}
+
 footer {
   margin-top: auto;
   padding-bottom: 2px;

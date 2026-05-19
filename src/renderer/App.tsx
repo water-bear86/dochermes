@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import type { AskHermesInput, CoachBridgeApi, LocalSettings, WindowSourceOption } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
 import { readLocalSettings, writeLocalSettings } from './localSettings';
+import { buildMemoryContext } from './memoryContext';
 
 declare global {
   interface Window {
@@ -34,6 +35,7 @@ export function App(): ReactElement {
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
+  const memoryContext = useMemo(() => buildMemoryContext(journalEntries, question), [journalEntries, question]);
 
   const loadSources = useCallback(async () => {
     if (!bridge) {
@@ -116,7 +118,8 @@ export function App(): ReactElement {
         gatewayUrl: settings.gatewayUrl,
         question,
         screenshotDataUrl: capture,
-        selectedWindow: selectedSource
+        selectedWindow: selectedSource,
+        memoryContext
       };
       const answer = await bridge.askHermes(request);
       setResponse(answer);
@@ -126,7 +129,7 @@ export function App(): ReactElement {
     } finally {
       setRequestState('idle');
     }
-  }, [bridge, hasQuestion, loadSources, question, selectedSource, settings.gatewayUrl]);
+  }, [bridge, hasQuestion, loadSources, memoryContext, question, selectedSource, settings.gatewayUrl]);
 
   const saveJournalEntry = useCallback(() => {
     if (!selectedSource || !response) {
@@ -261,6 +264,19 @@ export function App(): ReactElement {
           Capture and ask
         </button>
       </section>
+
+      {memoryContext.matchedPatterns.length > 0 ? (
+        <section className="message memory" aria-label="Personal memory match">
+          <span className="label">Personal memory</span>
+          {memoryContext.matchedPatterns.map((pattern) => (
+            <div key={pattern.name} className="memory-pattern">
+              <strong>{pattern.summary}</strong>
+              <p>{pattern.recommendation}</p>
+              <small>{pattern.evidenceCount} local journal notes matched</small>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {screenshotDataUrl ? (
         <section className="preview" aria-label="Latest screenshot preview">

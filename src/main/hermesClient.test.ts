@@ -47,6 +47,42 @@ describe('buildHermesPayload', () => {
       }
     });
   });
+
+  it('includes compact personal memory context when provided', () => {
+    const payload = buildHermesPayload({
+      question: 'Should I enter immediately?',
+      screenshotDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      selectedWindow: {
+        id: 'window:42',
+        name: 'Trading Terminal',
+        kind: 'window',
+        thumbnailDataUrl: 'data:image/png;base64,preview'
+      },
+      memoryContext: {
+        matchedPatterns: [
+          {
+            name: 'early-entry-risk',
+            evidenceCount: 2,
+            summary: 'This resembles prior notes where early entries performed poorly.',
+            recommendation: 'Wait for confirmation.'
+          }
+        ],
+        recentNotes: []
+      }
+    });
+
+    expect(payload.memoryContext).toEqual({
+      matchedPatterns: [
+        {
+          name: 'early-entry-risk',
+          evidenceCount: 2,
+          summary: 'This resembles prior notes where early entries performed poorly.',
+          recommendation: 'Wait for confirmation.'
+        }
+      ],
+      recentNotes: []
+    });
+  });
 });
 
 describe('parseHermesResponse', () => {

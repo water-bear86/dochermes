@@ -19,12 +19,16 @@ The current prototype provides:
 - Text question input.
 - Local settings for gateway URL and panel always-on-top behavior.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
+- Compact personal-memory context built from local journal entries.
+- Basic local pattern matching for early-entry risk and confirmation behavior.
 - JSON request to the local Hermes Docker gateway.
 - Hermes response display.
 
 Capture is user initiated. The app does not run hidden background capture and has no execution capability.
 
 The journal intentionally stores screenshot metadata instead of image bytes. That keeps the first local memory loop useful without silently retaining sensitive trading screenshots.
+
+When a new question resembles prior notes, the renderer sends a compact `memoryContext` object with the Hermes request. This is intentionally summarized before transmission so the app does not dump the full local journal into every prompt.
 
 ## Local Development
 

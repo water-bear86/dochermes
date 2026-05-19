@@ -28,7 +28,7 @@ export function buildHermesPayload(input: BuildHermesPayloadInput): HermesPayloa
     throw new Error('Screenshot must be a PNG data URL.');
   }
 
-  return {
+  const payload: HermesPayload = {
     question: input.question.trim(),
     screenshot: {
       mimeType: 'image/png',
@@ -45,6 +45,12 @@ export function buildHermesPayload(input: BuildHermesPayloadInput): HermesPayloa
       captureRequiresUserSelection: true
     }
   };
+
+  if (input.memoryContext) {
+    payload.memoryContext = input.memoryContext;
+  }
+
+  return payload;
 }
 
 export function parseHermesResponse(response: unknown): string {

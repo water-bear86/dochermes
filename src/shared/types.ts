@@ -13,6 +13,7 @@ export interface HermesPayload {
     mimeType: 'image/png';
     dataBase64: string;
   };
+  memoryContext?: MemoryContext;
   selectedWindow: {
     id: string;
     name: string;
@@ -29,6 +30,7 @@ export interface BuildHermesPayloadInput {
   question: string;
   screenshotDataUrl: string;
   selectedWindow: WindowSourceOption;
+  memoryContext?: MemoryContext;
 }
 
 export interface AskHermesInput extends BuildHermesPayloadInput {
@@ -66,4 +68,22 @@ export interface JournalEntry {
     captured: boolean;
     imageStored: false;
   };
+}
+
+export interface MemoryPattern {
+  name: string;
+  evidenceCount: number;
+  summary: string;
+  recommendation: string;
+}
+
+export interface MemoryContext {
+  matchedPatterns: MemoryPattern[];
+  recentNotes: Array<{
+    createdAt: string;
+    question: string;
+    response: string;
+    notes: string;
+    selectedWindowName: string;
+  }>;
 }
