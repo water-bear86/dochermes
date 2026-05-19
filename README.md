@@ -54,7 +54,7 @@ npm run build
 
 ## Hermes Gateway Contract
 
-The default gateway endpoint is:
+Current prototype default:
 
 ```text
 http://localhost:8787/coach
@@ -62,7 +62,15 @@ http://localhost:8787/coach
 
 If the configured gateway URL is only an origin, such as `http://localhost:8787`, the app sends requests to `/coach`.
 
-The app sends JSON:
+Note: `/coach` is a DocHermes prototype/custom-adapter route, not a default Hermes API Server route. The recommended long-term target is Hermes API Server's OpenAI-compatible endpoint:
+
+```text
+http://localhost:8642/v1/chat/completions
+```
+
+See [Hermes API integration notes](docs/hermes-api-notes.md) for the recommended payload shape and migration notes.
+
+The current prototype sends JSON:
 
 ```json
 {
