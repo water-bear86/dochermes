@@ -286,6 +286,22 @@ describe('probeHermesConnection', () => {
     expect(askUrls).toEqual(['http://127.0.0.1:8642/v1/chat/completions']);
   });
 
+  it('returns timed out probes as a disconnection with actionable summary', async () => {
+    const timeout = new Error('Request timed out');
+    timeout.name = 'AbortError';
+
+    const result = await probeHermesConnection(
+      defaultConnection(),
+      async () => {
+        throw timeout;
+      }
+    );
+
+    expect(result.status).toBe('disconnected');
+    expect(result.summary).toContain('did not respond before the request timeout');
+    expect(result.attempts[0]?.errorKind).toBe('timeout');
+  });
+
   it('marks hosted auth failures and masks bearer tokens in debug reports', async () => {
     const result = await probeHermesConnection(
       defaultConnection({
@@ -297,10 +313,27 @@ describe('probeHermesConnection', () => {
     );
 
     expect(result.status).toBe('auth-error');
+    expect(result.attempts.some((attempt) => attempt.errorKind === 'auth')).toBe(true);
     expect(createDebugReport(result, defaultConnection({ bearerToken: 'super-secret-token' }))).not.toContain(
       'super-secret-token'
     );
     expect(createDebugReport(result, defaultConnection({ bearerToken: 'super-secret-token' }))).toContain('Bearer ***');
+  });
+
+  it('classifies ask failures for auth and model rejections', async () => {
+    await expect(
+      askHermes(
+        askInput(),
+        async () => textResponse('wrong token', 401)
+      )
+    ).rejects.toThrowError(/authentication/i);
+
+    await expect(
+      askHermes(
+        askInput({ connection: defaultConnection({ modelId: 'missing-model' }) }),
+        async () => jsonResponse({ error: { message: 'model missing-model not found' } }, 400)
+      )
+    ).rejects.toThrowError(/configured model id/i);
   });
 
   it('supports explicit legacy /coach probes', async () => {
@@ -479,7 +512,7 @@ describe('probeHermesConnection', () => {
       throw new Error('fetch failed');
     });
 
-    expect(result.summary).toBe('No compatible Hermes API server responded.');
+    expect(result.summary).toContain('Hermes was unreachable.');
   });
 });
 

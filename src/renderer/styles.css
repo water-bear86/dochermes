@@ -126,6 +126,24 @@ small {
   padding: 12px;
 }
 
+.compact-strip {
+  padding: 8px 10px;
+}
+
+.compact-strip div {
+  display: grid;
+  gap: 2px;
+}
+
+.compact-strip small {
+  display: block;
+  overflow: hidden;
+  max-width: 260px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #95a19b;
+}
+
 .control-strip strong {
   display: block;
   overflow: hidden;
@@ -263,6 +281,12 @@ input {
   font-size: 12px;
 }
 
+.subtle-note {
+  margin: 0;
+  color: #90a099;
+  font-size: 11px;
+}
+
 select {
   height: 36px;
   padding: 0 10px;
@@ -310,6 +334,13 @@ textarea:focus {
 .connection-report textarea {
   min-height: 118px;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.timing {
+  display: block;
+  margin-top: 8px;
+  color: #b4b7aa;
   font-size: 11px;
 }
 
@@ -407,6 +438,41 @@ textarea:focus {
 
 .memory-pattern {
   margin-top: 6px;
+}
+
+.warning {
+  border-color: #7f5b26;
+  background: #231d11;
+}
+
+.warning-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #f8e0a8;
+}
+
+.warning-list li {
+  margin: 4px 0;
+}
+
+.monitor-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #e9f0e3;
+}
+
+.monitor-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.monitor-list li button {
+  padding: 2px 8px;
+  min-height: 24px;
+  font-size: 11px;
 }
 
 .memory-pattern strong {

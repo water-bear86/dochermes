@@ -27,6 +27,7 @@ const LOCAL_CANDIDATES = [
   'http://127.0.0.1:8787',
   'http://localhost:9119'
 ];
+const REQUEST_TIMEOUT_MS = 12_000;
 
 const SYSTEM_PROMPT =
   'You are DocHermes, a risk coach for trading workflows. You do not place trades, route orders, access wallets, or provide execution commands. Analyze the selected trading-window screenshot and the user question. Focus on risk, confirmation, invalidation, position sizing discipline, and emotional overtrading.';
@@ -47,6 +48,22 @@ export function resolveHermesEndpoint(connection: HermesConnectionSettings): str
     case 'openai-chat':
       return appendPath(baseUrl, '/v1/chat/completions');
   }
+}
+
+function buildOpenAiTextPingPayload(input: OpenAiChatPayloadInput) {
+  return {
+    model: input.modelId,
+    messages: [
+      {
+        role: 'system',
+        content: SYSTEM_PROMPT
+      },
+      {
+        role: 'user',
+        content: buildUserPromptText(input)
+      }
+    ]
+  };
 }
 
 export function buildHermesPayload(input: BuildHermesPayloadInput): HermesPayload {
@@ -157,16 +174,50 @@ export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fe
           modelId: input.connection.modelId
         })
       : buildHermesPayload(input);
-  const response = await fetchImpl(endpoint, {
-    method: 'POST',
-    headers: buildHeaders(input.connection),
-    body: JSON.stringify(body)
-  });
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(
+      endpoint,
+      {
+        method: 'POST',
+        headers: buildHeaders(input.connection),
+        body: JSON.stringify(body)
+      },
+      fetchImpl
+    );
+  } catch (error) {
+    const errorKind = classifyProbeErrorKind(error);
+    const suffix =
+      error instanceof Error ? error.message : 'Unknown network failure while contacting Hermes gateway.';
+    if (errorKind === 'timeout') {
+      throw new Error(`Hermes request timed out after ${REQUEST_TIMEOUT_MS}ms: ${suffix}`);
+    }
+
+    throw new Error(`Failed to connect to Hermes gateway: ${suffix}`);
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    const suffix = detail ? ` ${detail}` : '';
-    throw new Error(`Hermes gateway returned ${response.status}.${suffix}`);
+    const normalized = detail.trim();
+    const detailSuffix = normalized ? ` (${normalized})` : '';
+    const kind = classifyResponseErrorKind(response.status, normalized, response.url);
+
+    if (kind === 'auth') {
+      throw new Error(`Hermes rejected authentication for the configured endpoint (${response.status}).${detailSuffix}`);
+    }
+
+    if (kind === 'model') {
+      throw new Error(
+        `Hermes rejected the configured model id "${input.connection.modelId}" while using this endpoint (${response.status}).${detailSuffix}`
+      );
+    }
+
+    if (kind === 'incompatible') {
+      throw new Error(`Hermes endpoint does not support this route (${response.status}).${detailSuffix}`);
+    }
+
+    throw new Error(`Hermes gateway returned ${response.status}${response.statusText ? ` ${response.statusText}` : ''}.${detailSuffix}`);
   }
 
   const data = await readResponseBody(response);
@@ -284,13 +335,7 @@ export async function probeHermesConnection(
     }
   }
 
-  const status = attempts.some((attempt) => attempt.status === 401 || attempt.status === 403)
-    ? 'auth-error'
-    : attempts.some((attempt) => [400, 404, 422].includes(attempt.status) && /model/i.test(attempt.detail))
-      ? 'model-error'
-      : attempts.some((attempt) => attempt.status === 404 && attempt.url.includes('/v1/chat/completions'))
-        ? 'incompatible'
-        : 'disconnected';
+  const status = summarizeProbeConnectionStatus(attempts);
   const result: HermesConnectionReport = {
     status,
     activeAdapter: undefined,
@@ -323,8 +368,9 @@ export function createDebugReport(
   ];
 
   for (const attempt of report.attempts) {
+    const kindLabel = attempt.errorKind ? ` [${attempt.errorKind}]` : '';
     lines.push(
-      `- ${attempt.method} ${maskUrl(attempt.url)} -> ${attempt.status} ${attempt.ok ? 'OK' : 'FAIL'} (${attempt.label}) ${redactSensitive(attempt.detail, connection)}`
+      `- ${attempt.method} ${maskUrl(attempt.url)} -> ${attempt.status} ${attempt.ok ? 'OK' : 'FAIL'} (${attempt.label})${kindLabel} ${redactSensitive(attempt.detail, connection)}`
     );
   }
 
@@ -392,15 +438,12 @@ async function probeChatCompletion(
             screenshotDataUrl: PROBE_SCREENSHOT_DATA_URL,
             selectedWindow
           })
-        : {
-            model: connection.modelId,
-            messages: [
-              {
-                role: 'user',
-                content: 'DocHermes text ping. Reply with pong.'
-              }
-            ]
-          }
+        : buildOpenAiTextPingPayload({
+            modelId: connection.modelId,
+            question: 'DocHermes text ping. Reply with pong.',
+            screenshotDataUrl: PROBE_SCREENSHOT_DATA_URL,
+            selectedWindow
+          })
       : buildHermesPayload({
           question: includeImage ? 'DocHermes image ping. Reply with pong.' : 'DocHermes text ping. Reply with pong.',
           screenshotDataUrl: PROBE_SCREENSHOT_DATA_URL,
@@ -419,15 +462,18 @@ async function probeRoute(
   body?: unknown
 ): Promise<ProbeRouteResult> {
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchWithTimeout(url, {
       method,
       headers: buildHeaders(connection),
       body: body ? JSON.stringify(body) : undefined
-    });
+    }, fetchImpl);
     const parsedBody = await readResponseBody(response);
+    const detail = response.ok ? summarizeBody(parsedBody) : summarizeBody(parsedBody) || response.statusText;
+    const errorKind = response.ok ? undefined : classifyResponseErrorKind(response.status, detail, response.url);
+    const contentType = response.headers.get('content-type') ?? '';
+    const isPingCheck = label === 'text ping' || label === 'image ping';
     const ok =
-      response.ok &&
-      (label === 'text ping' || label === 'image ping' ? canParseResponseText(parsedBody) : true);
+      response.ok && (!isPingCheck || canParseResponseText(parsedBody, contentType));
 
     return {
       attempt: {
@@ -436,11 +482,13 @@ async function probeRoute(
         ok,
         status: response.status,
         label,
-        detail: response.ok ? summarizeBody(parsedBody) : summarizeBody(parsedBody) || response.statusText
+        detail,
+        errorKind
       },
       body: parsedBody
     };
   } catch (error) {
+    const errorKind = classifyProbeErrorKind(error);
     return {
       attempt: {
         url,
@@ -448,11 +496,84 @@ async function probeRoute(
         ok: false,
         status: 0,
         label,
-        detail: error instanceof Error ? error.message : 'Network error'
+        detail: error instanceof Error ? error.message : 'Network error',
+        errorKind
       },
       body: undefined
     };
   }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, fetchImpl: FetchLike): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`));
+  }, REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetchImpl(url, {
+      ...init,
+      signal: controller.signal
+    });
+
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function classifyResponseErrorKind(status: number, detail: string | undefined, url: string): ProbeAttempt['errorKind'] {
+  const lowerDetail = (detail || '').toLowerCase();
+
+  if (status === 401 || status === 403) {
+    return 'auth';
+  }
+
+  if (/model/i.test(lowerDetail) && /not\s+found|does not exist|unknown|invalid/.test(lowerDetail)) {
+    return 'model';
+  }
+
+  if (status === 404 && /\/v1\/chat\/completions/i.test(url)) {
+    return 'incompatible';
+  }
+
+  if (status >= 500) {
+    return 'network';
+  }
+
+  return undefined;
+}
+
+function classifyProbeErrorKind(error: unknown): ProbeAttempt['errorKind'] {
+  if (error instanceof Error) {
+    if (error.name === 'AbortError' || /timed? ?out/i.test(error.message)) {
+      return 'timeout';
+    }
+
+    return 'network';
+  }
+
+  return 'network';
+}
+
+function summarizeProbeConnectionStatus(attempts: ProbeAttempt[]): HermesConnectionReport['status'] {
+  if (attempts.some((attempt) => attempt.errorKind === 'auth')) {
+    return 'auth-error';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'model')) {
+    return 'model-error';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'incompatible')) {
+    return 'incompatible';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'timeout')) {
+    return 'disconnected';
+  }
+
+  return 'disconnected';
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -465,12 +586,21 @@ async function readResponseBody(response: Response): Promise<unknown> {
   return response.text().catch(() => undefined);
 }
 
-function canParseResponseText(body: unknown): boolean {
+function canParseResponseText(body: unknown, contentType = ''): boolean {
+  if (typeof body === 'string' && /text\/html/i.test(contentType) && looksLikeHtmlResponse(body)) {
+    return false;
+  }
+
   try {
     return Boolean(parseHermesResponse(body));
   } catch {
     return false;
   }
+}
+
+function looksLikeHtmlResponse(body: string): boolean {
+  const trimmed = body.trimStart();
+  return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html') || trimmed.includes('<title>');
 }
 
 function readModelIds(body: unknown): string[] {
@@ -517,6 +647,14 @@ function summarizeFailure(status: HermesConnectionReport['status'], attempts: Pr
 
   if (status === 'model-error') {
     return 'Hermes rejected the configured model. Check the model ID or use model discovery.';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'timeout')) {
+    return 'Hermes did not respond before the request timeout. Check the Hermes endpoint and network connection.';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'network')) {
+    return 'Hermes was unreachable. Check that the endpoint URL is running and accessible.';
   }
 
   if (attempts.some((attempt) => attempt.url.startsWith('http://localhost:9119') && attempt.status > 0)) {

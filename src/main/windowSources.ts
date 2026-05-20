@@ -70,6 +70,16 @@ export async function captureWindowSource(sourceId: string): Promise<string> {
   return source.thumbnail.toDataURL();
 }
 
+export async function isSourceAvailable(sourceId: string): Promise<boolean> {
+  const sources = await desktopCapturer.getSources({
+    types: ['window', 'screen'],
+    thumbnailSize: CAPTURE_SIZE,
+    fetchWindowIcons: false
+  });
+
+  return sources.some((source) => source.id === sourceId);
+}
+
 function inferSourceKind(sourceId: string): WindowSourceKind {
   return sourceId.startsWith('screen:') ? 'screen' : 'window';
 }

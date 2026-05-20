@@ -6,6 +6,7 @@ The app is designed to stay operating-system, trading-platform, chain, exchange,
 
 - A compatible Hermes instance, usually local Hermes API Server.
 - A trading platform or trading window the user can explicitly select for screenshot capture.
+- Optional local preference state for armed/pause and future local watch toggles.
 
 ## Current Prototype
 
@@ -13,7 +14,7 @@ The current prototype provides:
 
 - Electron desktop app.
 - Always-on-top compact coach window.
-- Tray/menu-bar controls.
+- Tray/menu-bar controls (show/hide, capture, settings, arm/pause, etc.).
 - Explicit window picker before capture.
 - Screenshot preview.
 - Text question input.
@@ -23,7 +24,8 @@ The current prototype provides:
 - Bearer auth and configurable model ID.
 - Connection test UI with text/image capability checks and copyable masked diagnostics.
 - Successful connection tests apply the discovered effective adapter/base URL to future asks.
-- Local settings for panel always-on-top behavior.
+- Local settings for panel always-on-top, armed/pause, and live monitoring toggles.
+- Paired-window preference that persists across restarts so you can resume from the same trading window.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - Compact personal-memory context built from local journal entries.
 - Basic local pattern matching for early-entry risk and confirmation behavior.
@@ -32,6 +34,8 @@ The current prototype provides:
 Capture is user initiated. The app does not run hidden background capture and has no execution capability.
 
 The journal intentionally stores screenshot metadata instead of image bytes. That keeps the first local memory loop useful without silently retaining sensitive trading screenshots.
+
+When the coach is armed, clipboard changes are scanned for token/candidate patterns and surfaced as live monitoring signals.
 
 When a new question resembles prior notes, the renderer sends a compact `memoryContext` object with the Hermes request. This is intentionally summarized before transmission so the app does not dump the full local journal into every prompt.
 

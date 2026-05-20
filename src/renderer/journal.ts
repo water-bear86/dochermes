@@ -1,4 +1,4 @@
-import type { JournalEntry, WindowSourceOption } from '../shared/types';
+import type { JournalEntry, JournalMonitoringMetadata, WindowSourceOption } from '../shared/types';
 
 export const JOURNAL_KEY = 'hermes.journal.v1';
 export const JOURNAL_ENTRY_LIMIT = 100;
@@ -9,6 +9,7 @@ interface BuildJournalEntryInput {
   notes: string;
   selectedWindow: WindowSourceOption;
   screenshotCaptured: boolean;
+  monitoring?: JournalMonitoringMetadata;
 }
 
 interface BuildJournalEntryOptions {
@@ -22,8 +23,7 @@ export function buildJournalEntry(
 ): JournalEntry {
   const now = options.now ?? (() => new Date());
   const createId = options.createId ?? createRandomId;
-
-  return {
+  const base: JournalEntry = {
     id: createId(),
     createdAt: now().toISOString(),
     question: input.question.trim(),
@@ -39,6 +39,12 @@ export function buildJournalEntry(
       imageStored: false
     }
   };
+
+  if (input.monitoring) {
+    base.monitoring = cloneMonitoringMetadata(input.monitoring);
+  }
+
+  return base;
 }
 
 export function parseJournalEntries(rawValue: string | null): JournalEntry[] {
@@ -96,8 +102,51 @@ function isJournalEntry(value: unknown): value is JournalEntry {
     (record.selectedWindow.kind === 'window' || record.selectedWindow.kind === 'screen') &&
     Boolean(record.screenshot) &&
     typeof record.screenshot.captured === 'boolean' &&
-    record.screenshot.imageStored === false
+    record.screenshot.imageStored === false &&
+    (!record.monitoring ||
+      (typeof record.monitoring === 'object' &&
+        record.monitoring !== null &&
+        Array.isArray(record.monitoring.localWarnings) &&
+        Array.isArray(record.monitoring.signals) &&
+        record.monitoring.localWarnings.every((item: unknown) => typeof item === 'string') &&
+        record.monitoring.signals.every(isMonitoringSignal)))
   );
+}
+
+function isMonitoringSignal(value: unknown): value is JournalMonitoringMetadata['signals'][number] {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as JournalMonitoringMetadata['signals'][number];
+
+  return (
+    (record.source === 'clipboard' || record.source === 'ocr-placeholder') &&
+    typeof record.maskedValue === 'string' &&
+    (record.kind === 'evm-address' ||
+      record.kind === 'evm-tx-hash' ||
+      record.kind === 'sol-address' ||
+      record.kind === 'dex-url' ||
+      record.kind === 'wallet-address' ||
+      record.kind === 'unknown') &&
+    (record.confidence === 'high' || record.confidence === 'medium' || record.confidence === 'low') &&
+    typeof record.detectedAt === 'string' &&
+    (record.message === undefined || typeof record.message === 'string')
+  );
+}
+
+function cloneMonitoringMetadata(input: JournalMonitoringMetadata): JournalMonitoringMetadata {
+  return {
+    localWarnings: [...input.localWarnings],
+    signals: input.signals.map((signal) => ({
+      source: signal.source,
+      kind: signal.kind,
+      maskedValue: signal.maskedValue,
+      confidence: signal.confidence,
+      detectedAt: signal.detectedAt,
+      ...(signal.message ? { message: signal.message } : {})
+    }))
+  };
 }
 
 function sortNewestFirst(left: JournalEntry, right: JournalEntry): number {

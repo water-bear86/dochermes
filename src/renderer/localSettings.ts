@@ -12,7 +12,10 @@ export const DEFAULT_HERMES_CONNECTION: HermesConnectionSettings = {
 
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   connection: DEFAULT_HERMES_CONNECTION,
-  keepAlwaysOnTop: true
+  keepAlwaysOnTop: true,
+  armed: false,
+  watchClipboard: false,
+  watchOCR: false
 };
 
 export function parseLocalSettings(rawValue: string | null): LocalSettings {
@@ -30,7 +33,12 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
           ? parsed.keepAlwaysOnTop
-          : DEFAULT_LOCAL_SETTINGS.keepAlwaysOnTop
+          : DEFAULT_LOCAL_SETTINGS.keepAlwaysOnTop,
+      armed: typeof parsed.armed === 'boolean' ? parsed.armed : DEFAULT_LOCAL_SETTINGS.armed,
+      watchClipboard:
+        typeof parsed.watchClipboard === 'boolean' ? parsed.watchClipboard : DEFAULT_LOCAL_SETTINGS.watchClipboard,
+      watchOCR: typeof parsed.watchOCR === 'boolean' ? parsed.watchOCR : DEFAULT_LOCAL_SETTINGS.watchOCR,
+      pairedWindow: parsePairedWindow(parsed.pairedWindow)
     };
   } catch {
     return DEFAULT_LOCAL_SETTINGS;
@@ -40,7 +48,11 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
     connection: settings.connection,
-    keepAlwaysOnTop: settings.keepAlwaysOnTop
+    keepAlwaysOnTop: settings.keepAlwaysOnTop,
+    armed: settings.armed,
+    watchClipboard: settings.watchClipboard,
+    watchOCR: settings.watchOCR,
+    pairedWindow: settings.pairedWindow
   });
 }
 
@@ -122,4 +134,34 @@ function normalizeLegacyGatewayUrl(gatewayUrl: string): string {
   } catch {
     return gatewayUrl.replace(/\/$/, '');
   }
+}
+
+function parsePairedWindow(rawWindow: unknown): LocalSettings['pairedWindow'] {
+  if (!rawWindow || typeof rawWindow !== 'object') {
+    return undefined;
+  }
+
+  const candidate = rawWindow as {
+    id?: unknown;
+    name?: unknown;
+    kind?: string;
+  };
+
+  if (typeof candidate.id !== 'string' || !candidate.id.trim()) {
+    return undefined;
+  }
+
+  if (typeof candidate.name !== 'string' || !candidate.name.trim()) {
+    return undefined;
+  }
+
+  if (candidate.kind !== 'window' && candidate.kind !== 'screen') {
+    return undefined;
+  }
+
+  return {
+    id: candidate.id.trim(),
+    name: candidate.name.trim(),
+    kind: candidate.kind
+  };
 }

@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 
 import type {
   AskHermesInput,
+  JournalMonitoringMetadata,
   CoachBridgeApi,
   HermesConnectionKind,
   HermesConnectionReport,
   HermesEndpointMode,
+  HermesConnectionStatus,
   LocalSettings,
+  MonitoringSignal,
+  MonitoringStatus,
   WindowSourceOption
 } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
@@ -18,17 +22,26 @@ declare global {
     hermesCoach?: CoachBridgeApi & {
       onOpenWindowPicker: (callback: () => void) => () => void;
       onOpenSettings: (callback: () => void) => () => void;
+      onArmCoach: (callback: (enabled: boolean) => void) => () => void;
+      onMonitorSignal: (callback: (signal: MonitoringSignal) => void) => () => void;
+      onMonitorStatus: (callback: (status: MonitoringStatus) => void) => () => void;
     };
   }
 }
 
 type RequestState = 'idle' | 'loading-sources' | 'capturing' | 'asking';
+type PickerMode = 'pair' | 'ask';
+type HermesHeartbeatStatus = 'unknown' | HermesConnectionStatus;
+
+const HERMES_HEALTH_POLL_MS = 60_000;
 
 export function App(): ReactElement {
   const [settings, setSettings] = useState<LocalSettings>(() => readLocalSettings(localStorage));
   const [question, setQuestion] = useState('');
   const [sources, setSources] = useState<WindowSourceOption[]>([]);
-  const [selectedSource, setSelectedSource] = useState<WindowSourceOption | undefined>();
+  const [selectedSource, setSelectedSource] = useState<WindowSourceOption | undefined>(() =>
+    settings.pairedWindow ? { ...settings.pairedWindow, thumbnailDataUrl: '' } : undefined
+  );
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | undefined>();
   const [response, setResponse] = useState('');
   const [journalNotes, setJournalNotes] = useState('');
@@ -39,8 +52,32 @@ export function App(): ReactElement {
   const [copiedReport, setCopiedReport] = useState(false);
   const [error, setError] = useState('');
   const [requestState, setRequestState] = useState<RequestState>('idle');
+  const [pickerMode, setPickerMode] = useState<PickerMode>('pair');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestMetrics, setRequestMetrics] = useState<{
+    captureMs?: number;
+    localAnalysisMs?: number;
+    hermesMs?: number;
+    totalMs?: number;
+  } | undefined>();
+  const [monitorSignals, setMonitorSignals] = useState<MonitoringSignal[]>([]);
+  const [lastRequestMonitoringMetadata, setLastRequestMonitoringMetadata] = useState<
+    JournalMonitoringMetadata | undefined
+  >();
+  const [isCheckingHermes, setIsCheckingHermes] = useState(false);
+  const [hermesHeartbeat, setHermesHeartbeat] = useState<{
+    status: HermesHeartbeatStatus;
+    checkedAt?: string;
+    summary?: string;
+    textCapable: boolean;
+    imageCapable: boolean;
+  }>({
+    status: 'unknown',
+    textCapable: false,
+    imageCapable: false
+  });
+  const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -60,13 +97,14 @@ export function App(): ReactElement {
     }));
   }, []);
 
-  const loadSources = useCallback(async () => {
+  const loadSources = useCallback(async (mode: PickerMode = 'pair') => {
     if (!bridge) {
       setError('Hermes Coach must be run from the desktop add-on to capture windows.');
       return;
     }
 
     setError('');
+    setPickerMode(mode);
     setRequestState('loading-sources');
 
     try {
@@ -89,6 +127,15 @@ export function App(): ReactElement {
     void bridge?.setAlwaysOnTop(settings.keepAlwaysOnTop).catch((nextError: unknown) => {
       setError(readError(nextError));
     });
+    void bridge?.setArmedMode(settings.armed).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
+    void bridge?.setWatchClipboard(settings.watchClipboard).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
+    void bridge?.setWatchOCR(settings.watchOCR).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
   }, [bridge, settings]);
 
   useEffect(() => {
@@ -97,7 +144,7 @@ export function App(): ReactElement {
     }
 
     return bridge.onOpenWindowPicker(() => {
-      void loadSources();
+      void loadSources('pair');
     });
   }, [bridge, loadSources]);
 
@@ -111,48 +158,160 @@ export function App(): ReactElement {
     });
   }, [bridge]);
 
+  useEffect(() => {
+    if (!bridge) {
+      return undefined;
+    }
+
+    return bridge.onArmCoach((armed) => {
+      setSettings((current) => ({
+        ...current,
+        armed
+      }));
+    });
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return undefined;
+    }
+
+    return bridge.onMonitorSignal((signal) => {
+      setMonitorSignals((current) => {
+        const alreadyKnown = current.some(
+          (currentSignal) => currentSignal.detectedAt === signal.detectedAt && currentSignal.value === signal.value
+        );
+
+        if (alreadyKnown) {
+          return current;
+        }
+
+        return [signal, ...current].slice(0, 8);
+      });
+    });
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return undefined;
+    }
+
+    return bridge.onMonitorStatus((status) => {
+      if (status.source === 'ocr') {
+        setOcrStatusMessage(status.message);
+      }
+    });
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!settings.watchClipboard && !settings.watchOCR) {
+      setMonitorSignals([]);
+      return;
+    }
+  }, [settings.watchClipboard, settings.watchOCR]);
+
+  const askWithSource = useCallback(
+    async (source: WindowSourceOption | undefined) => {
+      if (!bridge) {
+        setError('Hermes Coach must be run from the desktop add-on to capture windows.');
+        return;
+      }
+
+      if (!source) {
+        setError('Choose the trading window to inspect first.');
+        setSettings((current) => ({
+          ...current,
+          pairedWindow: undefined
+        }));
+        setSelectedSource(undefined);
+        void loadSources('ask');
+        return;
+      }
+
+      setError('');
+      setResponse('');
+      setScreenshotDataUrl(undefined);
+      setRequestMetrics(undefined);
+      setLastRequestMonitoringMetadata(undefined);
+      setRequestState('capturing');
+
+      const totalStart = performance.now();
+      const localAnalysisStart = performance.now();
+      const localWarnings = localRiskWarnings(memoryContext.matchedPatterns.length > 0, question);
+      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals);
+      const localAnalysisMs = Math.round(performance.now() - localAnalysisStart);
+
+      try {
+        const isAvailable = await bridge.validateSelectedWindow(source.id);
+        if (!isAvailable) {
+          throw new Error('The selected trading window is no longer available. Select a window again.');
+        }
+
+        const captureStart = performance.now();
+        const capture = await bridge.captureWindowSource(source.id);
+        const captureMs = Math.round(performance.now() - captureStart);
+        setScreenshotDataUrl(capture);
+        setRequestState('asking');
+
+        const hermesStart = performance.now();
+        const request: AskHermesInput = {
+          connection: settings.connection,
+          question,
+          screenshotDataUrl: capture,
+          selectedWindow: source,
+          memoryContext
+        };
+        const answer = await bridge.askHermes(request);
+        const hermesMs = Math.round(performance.now() - hermesStart);
+
+        if (localWarnings.length > 0) {
+          setResponse(`Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}`);
+        } else {
+          setResponse(answer);
+        }
+
+        setLastRequestMonitoringMetadata(monitoringSnapshot);
+        setJournalSavedMessage('');
+        setRequestMetrics({
+          localAnalysisMs,
+          captureMs,
+          hermesMs,
+          totalMs: Math.round(performance.now() - totalStart)
+        });
+      } catch (nextError) {
+        const errorMessage = readError(nextError);
+
+        if (/not available/.test(errorMessage) || /trading window/.test(errorMessage)) {
+          setSettings((current) => ({
+            ...current,
+            pairedWindow: undefined
+          }));
+          setSelectedSource(undefined);
+        }
+
+        setError(errorMessage);
+      } finally {
+        setRequestState('idle');
+      }
+    },
+    [bridge, memoryContext, monitorSignals, question, settings.connection]
+  );
+
   const askCoach = useCallback(async () => {
     if (!hasQuestion) {
       setError('Ask a question before sending a capture to Hermes.');
       return;
     }
 
-    if (!bridge) {
-      setError('Hermes Coach must be run from the desktop add-on to capture windows.');
-      return;
-    }
-
     if (!selectedSource) {
       setError('Choose the trading window to inspect first.');
-      await loadSources();
+      setPickerMode('ask');
+      void loadSources('ask');
       return;
     }
 
-    setError('');
-    setResponse('');
-    setRequestState('capturing');
-
-    try {
-      const capture = await bridge.captureWindowSource(selectedSource.id);
-      setScreenshotDataUrl(capture);
-      setRequestState('asking');
-
-      const request: AskHermesInput = {
-        connection: settings.connection,
-        question,
-        screenshotDataUrl: capture,
-        selectedWindow: selectedSource,
-        memoryContext
-      };
-      const answer = await bridge.askHermes(request);
-      setResponse(answer);
-      setJournalSavedMessage('');
-    } catch (nextError) {
-      setError(readError(nextError));
-    } finally {
-      setRequestState('idle');
-    }
-  }, [bridge, hasQuestion, loadSources, memoryContext, question, selectedSource, settings.connection]);
+    await askWithSource(selectedSource);
+  }, [askWithSource, hasQuestion, loadSources, selectedSource]);
 
   const testConnection = useCallback(async () => {
     if (!bridge) {
@@ -200,13 +359,14 @@ export function App(): ReactElement {
       response,
       notes: journalNotes,
       selectedWindow: selectedSource,
-      screenshotCaptured: Boolean(screenshotDataUrl)
+      screenshotCaptured: Boolean(screenshotDataUrl),
+      monitoring: lastRequestMonitoringMetadata
     });
     const nextEntries = appendJournalEntry(localStorage, entry);
     setJournalEntries(nextEntries);
     setJournalSavedMessage('Saved to local journal.');
     setJournalNotes('');
-  }, [journalNotes, question, response, screenshotDataUrl, selectedSource]);
+  }, [journalNotes, lastRequestMonitoringMetadata, question, response, screenshotDataUrl, selectedSource]);
 
   const statusText = useMemo(() => {
     switch (requestState) {
@@ -217,9 +377,152 @@ export function App(): ReactElement {
       case 'asking':
         return 'Sending context to Hermes';
       default:
-        return selectedSource ? 'Ready' : 'Window selection required';
+        return `${settings.armed ? 'Armed' : 'Paused'} • ${selectedSource ? 'Ready' : 'Window selection required'}`;
     }
-  }, [requestState, selectedSource]);
+  }, [requestState, selectedSource, settings.armed]);
+
+  const hermesStatusText = useMemo(() => {
+    switch (hermesHeartbeat.status) {
+      case 'connected':
+        return 'Hermes check-in: connected';
+      case 'degraded':
+        return 'Hermes check-in: degraded';
+      case 'disconnected':
+        return 'Hermes check-in: disconnected';
+      case 'auth-error':
+        return 'Hermes check-in: auth issue';
+      case 'model-error':
+        return 'Hermes check-in: model mismatch';
+      case 'incompatible':
+        return 'Hermes check-in: incompatible';
+      default:
+        return 'Hermes check-in: checking...';
+    }
+  }, [hermesHeartbeat.status]);
+
+  const localWarnings = useMemo(
+    () => localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
+    [question, memoryContext.matchedPatterns.length]
+  );
+
+  const appendSignalToQuestion = useCallback((signal: MonitoringSignal) => {
+    const tokenHint = signal.value.trim();
+    if (!tokenHint) {
+      return;
+    }
+
+    setQuestion((current) => {
+      const trimmed = current.trim();
+      if (trimmed.includes(tokenHint)) {
+        return current;
+      }
+
+      const nextLine = trimmed.length > 0 ? `${trimmed}\n` : '';
+      return `${nextLine}Candidate detected: ${tokenHint}`;
+    });
+  }, []);
+
+  const clearMonitorSignals = useCallback(() => {
+    setMonitorSignals([]);
+  }, []);
+
+  const runHermesHeartbeat = useCallback(async () => {
+    if (isCheckingHermes) {
+      return;
+    }
+
+    if (!bridge) {
+      return;
+    }
+
+    setIsCheckingHermes(true);
+    try {
+      const report = await bridge.testHermesConnection(settings.connection);
+      setHermesHeartbeat({
+        status: report.status,
+        checkedAt: new Date().toISOString(),
+        summary: report.summary,
+        textCapable: report.textCapable,
+        imageCapable: report.imageCapable
+      });
+      return;
+    } catch (nextError) {
+      setHermesHeartbeat({
+        status: 'disconnected',
+        checkedAt: new Date().toISOString(),
+        summary: readError(nextError),
+        textCapable: false,
+        imageCapable: false
+      });
+    } finally {
+      setIsCheckingHermes(false);
+    }
+  }, [bridge, isCheckingHermes, settings.connection]);
+
+  useEffect(() => {
+    runHermesHeartbeat();
+    const timer = setInterval(() => {
+      void runHermesHeartbeat();
+    }, HERMES_HEALTH_POLL_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [runHermesHeartbeat]);
+
+  const onSelectSource = useCallback(
+    (source: WindowSourceOption) => {
+      const nextSource = {
+        ...source
+      };
+      setSelectedSource(nextSource);
+      setSettings((current) => ({
+        ...current,
+        pairedWindow: {
+          id: nextSource.id,
+          name: nextSource.name,
+          kind: nextSource.kind
+        }
+      }));
+      setError('');
+      setPickerOpen(false);
+
+      if (pickerMode === 'ask') {
+        void askWithSource(nextSource);
+      }
+    },
+    [askWithSource, pickerMode]
+  );
+
+  const toggleArmed = useCallback(() => {
+    const nextArmed = !settings.armed;
+    setSettings((current) => ({
+      ...current,
+      armed: nextArmed
+    }));
+    void bridge?.setArmedMode(nextArmed);
+  }, [bridge, settings.armed]);
+
+  useEffect(() => {
+    setSelectedSource((current) => {
+      if (!settings.pairedWindow) {
+        return undefined;
+      }
+
+      if (current?.id === settings.pairedWindow.id) {
+        return {
+          ...current,
+          ...settings.pairedWindow,
+          thumbnailDataUrl: current.thumbnailDataUrl || ''
+        };
+      }
+
+      return {
+        ...settings.pairedWindow,
+        thumbnailDataUrl: ''
+      };
+    });
+  }, [settings.pairedWindow]);
 
   return (
     <main className="shell">
@@ -230,13 +533,39 @@ export function App(): ReactElement {
         </div>
         <span className="status">{statusText}</span>
       </header>
+      <section className="control-strip compact-strip" aria-label="Hermes check-in status">
+        <div>
+          <span className="label">Hermes gateway</span>
+          <strong>{hermesStatusText}</strong>
+          <small>{hermesHeartbeat.summary ?? 'No check yet.'}</small>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            void runHermesHeartbeat();
+          }}
+          disabled={isCheckingHermes}
+        >
+          {isCheckingHermes ? 'Checking...' : hermesHeartbeat.checkedAt ? 'Recheck' : 'Check now'}
+        </button>
+      </section>
+
+      <section className="control-strip" aria-label="Monitoring state">
+        <div>
+          <span className="label">Coach state</span>
+          <strong>{settings.armed ? 'Armed' : 'Paused'}</strong>
+        </div>
+        <button type="button" onClick={toggleArmed}>
+          {settings.armed ? 'Disarm' : 'Arm'}
+        </button>
+      </section>
 
       <section className="control-strip" aria-label="Trading window selection">
         <div>
           <span className="label">Capture target</span>
           <strong>{selectedLabel}</strong>
         </div>
-        <button type="button" onClick={loadSources} disabled={requestState !== 'idle'}>
+        <button type="button" onClick={() => loadSources('pair')} disabled={requestState !== 'idle'}>
           Select
         </button>
       </section>
@@ -333,6 +662,41 @@ export function App(): ReactElement {
               />
               <span>Keep coach panel on top</span>
             </label>
+            <label className="check-row" htmlFor="clipboard-watch">
+              <input
+                id="clipboard-watch"
+                type="checkbox"
+                checked={settings.watchClipboard}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    watchClipboard: event.target.checked
+                  }))
+                }
+              />
+              <span>Watch clipboard for token candidates</span>
+            </label>
+            <label className="check-row" htmlFor="ocr-watch">
+              <input
+                id="ocr-watch"
+                type="checkbox"
+                checked={settings.watchOCR}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    watchOCR: event.target.checked
+                  }))
+                }
+              />
+              <span>Use OCR snapshots for local pre-checks</span>
+            </label>
+            <p className="subtle-note" role="note">
+              {settings.watchOCR
+                ? settings.armed
+                  ? ocrStatusMessage
+                  : 'OCR monitoring waits for armed state.'
+                : 'OCR monitoring currently inactive.'}
+            </p>
             <button type="button" onClick={testConnection} disabled={testingConnection}>
               {testingConnection ? 'Testing...' : 'Test connection'}
             </button>
@@ -373,9 +737,7 @@ export function App(): ReactElement {
                 className={`source-option ${selectedSource?.id === source.id ? 'selected' : ''}`}
                 key={source.id}
                 onClick={() => {
-                  setSelectedSource(source);
-                  setPickerOpen(false);
-                  setError('');
+                  onSelectSource(source);
                 }}
               >
                 <img src={source.thumbnailDataUrl} alt="" />
@@ -400,6 +762,43 @@ export function App(): ReactElement {
           Capture and ask
         </button>
       </section>
+
+      {localWarnings.length > 0 ? (
+        <section className="message warning">
+          <span className="label">Local guardrail</span>
+          <ul className="warning-list">
+            {localWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {monitorSignals.length > 0 ? (
+        <section className="message warning">
+          <div className="section-heading compact">
+            <span className="label">Live monitoring signals</span>
+            <button type="button" className="ghost" onClick={clearMonitorSignals}>
+              Clear
+            </button>
+          </div>
+          <ul className="monitor-list">
+            {monitorSignals.map((signal) => (
+              <li key={`${signal.detectedAt}-${signal.value}-${signal.kind}`}>
+                <div>
+                  <strong>{signal.source}</strong>
+                  {signal.message ? `: ${signal.message}` : `: ${signal.maskedValue} (${signal.kind})`}
+                </div>
+                {signal.source === 'clipboard' ? (
+                  <button type="button" className="ghost" onClick={() => appendSignalToQuestion(signal)}>
+                    Use
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {memoryContext.matchedPatterns.length > 0 ? (
         <section className="message memory" aria-label="Personal memory match">
@@ -434,6 +833,12 @@ export function App(): ReactElement {
         <section className="message response" aria-label="Hermes response">
           <span className="label">Coach assessment</span>
           <p>{response}</p>
+          {requestMetrics ? (
+            <small className="timing">
+              Local analysis: {requestMetrics.localAnalysisMs ?? 0}ms · Capture: {requestMetrics.captureMs ?? 0}ms · Hermes: {requestMetrics.hermesMs ?? 0}ms ·
+              Total: {requestMetrics.totalMs ?? 0}ms
+            </small>
+          ) : null}
           <label htmlFor="journal-notes">Session notes</label>
           <textarea
             id="journal-notes"
@@ -468,4 +873,40 @@ function readError(error: unknown): string {
   }
 
   return 'Unexpected Hermes Coach error.';
+}
+
+function buildMonitoringMetadata(
+  localWarnings: string[],
+  monitorSignals: MonitoringSignal[]
+): JournalMonitoringMetadata {
+  return {
+    localWarnings,
+    signals: monitorSignals.slice(0, 8).map((signal) => ({
+      source: signal.source,
+      kind: signal.kind,
+      maskedValue: signal.maskedValue,
+      confidence: signal.confidence,
+      detectedAt: signal.detectedAt,
+      ...(signal.message ? { message: signal.message } : {})
+    }))
+  };
+}
+
+function localRiskWarnings(hasMemoryMatch: boolean, question: string): string[] {
+  const normalized = question.toLowerCase().trim();
+  const warnings: string[] = [];
+
+  if (!normalized) {
+    return warnings;
+  }
+
+  if (hasMemoryMatch) {
+    warnings.push('This setup resembles prior early-entry risk patterns; set confirmation plan before acting.');
+  }
+
+  if (/(enter now|all-in|ape|immediate|immediately|right now)/.test(normalized)) {
+    warnings.push('Immediate-entry question detected; local guardrail suggests avoiding first-tick fills.');
+  }
+
+  return warnings;
 }

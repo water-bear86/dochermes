@@ -5,6 +5,8 @@ interface TrayControls {
   hideCoach: () => void;
   capturePrompt: () => void;
   openSettings: () => void;
+  armCoach: () => void;
+  disarmCoach: () => void;
   quit: () => void;
 }
 
@@ -28,6 +30,17 @@ export function createCoachTray(controls: TrayControls): Tray {
       {
         label: 'Settings',
         click: controls.openSettings
+      },
+      {
+        type: 'separator'
+      },
+      {
+        label: 'Arm coach monitoring',
+        click: controls.armCoach
+      },
+      {
+        label: 'Pause coach monitoring',
+        click: controls.disarmCoach
       },
       {
         type: 'separator'

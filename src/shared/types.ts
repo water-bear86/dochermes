@@ -7,9 +7,39 @@ export interface WindowSourceOption {
   thumbnailDataUrl: string;
 }
 
+export interface WindowSourceRef {
+  id: string;
+  name: string;
+  kind: WindowSourceKind;
+}
+
 export type HermesConnectionKind = 'local' | 'hosted' | 'custom';
 export type HermesEndpointMode = 'auto' | 'openai-chat' | 'legacy-coach' | 'custom';
 export type HermesConnectionStatus = 'connected' | 'degraded' | 'disconnected' | 'auth-error' | 'model-error' | 'incompatible';
+
+export type ClipboardCandidateKind =
+  | 'evm-address'
+  | 'evm-tx-hash'
+  | 'sol-address'
+  | 'dex-url'
+  | 'wallet-address'
+  | 'unknown';
+
+export interface MonitoringSignal {
+  source: 'clipboard' | 'ocr-placeholder';
+  kind: ClipboardCandidateKind;
+  value: string;
+  maskedValue: string;
+  confidence: 'high' | 'medium' | 'low';
+  detectedAt: string;
+  message?: string;
+}
+
+export interface MonitoringStatus {
+  source: 'ocr';
+  status: 'active' | 'inactive' | 'not-configured';
+  message: string;
+}
 
 export interface HermesConnectionSettings {
   connectionKind: HermesConnectionKind;
@@ -56,6 +86,7 @@ export interface ProbeAttempt {
   status: number;
   label: string;
   detail: string;
+  errorKind?: 'timeout' | 'auth' | 'model' | 'network' | 'incompatible';
 }
 
 export interface HermesConnectionReport {
@@ -71,21 +102,48 @@ export interface HermesConnectionReport {
   debugReport: string;
 }
 
+export interface JournalMonitoringSignal {
+  source: 'clipboard' | 'ocr-placeholder';
+  kind: ClipboardCandidateKind;
+  maskedValue: string;
+  confidence: 'high' | 'medium' | 'low';
+  detectedAt: string;
+  message?: string;
+}
+
+export interface JournalMonitoringMetadata {
+  localWarnings: string[];
+  signals: JournalMonitoringSignal[];
+}
+
 export interface CoachBridgeApi {
   listWindowSources: () => Promise<WindowSourceOption[]>;
   captureWindowSource: (sourceId: string) => Promise<string>;
+  validateSelectedWindow: (sourceId: string) => Promise<boolean>;
+  setWatchClipboard: (enabled: boolean) => Promise<void>;
+  setWatchOCR: (enabled: boolean) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
+  setArmedMode: (enabled: boolean) => Promise<void>;
   appInfo: () => Promise<{
     name: string;
     platform: string;
   }>;
+  onOpenWindowPicker: (callback: () => void) => () => void;
+  onOpenSettings: (callback: () => void) => () => void;
+  onArmCoach: (callback: (enabled: boolean) => void) => () => void;
+  onMonitorSignal: (callback: (signal: MonitoringSignal) => void) => () => void;
+  onMonitorStatus: (callback: (status: MonitoringStatus) => void) => () => void;
 }
 
 export interface LocalSettings {
   connection: HermesConnectionSettings;
   keepAlwaysOnTop: boolean;
+  armed: boolean;
+  watchClipboard: boolean;
+  watchOCR: boolean;
+  pairedWindow?: WindowSourceRef;
 }
 
 export interface JournalEntry {
@@ -103,6 +161,7 @@ export interface JournalEntry {
     captured: boolean;
     imageStored: false;
   };
+  monitoring?: JournalMonitoringMetadata;
 }
 
 export interface MemoryPattern {

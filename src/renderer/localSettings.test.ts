@@ -18,7 +18,15 @@ describe('parseLocalSettings', () => {
             modelId: 'hermes-agent',
             bearerToken: 'secret'
           },
-          keepAlwaysOnTop: false
+          keepAlwaysOnTop: false,
+          armed: true,
+          watchClipboard: true,
+          watchOCR: true,
+          pairedWindow: {
+            id: 'window:42',
+            name: 'Trading Terminal',
+            kind: 'window'
+          }
         })
       )
     ).toEqual({
@@ -29,7 +37,15 @@ describe('parseLocalSettings', () => {
         modelId: 'hermes-agent',
         bearerToken: 'secret'
       },
-      keepAlwaysOnTop: false
+      keepAlwaysOnTop: false,
+      armed: true,
+      watchClipboard: true,
+      watchOCR: true,
+      pairedWindow: {
+        id: 'window:42',
+        name: 'Trading Terminal',
+        kind: 'window'
+      }
     });
   });
 
@@ -49,7 +65,10 @@ describe('parseLocalSettings', () => {
         modelId: 'hermes-agent',
         bearerToken: ''
       },
-      keepAlwaysOnTop: true
+      keepAlwaysOnTop: true,
+      armed: false,
+      watchClipboard: false,
+      watchOCR: false
     });
   });
 
@@ -59,13 +78,19 @@ describe('parseLocalSettings', () => {
         JSON.stringify({
           gatewayUrl: 'http://localhost:8787/coach/'
         })
-      ).connection
+      )
     ).toEqual({
+      connection: {
       connectionKind: 'custom',
       endpointMode: 'legacy-coach',
       baseUrl: 'http://localhost:8787',
       modelId: 'hermes-agent',
       bearerToken: ''
+      },
+      keepAlwaysOnTop: true,
+      armed: false,
+      watchClipboard: false,
+      watchOCR: false
     });
 
     expect(
@@ -73,13 +98,19 @@ describe('parseLocalSettings', () => {
         JSON.stringify({
           gatewayUrl: 'http://localhost:8787/coach?token=old'
         })
-      ).connection
+      )
     ).toEqual({
-      connectionKind: 'custom',
-      endpointMode: 'legacy-coach',
-      baseUrl: 'http://localhost:8787',
-      modelId: 'hermes-agent',
-      bearerToken: ''
+      connection: {
+        connectionKind: 'custom',
+        endpointMode: 'legacy-coach',
+        baseUrl: 'http://localhost:8787',
+        modelId: 'hermes-agent',
+        bearerToken: ''
+      },
+      keepAlwaysOnTop: true,
+      armed: false,
+      watchClipboard: false,
+      watchOCR: false
     });
   });
 
@@ -94,7 +125,15 @@ describe('parseLocalSettings', () => {
             modelId: '',
             bearerToken: 123
           },
-          keepAlwaysOnTop: 'yes'
+          keepAlwaysOnTop: 'yes',
+          armed: 'yes',
+          watchClipboard: 'no',
+          watchOCR: null,
+          pairedWindow: {
+            id: '',
+            name: 'bad',
+            kind: 'window'
+          }
         })
       )
     ).toEqual(DEFAULT_LOCAL_SETTINGS);
@@ -112,10 +151,18 @@ describe('serializeLocalSettings', () => {
           modelId: 'hermes-agent',
           bearerToken: ''
         },
-        keepAlwaysOnTop: true
+        keepAlwaysOnTop: true,
+        armed: false,
+        watchClipboard: false,
+        watchOCR: false,
+        pairedWindow: {
+          id: 'window:1',
+          name: 'Trading Terminal',
+          kind: 'window'
+        }
       })
     ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"keepAlwaysOnTop":true}'
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
     );
   });
 });
