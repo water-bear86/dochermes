@@ -2,6 +2,8 @@ import { BrowserWindow } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createAllowedNavigationChecker } from './navigationPolicy';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface CoachWindowOptions {
@@ -27,7 +29,15 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
     }
   });
 
+  const isAllowedNavigation = createAllowedNavigationChecker(process.env.ELECTRON_RENDERER_URL);
+
   window.setAlwaysOnTop(true);
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (!isAllowedNavigation(navigationUrl)) {
+      event.preventDefault();
+    }
+  });
 
   window.on('close', (event) => {
     if (options.shouldHideOnClose()) {
