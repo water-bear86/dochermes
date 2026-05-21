@@ -7,9 +7,10 @@ import {
   askHermes,
   parseHermesResponse,
   probeHermesConnection,
-  resolveHermesEndpoint
+  resolveHermesEndpoint,
+  MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL
 } from './hermesClient';
-import type { HermesConnectionSettings } from '../shared/types';
+import type { HermesConnectionSettings, JournalMonitoringSignal } from '../shared/types';
 
 describe('resolveHermesEndpoint', () => {
   it('uses OpenAI-compatible chat completions for the default Hermes API server', () => {
@@ -334,6 +335,112 @@ describe('probeHermesConnection', () => {
         async () => jsonResponse({ error: { message: 'model missing-model not found' } }, 400)
       )
     ).rejects.toThrowError(/configured model id/i);
+  });
+
+  it('sends maximum privacy placeholder and drops local monitoring summary', async () => {
+    let capturedRequestBody: Record<string, unknown> | undefined;
+    await askHermes(
+      askInput({
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: true,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
+        memoryContext: {
+          matchedPatterns: [],
+          recentNotes: []
+        },
+        monitoringContext: {
+          localWarnings: ['Potential duplicate signal'],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              confidence: 'high',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'wallet detected'
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        capturedRequestBody = JSON.parse(String(init?.body));
+        return jsonResponse({ choices: [{ message: { content: 'ack' } }] });
+      }
+    );
+
+    const messageContent = (capturedRequestBody?.messages as Array<{
+      content: Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    }>)[1]?.content;
+    const imageUrl = messageContent?.find((entry) => entry.type === 'image_url')?.image_url?.url;
+    const promptText = messageContent?.find((entry) => entry.type === 'text')?.text;
+
+    expect(imageUrl).toBe(MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL);
+    expect(promptText).not.toContain('Monitoring summary');
+    expect(promptText).toContain('Selected window: Local context selected (window)');
+  });
+
+  it('redacts configured entities from question, memory, and monitoring payloads', async () => {
+    let capturedPrompt = '';
+
+    await askHermes(
+      askInput({
+        question: 'Enter at 2.5 SOL for @trader with wallet 0xAbCdEf0123456789abcdef0123456789abcdef0123 immediately.',
+        privacy: {
+          preset: 'full',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: true,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
+        memoryContext: {
+          matchedPatterns: [
+            {
+              name: 'pattern-1',
+              evidenceCount: 2,
+              summary: 'Recent note tied to 0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              recommendation: 'Wait for confirmation before sending 1000 USDC.'
+            }
+          ],
+          recentNotes: []
+        },
+        monitoringContext: {
+          localWarnings: ['Detected wallet 0x1111111111111111111111111111111111111111'],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '@trader',
+              confidence: 'low',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'user seen'
+            } as JournalMonitoringSignal
+          ]
+        }
+      }),
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const message = (body.messages as Array<{ content?: unknown }>)[1];
+        if (!message || typeof message !== 'object' || !('content' in message) || !Array.isArray(message.content)) {
+          throw new Error('Malformed request');
+        }
+
+        const textItem = (message.content as Array<{ type: string; text?: string }>).find((item) => item.type === 'text');
+        capturedPrompt = textItem?.text ?? '';
+        return jsonResponse({ choices: [{ message: { content: 'ack' } }] });
+      }
+    );
+
+    expect(capturedPrompt).toContain('[redacted address]');
+    expect(capturedPrompt).toContain('[redacted username]');
+    expect(capturedPrompt).toContain('[redacted amount]');
   });
 
   it('supports explicit legacy /coach probes', async () => {

@@ -7,7 +7,7 @@ describe('parseLocalSettings', () => {
     expect(parseLocalSettings(null)).toEqual(DEFAULT_LOCAL_SETTINGS);
   });
 
-  it('keeps valid gateway and panel preferences from storage', () => {
+  it('keeps valid gateway, privacy, and panel preferences from storage', () => {
     expect(
       parseLocalSettings(
         JSON.stringify({
@@ -17,6 +17,15 @@ describe('parseLocalSettings', () => {
             baseUrl: 'https://hermes.example.com',
             modelId: 'hermes-agent',
             bearerToken: 'secret'
+          },
+          privacy: {
+            preset: 'full',
+            redaction: {
+              redactAddresses: true,
+              redactBalances: false,
+              redactUsernames: true,
+              redactAmounts: true
+            }
           },
           keepAlwaysOnTop: false,
           armed: true,
@@ -36,6 +45,15 @@ describe('parseLocalSettings', () => {
         baseUrl: 'https://hermes.example.com',
         modelId: 'hermes-agent',
         bearerToken: 'secret'
+      },
+      privacy: {
+        preset: 'full',
+        redaction: {
+          redactAddresses: true,
+          redactBalances: false,
+          redactUsernames: true,
+          redactAmounts: true
+        }
       },
       keepAlwaysOnTop: false,
       armed: true,
@@ -65,6 +83,15 @@ describe('parseLocalSettings', () => {
         modelId: 'hermes-agent',
         bearerToken: ''
       },
+      privacy: {
+        preset: 'balanced',
+        redaction: {
+          redactAddresses: false,
+          redactBalances: false,
+          redactUsernames: false,
+          redactAmounts: false
+        }
+      },
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -81,11 +108,20 @@ describe('parseLocalSettings', () => {
       )
     ).toEqual({
       connection: {
-      connectionKind: 'custom',
-      endpointMode: 'legacy-coach',
-      baseUrl: 'http://localhost:8787',
-      modelId: 'hermes-agent',
-      bearerToken: ''
+        connectionKind: 'custom',
+        endpointMode: 'legacy-coach',
+        baseUrl: 'http://localhost:8787',
+        modelId: 'hermes-agent',
+        bearerToken: ''
+      },
+      privacy: {
+        preset: 'balanced',
+        redaction: {
+          redactAddresses: false,
+          redactBalances: false,
+          redactUsernames: false,
+          redactAmounts: false
+        }
       },
       keepAlwaysOnTop: true,
       armed: false,
@@ -107,6 +143,15 @@ describe('parseLocalSettings', () => {
         modelId: 'hermes-agent',
         bearerToken: ''
       },
+      privacy: {
+        preset: 'balanced',
+        redaction: {
+          redactAddresses: false,
+          redactBalances: false,
+          redactUsernames: false,
+          redactAmounts: false
+        }
+      },
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -114,7 +159,7 @@ describe('parseLocalSettings', () => {
     });
   });
 
-  it('falls back field-by-field when saved settings are malformed', () => {
+  it('validates malformed privacy settings while preserving known-good connection settings', () => {
     expect(
       parseLocalSettings(
         JSON.stringify({
@@ -124,6 +169,15 @@ describe('parseLocalSettings', () => {
             baseUrl: '',
             modelId: '',
             bearerToken: 123
+          },
+          privacy: {
+            preset: 'sledgehammer',
+            redaction: {
+              redactAddresses: 'yes',
+              redactBalances: 1,
+              redactUsernames: null,
+              redactAmounts: 'no'
+            }
           },
           keepAlwaysOnTop: 'yes',
           armed: 'yes',
@@ -151,6 +205,15 @@ describe('serializeLocalSettings', () => {
           modelId: 'hermes-agent',
           bearerToken: ''
         },
+        privacy: {
+          preset: 'balanced',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: false,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
         keepAlwaysOnTop: true,
         armed: false,
         watchClipboard: false,
@@ -162,7 +225,7 @@ describe('serializeLocalSettings', () => {
         }
       })
     ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
     );
   });
 });

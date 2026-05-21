@@ -41,6 +41,25 @@ export interface MonitoringStatus {
   message: string;
 }
 
+export type PrivacyPreset = 'maximum' | 'balanced' | 'full';
+
+export interface PrivacyRedactionSettings {
+  redactAddresses: boolean;
+  redactBalances: boolean;
+  redactUsernames: boolean;
+  redactAmounts: boolean;
+}
+
+export interface PrivacySettings {
+  preset: PrivacyPreset;
+  redaction: PrivacyRedactionSettings;
+}
+
+export interface MonitoringContextPayload {
+  localWarnings: string[];
+  signals: JournalMonitoringSignal[];
+}
+
 export interface HermesConnectionSettings {
   connectionKind: HermesConnectionKind;
   endpointMode: HermesEndpointMode;
@@ -56,6 +75,7 @@ export interface HermesPayload {
     dataBase64: string;
   };
   memoryContext?: MemoryContext;
+  monitoringContext?: MonitoringContextPayload;
   selectedWindow: {
     id: string;
     name: string;
@@ -73,6 +93,8 @@ export interface BuildHermesPayloadInput {
   screenshotDataUrl: string;
   selectedWindow: WindowSourceOption;
   memoryContext?: MemoryContext;
+  monitoringContext?: MonitoringContextPayload;
+  privacy?: PrivacySettings;
 }
 
 export interface AskHermesInput extends BuildHermesPayloadInput {
@@ -139,6 +161,7 @@ export interface CoachBridgeApi {
 
 export interface LocalSettings {
   connection: HermesConnectionSettings;
+  privacy: PrivacySettings;
   keepAlwaysOnTop: boolean;
   armed: boolean;
   watchClipboard: boolean;

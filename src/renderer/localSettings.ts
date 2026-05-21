@@ -1,4 +1,12 @@
-import type { HermesConnectionKind, HermesEndpointMode, HermesConnectionSettings, LocalSettings } from '../shared/types';
+import type {
+  HermesConnectionKind,
+  HermesEndpointMode,
+  HermesConnectionSettings,
+  LocalSettings,
+  PrivacyPreset,
+  PrivacyRedactionSettings,
+  PrivacySettings
+} from '../shared/types';
 
 export const LOCAL_SETTINGS_KEY = 'hermes.settings.v1';
 
@@ -10,8 +18,19 @@ export const DEFAULT_HERMES_CONNECTION: HermesConnectionSettings = {
   bearerToken: ''
 };
 
+export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
+  preset: 'balanced',
+  redaction: {
+    redactAddresses: false,
+    redactBalances: false,
+    redactUsernames: false,
+    redactAmounts: false
+  }
+};
+
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   connection: DEFAULT_HERMES_CONNECTION,
+  privacy: DEFAULT_PRIVACY_SETTINGS,
   keepAlwaysOnTop: true,
   armed: false,
   watchClipboard: false,
@@ -30,6 +49,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 
     return {
       connection: parseConnectionSettings(parsed.connection, parsed.gatewayUrl),
+      privacy: parsePrivacySettings(parsed.privacy),
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
           ? parsed.keepAlwaysOnTop
@@ -48,6 +68,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
     connection: settings.connection,
+    privacy: settings.privacy,
     keepAlwaysOnTop: settings.keepAlwaysOnTop,
     armed: settings.armed,
     watchClipboard: settings.watchClipboard,
@@ -97,6 +118,52 @@ function parseEndpointMode(value: unknown): HermesEndpointMode {
   return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom'
     ? value
     : DEFAULT_HERMES_CONNECTION.endpointMode;
+}
+
+function parsePrivacySettings(value: unknown): PrivacySettings {
+  if (!value || typeof value !== 'object') {
+    return DEFAULT_PRIVACY_SETTINGS;
+  }
+
+  const candidate = value as Partial<PrivacySettings>;
+  const preset = parsePrivacyPreset(candidate.preset);
+  const redaction = parsePrivacyRedaction(candidate.redaction);
+
+  return {
+    preset,
+    redaction
+  };
+}
+
+function parsePrivacyPreset(value: unknown): PrivacyPreset {
+  return value === 'maximum' || value === 'balanced' || value === 'full' ? value : DEFAULT_PRIVACY_SETTINGS.preset;
+}
+
+function parsePrivacyRedaction(rawRedaction: unknown): PrivacyRedactionSettings {
+  if (!rawRedaction || typeof rawRedaction !== 'object') {
+    return DEFAULT_PRIVACY_SETTINGS.redaction;
+  }
+
+  const candidate = rawRedaction as Partial<PrivacyRedactionSettings>;
+
+  return {
+    redactAddresses:
+      typeof candidate.redactAddresses === 'boolean'
+        ? candidate.redactAddresses
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactAddresses,
+    redactBalances:
+      typeof candidate.redactBalances === 'boolean'
+        ? candidate.redactBalances
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactBalances,
+    redactUsernames:
+      typeof candidate.redactUsernames === 'boolean'
+        ? candidate.redactUsernames
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactUsernames,
+    redactAmounts:
+      typeof candidate.redactAmounts === 'boolean'
+        ? candidate.redactAmounts
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactAmounts
+  };
 }
 
 function parseNonEmptyString(value: unknown, fallback: string): string {

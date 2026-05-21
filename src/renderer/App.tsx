@@ -42,6 +42,7 @@ type HermesRequestPreview = {
   endpointMode: HermesEndpointMode;
   dataSharingScope: DataSharingScope;
   payloadClasses: string[];
+  localOnlyClasses: string[];
   requiresRemoteConsent: boolean;
 };
 
@@ -230,7 +231,7 @@ export function App(): ReactElement {
   useEffect(() => {
     setRequestPreview(undefined);
     setPendingRemoteConsent(undefined);
-  }, [settings.connection]);
+  }, [settings.connection, settings.privacy]);
 
   const askWithSource = useCallback(
     async (source: WindowSourceOption | undefined, skipRemoteConsent = false) => {
@@ -250,10 +251,15 @@ export function App(): ReactElement {
         return;
       }
 
-  const nextPreview = buildHermesRequestPreview({
+      const localWarnings = localRiskWarnings(memoryContext.matchedPatterns.length > 0, question);
+      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals);
+
+      const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
         selectedWindow: source,
-        memoryContext
+        memoryContext,
+        privacy: settings.privacy,
+        monitoringContext: monitoringSnapshot
       });
       setRequestPreview(nextPreview);
 
@@ -273,8 +279,6 @@ export function App(): ReactElement {
 
       const totalStart = performance.now();
       const localAnalysisStart = performance.now();
-      const localWarnings = localRiskWarnings(memoryContext.matchedPatterns.length > 0, question);
-      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals);
       const localAnalysisMs = Math.round(performance.now() - localAnalysisStart);
 
       try {
@@ -295,7 +299,9 @@ export function App(): ReactElement {
           question,
           screenshotDataUrl: capture,
           selectedWindow: source,
-          memoryContext
+          memoryContext,
+          monitoringContext: monitoringSnapshot,
+          privacy: settings.privacy
         };
         const answer = await bridge.askHermes(request);
         const hermesMs = Math.round(performance.now() - hermesStart);
@@ -330,7 +336,7 @@ export function App(): ReactElement {
         setRequestState('idle');
       }
     },
-    [bridge, memoryContext, monitorSignals, question, settings.connection]
+    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy]
   );
 
   const askCoach = useCallback(async () => {
@@ -699,6 +705,109 @@ export function App(): ReactElement {
               <small>{connectionScope.description}</small>
             </div>
 
+            <label htmlFor="privacy-preset">Privacy preset</label>
+            <select
+              id="privacy-preset"
+              value={settings.privacy.preset}
+              onChange={(event) => {
+                setSettings((current) => ({
+                  ...current,
+                  privacy: {
+                    ...current.privacy,
+                    preset: event.target.value as LocalSettings['privacy']['preset']
+                  }
+                }));
+              }}
+            >
+              <option value="maximum">Maximum (no screenshot, local summaries only)</option>
+              <option value="balanced">Balanced (window + summaries)</option>
+              <option value="full">Full context (full window)</option>
+            </select>
+
+            <label className="check-row" htmlFor="redact-addresses">
+              <input
+                id="redact-addresses"
+                type="checkbox"
+                checked={settings.privacy.redaction.redactAddresses}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    privacy: {
+                      ...current.privacy,
+                      redaction: {
+                        ...current.privacy.redaction,
+                        redactAddresses: event.target.checked
+                      }
+                    }
+                  }))
+                }
+              />
+              <span>Redact wallet/token addresses</span>
+            </label>
+
+            <label className="check-row" htmlFor="redact-usernames">
+              <input
+                id="redact-usernames"
+                type="checkbox"
+                checked={settings.privacy.redaction.redactUsernames}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    privacy: {
+                      ...current.privacy,
+                      redaction: {
+                        ...current.privacy.redaction,
+                        redactUsernames: event.target.checked
+                      }
+                    }
+                  }))
+                }
+              />
+              <span>Redact usernames</span>
+            </label>
+
+            <label className="check-row" htmlFor="redact-balances">
+              <input
+                id="redact-balances"
+                type="checkbox"
+                checked={settings.privacy.redaction.redactBalances}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    privacy: {
+                      ...current.privacy,
+                      redaction: {
+                        ...current.privacy.redaction,
+                        redactBalances: event.target.checked
+                      }
+                    }
+                  }))
+                }
+              />
+              <span>Redact balances</span>
+            </label>
+
+            <label className="check-row" htmlFor="redact-amounts">
+              <input
+                id="redact-amounts"
+                type="checkbox"
+                checked={settings.privacy.redaction.redactAmounts}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    privacy: {
+                      ...current.privacy,
+                      redaction: {
+                        ...current.privacy.redaction,
+                        redactAmounts: event.target.checked
+                      }
+                    }
+                  }))
+                }
+              />
+              <span>Redact amounts and token values</span>
+            </label>
+
             <label htmlFor="gateway">Hermes base URL</label>
             <input
               id="gateway"
@@ -817,7 +926,8 @@ export function App(): ReactElement {
           <p>
             This request will be sent to <strong>{pendingRemoteConsent.destinationOrigin}</strong> and include:
           </p>
-          <p>{pendingRemoteConsent.payloadClasses.join(' · ')}</p>
+          <p>To Hermes: {pendingRemoteConsent.payloadClasses.join(' · ')}</p>
+          <p>Local-only: {pendingRemoteConsent.localOnlyClasses.join(' · ') || 'none'}</p>
           <div className="button-row">
             <button
               type="button"
@@ -875,11 +985,19 @@ export function App(): ReactElement {
           <p>
             Destination: <strong>{requestPreview.destinationOrigin}</strong> ({requestPreview.dataSharingScope})
           </p>
+          <p>
+            Privacy preset: <strong>{settings.privacy.preset}</strong>
+          </p>
           <div className="payload-row">
             {requestPreview.payloadClasses.map((entry) => (
               <span key={entry}>{entry}</span>
             ))}
           </div>
+          {requestPreview.localOnlyClasses.length > 0 ? (
+            <p>
+              Local-only context: {requestPreview.localOnlyClasses.join(' · ')}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -1021,13 +1139,39 @@ function buildHermesRequestPreview(input: {
   connection: HermesConnectionSettings;
   selectedWindow: WindowSourceOption;
   memoryContext: MemoryContext;
+  privacy: LocalSettings['privacy'];
+  monitoringContext?: JournalMonitoringMetadata;
 }): HermesRequestPreview {
-  const { connection, memoryContext } = input;
+  const { connection, memoryContext, privacy, monitoringContext } = input;
   const profile = inferDataSharingScope(connection);
-  const payloadClasses = ['Question text', 'Selected window metadata', 'Screenshot image'];
+  const hasMonitoringContext =
+    (monitoringContext?.localWarnings?.length ?? 0) > 0 || (monitoringContext?.signals?.length ?? 0) > 0;
+  const payloadClasses = ['Question text', 'Selected window metadata'];
+  const localOnlyClasses: string[] = [];
+
+  if (privacy.preset === 'maximum') {
+    payloadClasses.push('Screenshot placeholder (maximum privacy)');
+    if (hasMonitoringContext) {
+      localOnlyClasses.push('Monitoring summary (local-only)');
+    }
+  } else {
+    payloadClasses.push('Screenshot image');
+    if (hasMonitoringContext) {
+      payloadClasses.push('Monitoring summary');
+    }
+  }
 
   if (memoryContext.matchedPatterns.length > 0 || memoryContext.recentNotes.length > 0) {
     payloadClasses.push('Compact memory context');
+  }
+
+  if (
+    privacy.redaction.redactAddresses ||
+    privacy.redaction.redactBalances ||
+    privacy.redaction.redactUsernames ||
+    privacy.redaction.redactAmounts
+  ) {
+    payloadClasses.push('Text redaction enabled');
   }
 
   return {
@@ -1035,6 +1179,7 @@ function buildHermesRequestPreview(input: {
     endpointMode: connection.endpointMode,
     dataSharingScope: profile.scope,
     payloadClasses,
+    localOnlyClasses,
     requiresRemoteConsent: profile.requiresRemoteConsent
   };
 }

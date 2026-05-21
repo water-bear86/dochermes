@@ -1,10 +1,14 @@
 import type {
   AskHermesInput,
   BuildHermesPayloadInput,
+  MonitoringContextPayload,
+  MemoryContext,
   HermesConnectionReport,
   HermesConnectionSettings,
   HermesEndpointMode,
   HermesPayload,
+  PrivacySettings,
+  PrivacyRedactionSettings,
   ProbeAttempt
 } from '../shared/types';
 
@@ -28,13 +32,26 @@ const LOCAL_CANDIDATES = [
   'http://localhost:9119'
 ];
 const REQUEST_TIMEOUT_MS = 12_000;
+const DEFAULT_PRIVACY_PRESET: PrivacySettings = {
+  preset: 'balanced',
+  redaction: {
+    redactAddresses: false,
+    redactBalances: false,
+    redactUsernames: false,
+    redactAmounts: false
+  }
+};
+
+const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
 
 const SYSTEM_PROMPT =
   'You are DocHermes, a risk coach for trading workflows. You do not place trades, route orders, access wallets, or provide execution commands. Analyze the selected trading-window screenshot and the user question. Focus on risk, confirmation, invalidation, position sizing discipline, and emotional overtrading.';
 
 // Codex-backed Hermes rejects 1x1 placeholder images, so probe with a tiny synthetic screenshot.
-const PROBE_SCREENSHOT_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
+const PROBE_SCREENSHOT_DATA_URL = MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL;
+
+export { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL };
 
 export function resolveHermesEndpoint(connection: HermesConnectionSettings): string {
   const baseUrl = normalizeBaseUrl(connection.baseUrl);
@@ -93,6 +110,10 @@ export function buildHermesPayload(input: BuildHermesPayloadInput): HermesPayloa
 
   if (input.memoryContext) {
     payload.memoryContext = input.memoryContext;
+  }
+
+  if (input.monitoringContext) {
+    payload.monitoringContext = input.monitoringContext;
   }
 
   return payload;
@@ -165,15 +186,16 @@ export function parseHermesResponse(response: unknown): string {
 }
 
 export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fetch): Promise<string> {
+  const privacyInput = buildPrivacyAwarePayloadInput(input);
   const endpoint = resolveHermesEndpoint(input.connection);
   const adapter = selectAdapter(input.connection);
   const body =
     adapter === 'openai-chat'
       ? buildOpenAiChatPayload({
-          ...input,
+          ...privacyInput,
           modelId: input.connection.modelId
         })
-      : buildHermesPayload(input);
+      : buildHermesPayload(privacyInput);
   let response: Response;
 
   try {
@@ -389,11 +411,153 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
     '- captureRequiresUserSelection: true'
   ];
 
+  if (input.monitoringContext && input.monitoringContext.signals.length > 0) {
+    lines.push('', 'Monitoring summary:', JSON.stringify(input.monitoringContext));
+  }
+
   if (input.memoryContext && (input.memoryContext.matchedPatterns.length > 0 || input.memoryContext.recentNotes.length > 0)) {
     lines.push('', 'Compact personal memory context:', JSON.stringify(input.memoryContext));
   }
 
   return lines.join('\n');
+}
+
+function normalizePrivacySettings(value: PrivacySettings | undefined): PrivacySettings {
+  if (!value) {
+    return DEFAULT_PRIVACY_PRESET;
+  }
+
+  return {
+    preset: value.preset === 'maximum' || value.preset === 'balanced' || value.preset === 'full' ? value.preset : DEFAULT_PRIVACY_PRESET.preset,
+    redaction: normalizePrivacyRedaction(value.redaction)
+  };
+}
+
+function normalizePrivacyRedaction(rawValue: PrivacyRedactionSettings | undefined): PrivacyRedactionSettings {
+  if (!rawValue) {
+    return DEFAULT_PRIVACY_PRESET.redaction;
+  }
+
+  return {
+    redactAddresses:
+      typeof rawValue.redactAddresses === 'boolean' ? rawValue.redactAddresses : DEFAULT_PRIVACY_PRESET.redaction.redactAddresses,
+    redactBalances:
+      typeof rawValue.redactBalances === 'boolean' ? rawValue.redactBalances : DEFAULT_PRIVACY_PRESET.redaction.redactBalances,
+    redactUsernames:
+      typeof rawValue.redactUsernames === 'boolean' ? rawValue.redactUsernames : DEFAULT_PRIVACY_PRESET.redaction.redactUsernames,
+    redactAmounts:
+      typeof rawValue.redactAmounts === 'boolean' ? rawValue.redactAmounts : DEFAULT_PRIVACY_PRESET.redaction.redactAmounts
+  };
+}
+
+function buildPrivacyAwarePayloadInput(input: AskHermesInput): BuildHermesPayloadInput {
+  const privacy = normalizePrivacySettings(input.privacy);
+  return {
+    question: applyPrivacyRedaction(input.question, privacy.redaction).trim(),
+    screenshotDataUrl:
+      privacy.preset === 'maximum' ? MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL : input.screenshotDataUrl,
+    selectedWindow: maybeSanitizeSelectedWindow(input.selectedWindow, privacy.preset),
+    memoryContext: applyMemoryContextRedaction(input.memoryContext, privacy.redaction),
+    monitoringContext: applyMonitoringContext(
+      maybeRestrictMonitoringContext(input.monitoringContext, privacy.preset),
+      privacy.redaction
+    )
+  };
+}
+
+function maybeSanitizeSelectedWindow(
+  selectedWindow: BuildHermesPayloadInput['selectedWindow'],
+  preset: PrivacySettings['preset']
+): BuildHermesPayloadInput['selectedWindow'] {
+  if (preset !== 'maximum') {
+    return selectedWindow;
+  }
+
+  return {
+    ...selectedWindow,
+    id: selectedWindow.id || 'local-window',
+    name: 'Local context selected'
+  };
+}
+
+function maybeRestrictMonitoringContext(
+  monitoringContext: MonitoringContextPayload | undefined,
+  preset: PrivacySettings['preset']
+): MonitoringContextPayload | undefined {
+  if (preset === 'maximum') {
+    return undefined;
+  }
+
+  if (!monitoringContext) {
+    return undefined;
+  }
+
+  return monitoringContext;
+}
+
+function applyMonitoringContext(
+  monitoringContext: MonitoringContextPayload | undefined,
+  redaction: PrivacyRedactionSettings
+): MonitoringContextPayload | undefined {
+  if (!monitoringContext) {
+    return undefined;
+  }
+
+  return {
+    localWarnings: monitoringContext.localWarnings.map((warning) => applyPrivacyRedaction(warning, redaction)),
+    signals: monitoringContext.signals.map((signal) => ({
+      ...signal,
+      maskedValue: applyPrivacyRedaction(signal.maskedValue, redaction)
+    }))
+  };
+}
+
+function applyMemoryContextRedaction(
+  memoryContext: MemoryContext | undefined,
+  redaction: PrivacyRedactionSettings
+): MemoryContext | undefined {
+  if (!memoryContext) {
+    return undefined;
+  }
+
+  return {
+    matchedPatterns: memoryContext.matchedPatterns.map((pattern) => ({
+      name: applyPrivacyRedaction(pattern.name, redaction),
+      evidenceCount: pattern.evidenceCount,
+      summary: applyPrivacyRedaction(pattern.summary, redaction),
+      recommendation: applyPrivacyRedaction(pattern.recommendation, redaction)
+    })),
+    recentNotes: memoryContext.recentNotes.map((note) => ({
+      createdAt: note.createdAt,
+      question: applyPrivacyRedaction(note.question, redaction),
+      response: applyPrivacyRedaction(note.response, redaction),
+      notes: applyPrivacyRedaction(note.notes, redaction),
+      selectedWindowName: note.selectedWindowName
+    }))
+  };
+}
+
+function applyPrivacyRedaction(value: string, redaction: PrivacyRedactionSettings): string {
+  if (value.length === 0) {
+    return value;
+  }
+
+  let nextValue = value;
+
+  if (redaction.redactAddresses) {
+    nextValue = nextValue.replace(/\b0x[a-fA-F0-9]{40,64}\b/g, '[redacted address]');
+    nextValue = nextValue.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, '[redacted address]');
+  }
+
+  if (redaction.redactUsernames) {
+    nextValue = nextValue.replace(/@[A-Za-z0-9_]{2,40}/g, '[redacted username]');
+  }
+
+  if (redaction.redactBalances || redaction.redactAmounts) {
+    nextValue = nextValue.replace(/\b(?:\$?\d{1,3}(?:,\d{3})*|\$?\d+)(?:\.\d+)?\s?(?:USDC|USDT|SOL|ETH|BTC|USD|USDC\/B|USDT\/B|BNB)?\b/gi, '[redacted amount]');
+  }
+
+  return nextValue;
 }
 
 function selectAdapter(connection: HermesConnectionSettings): HermesEndpointMode {

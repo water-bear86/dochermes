@@ -2,12 +2,24 @@ import type {
   AskHermesInput,
   HermesConnectionKind,
   HermesConnectionSettings,
-  HermesEndpointMode
+  HermesEndpointMode,
+  PrivacyPreset,
+  PrivacyRedactionSettings,
+  PrivacySettings
 } from '../shared/types';
 
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
 const PNG_DATA_URL_RE = /^data:image\/png;base64,([A-Za-z0-9+/=]*)$/;
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
+  preset: 'balanced',
+  redaction: {
+    redactAddresses: false,
+    redactBalances: false,
+    redactUsernames: false,
+    redactAmounts: false
+  }
+};
 
 export function assertAskHermesInput(input: unknown): AskHermesInput {
   if (!input || typeof input !== 'object') {
@@ -16,7 +28,8 @@ export function assertAskHermesInput(input: unknown): AskHermesInput {
 
   const record = input as AskHermesInput;
 
-  assertHermesConnection(record.connection);
+  const connection = assertHermesConnection(record.connection);
+  const privacy = parsePrivacySettings(record.privacy);
 
   if (typeof record.question !== 'string' || !record.question.trim()) {
     throw new Error('Question is required.');
@@ -57,7 +70,11 @@ export function assertAskHermesInput(input: unknown): AskHermesInput {
     throw new Error('Selected window kind is invalid.');
   }
 
-  return record;
+  return {
+    ...record,
+    connection,
+    privacy
+  };
 }
 
 export function assertHermesConnection(input: unknown): HermesConnectionSettings {
@@ -113,6 +130,52 @@ export function isConnectionKind(value: unknown): value is HermesConnectionKind 
 
 export function isEndpointMode(value: unknown): value is HermesEndpointMode {
   return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom';
+}
+
+function parsePrivacySettings(value: unknown): PrivacySettings {
+  if (!value || typeof value !== 'object') {
+    return DEFAULT_PRIVACY_SETTINGS;
+  }
+
+  const candidate = value as Partial<PrivacySettings>;
+  const preset = parsePrivacyPreset(candidate.preset);
+  const redaction = parsePrivacyRedaction(candidate.redaction);
+
+  return {
+    preset,
+    redaction
+  };
+}
+
+function parsePrivacyPreset(value: unknown): PrivacyPreset {
+  return value === 'maximum' || value === 'balanced' || value === 'full' ? value : DEFAULT_PRIVACY_SETTINGS.preset;
+}
+
+function parsePrivacyRedaction(rawValue: unknown): PrivacyRedactionSettings {
+  if (!rawValue || typeof rawValue !== 'object') {
+    return DEFAULT_PRIVACY_SETTINGS.redaction;
+  }
+
+  const candidate = rawValue as Partial<PrivacyRedactionSettings>;
+
+  return {
+    redactAddresses:
+      typeof candidate.redactAddresses === 'boolean'
+        ? candidate.redactAddresses
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactAddresses,
+    redactBalances:
+      typeof candidate.redactBalances === 'boolean'
+        ? candidate.redactBalances
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactBalances,
+    redactUsernames:
+      typeof candidate.redactUsernames === 'boolean'
+        ? candidate.redactUsernames
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactUsernames,
+    redactAmounts:
+      typeof candidate.redactAmounts === 'boolean'
+        ? candidate.redactAmounts
+        : DEFAULT_PRIVACY_SETTINGS.redaction.redactAmounts
+  };
 }
 
 export function estimateBase64Bytes(dataUrl: string): number {

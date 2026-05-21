@@ -169,6 +169,44 @@ describe('assertAskHermesInput', () => {
     ).toThrow('Selected window kind is invalid.');
   });
 
+  it('adds default privacy settings when omitted', () => {
+    const input = assertAskHermesInput(baseInput);
+    expect(input.privacy).toEqual({
+      preset: 'balanced',
+      redaction: {
+        redactAddresses: false,
+        redactBalances: false,
+        redactUsernames: false,
+        redactAmounts: false
+      }
+    });
+  });
+
+  it('normalizes provided privacy presets', () => {
+    const input = assertAskHermesInput({
+      ...baseInput,
+      privacy: {
+        preset: 'maximum',
+        redaction: {
+          redactAddresses: true,
+          redactBalances: true,
+          redactUsernames: false,
+          redactAmounts: true
+        }
+      }
+    });
+
+    expect(input.privacy).toEqual({
+      preset: 'maximum',
+      redaction: {
+        redactAddresses: true,
+        redactBalances: true,
+        redactUsernames: false,
+        redactAmounts: true
+      }
+    });
+  });
+
   it('rejects oversized screenshots at boundary', () => {
     const oversizedBase64 = 'A'.repeat(16_000_002);
     expect(estimateBase64Bytes(`data:image/png;base64,${oversizedBase64}`)).toBeGreaterThan(MAX_SCREENSHOT_BYTES);
