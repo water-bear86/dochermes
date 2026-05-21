@@ -3,6 +3,7 @@ import type {
   HermesEndpointMode,
   HermesConnectionSettings,
   LocalSettings,
+  FrictionSettings,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -28,9 +29,15 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
   }
 };
 
+export const DEFAULT_FRICTION_SETTINGS: FrictionSettings = {
+  enabled: true,
+  strictness: 'standard'
+};
+
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   connection: DEFAULT_HERMES_CONNECTION,
   privacy: DEFAULT_PRIVACY_SETTINGS,
+  friction: DEFAULT_FRICTION_SETTINGS,
   keepAlwaysOnTop: true,
   armed: false,
   watchClipboard: false,
@@ -50,6 +57,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
     return {
       connection: parseConnectionSettings(parsed.connection, parsed.gatewayUrl),
       privacy: parsePrivacySettings(parsed.privacy),
+      friction: parseFrictionSettings(parsed.friction),
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
           ? parsed.keepAlwaysOnTop
@@ -69,6 +77,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
     connection: settings.connection,
     privacy: settings.privacy,
+    friction: settings.friction,
     keepAlwaysOnTop: settings.keepAlwaysOnTop,
     armed: settings.armed,
     watchClipboard: settings.watchClipboard,
@@ -132,6 +141,23 @@ function parsePrivacySettings(value: unknown): PrivacySettings {
   return {
     preset,
     redaction
+  };
+}
+
+function parseFrictionSettings(rawFriction: unknown): FrictionSettings {
+  if (!rawFriction || typeof rawFriction !== 'object') {
+    return DEFAULT_FRICTION_SETTINGS;
+  }
+
+  const candidate = rawFriction as Partial<FrictionSettings>;
+  const strictness =
+    candidate.strictness === 'low' || candidate.strictness === 'standard' || candidate.strictness === 'high'
+      ? candidate.strictness
+      : DEFAULT_FRICTION_SETTINGS.strictness;
+
+  return {
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_FRICTION_SETTINGS.enabled,
+    strictness
   };
 }
 

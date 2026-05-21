@@ -410,7 +410,9 @@ export function App(): ReactElement {
     const nextFrictionCard = buildFrictionCard({
       question,
       localWarnings,
-      matchedPatternCount: memoryContext.matchedPatterns.length
+      matchedPatternCount: memoryContext.matchedPatterns.length,
+      frictionEnabled: settings.friction.enabled,
+      frictionStrictness: settings.friction.strictness
     });
 
     if (nextFrictionCard) {
@@ -419,7 +421,7 @@ export function App(): ReactElement {
     }
 
     await askWithSource(selectedSource);
-  }, [askWithSource, hasQuestion, localWarnings, loadSources, selectedSource]);
+  }, [askWithSource, hasQuestion, localWarnings, loadSources, selectedSource, settings.friction.enabled, settings.friction.strictness]);
 
   const testConnection = useCallback(async () => {
     if (!bridge) {
@@ -758,7 +760,9 @@ export function App(): ReactElement {
         const nextFrictionCard = buildFrictionCard({
           question,
           localWarnings,
-          matchedPatternCount: memoryContext.matchedPatterns.length
+          matchedPatternCount: memoryContext.matchedPatterns.length,
+          frictionEnabled: settings.friction.enabled,
+          frictionStrictness: settings.friction.strictness
         });
 
         if (nextFrictionCard) {
@@ -769,7 +773,15 @@ export function App(): ReactElement {
         void askWithSource(nextSource);
       }
     },
-    [askWithSource, memoryContext.matchedPatterns.length, localWarnings, pickerMode, question]
+    [
+      askWithSource,
+      memoryContext.matchedPatterns.length,
+      localWarnings,
+      pickerMode,
+      question,
+      settings.friction.enabled,
+      settings.friction.strictness
+    ]
   );
 
   const toggleArmed = useCallback(() => {
@@ -1062,6 +1074,42 @@ export function App(): ReactElement {
               />
               <span>Keep coach panel on top</span>
             </label>
+            <label className="check-row" htmlFor="friction-enabled">
+              <input
+                id="friction-enabled"
+                type="checkbox"
+                checked={settings.friction.enabled}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    friction: {
+                      ...current.friction,
+                      enabled: event.target.checked
+                    }
+                  }))
+                }
+              />
+              <span>Enable pre-trade friction cards</span>
+            </label>
+            <label htmlFor="friction-strictness">Friction strictness</label>
+            <select
+              id="friction-strictness"
+              disabled={!settings.friction.enabled}
+              value={settings.friction.strictness}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  friction: {
+                    ...current.friction,
+                    strictness: event.target.value as LocalSettings['friction']['strictness']
+                  }
+                }))
+              }
+            >
+              <option value="low">Low</option>
+              <option value="standard">Standard</option>
+              <option value="high">High</option>
+            </select>
             <label className="check-row" htmlFor="clipboard-watch">
               <input
                 id="clipboard-watch"
@@ -1718,12 +1766,24 @@ function buildFrictionCard(input: {
   question: string;
   localWarnings: string[];
   matchedPatternCount: number;
+  frictionEnabled: boolean;
+  frictionStrictness: 'low' | 'standard' | 'high';
 }): FrictionCard | undefined {
+  if (!input.frictionEnabled) {
+    return undefined;
+  }
+
   const normalized = input.question.toLowerCase();
   const hasUrgentSignal = /(immediate|right now|all-in|ape|momentum)/.test(normalized);
   const hasHistoricalRiskSignal = input.matchedPatternCount > 0 || input.localWarnings.length > 0;
+  const hasTradeIntentSignal = /(buy|sell|long|short|entry|take position|enter)/.test(normalized);
 
-  if (!hasUrgentSignal && !hasHistoricalRiskSignal) {
+  const shouldShow =
+    (input.frictionStrictness === 'low' && hasUrgentSignal) ||
+    (input.frictionStrictness === 'standard' && (hasUrgentSignal || hasHistoricalRiskSignal)) ||
+    (input.frictionStrictness === 'high' && (hasUrgentSignal || hasHistoricalRiskSignal || hasTradeIntentSignal));
+
+  if (!shouldShow) {
     return undefined;
   }
 

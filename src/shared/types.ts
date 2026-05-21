@@ -17,6 +17,8 @@ export type HermesConnectionKind = 'local' | 'hosted' | 'custom';
 export type HermesEndpointMode = 'auto' | 'openai-chat' | 'legacy-coach' | 'custom';
 export type HermesConnectionStatus = 'connected' | 'degraded' | 'disconnected' | 'auth-error' | 'model-error' | 'incompatible';
 
+export type FrictionStrictness = 'low' | 'standard' | 'high';
+
 export type ClipboardCandidateKind =
   | 'evm-address'
   | 'evm-tx-hash'
@@ -53,6 +55,11 @@ export interface PrivacyRedactionSettings {
 export interface PrivacySettings {
   preset: PrivacyPreset;
   redaction: PrivacyRedactionSettings;
+}
+
+export interface FrictionSettings {
+  enabled: boolean;
+  strictness: FrictionStrictness;
 }
 
 export interface MonitoringContextPayload {
@@ -162,6 +169,7 @@ export interface CoachBridgeApi {
 export interface LocalSettings {
   connection: HermesConnectionSettings;
   privacy: PrivacySettings;
+  friction: FrictionSettings;
   keepAlwaysOnTop: boolean;
   armed: boolean;
   watchClipboard: boolean;

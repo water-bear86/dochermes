@@ -27,6 +27,10 @@ describe('parseLocalSettings', () => {
               redactAmounts: true
             }
           },
+          friction: {
+            enabled: false,
+            strictness: 'high'
+          },
           keepAlwaysOnTop: false,
           armed: true,
           watchClipboard: true,
@@ -54,6 +58,10 @@ describe('parseLocalSettings', () => {
           redactUsernames: true,
           redactAmounts: true
         }
+      },
+      friction: {
+        enabled: false,
+        strictness: 'high'
       },
       keepAlwaysOnTop: false,
       armed: true,
@@ -92,6 +100,10 @@ describe('parseLocalSettings', () => {
           redactAmounts: false
         }
       },
+      friction: {
+        enabled: true,
+        strictness: 'standard'
+      },
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -123,6 +135,10 @@ describe('parseLocalSettings', () => {
           redactAmounts: false
         }
       },
+      friction: {
+        enabled: true,
+        strictness: 'standard'
+      },
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -152,6 +168,10 @@ describe('parseLocalSettings', () => {
           redactAmounts: false
         }
       },
+      friction: {
+        enabled: true,
+        strictness: 'standard'
+      },
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -178,6 +198,10 @@ describe('parseLocalSettings', () => {
               redactUsernames: null,
               redactAmounts: 'no'
             }
+          },
+          friction: {
+            enabled: 'no',
+            strictness: 'ultra'
           },
           keepAlwaysOnTop: 'yes',
           armed: 'yes',
@@ -214,6 +238,10 @@ describe('serializeLocalSettings', () => {
             redactAmounts: true
           }
         },
+        friction: {
+          enabled: true,
+          strictness: 'standard'
+        },
         keepAlwaysOnTop: true,
         armed: false,
         watchClipboard: false,
@@ -225,7 +253,7 @@ describe('serializeLocalSettings', () => {
         }
       })
     ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
     );
   });
 });
