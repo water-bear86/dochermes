@@ -67,6 +67,7 @@ export interface FrictionSettings {
 
 export interface MonitoringContextPayload {
   localWarnings: string[];
+  warningEvidence?: WarningEvidenceSummary[];
   signals: JournalMonitoringSignal[];
   sourceQuality?: SourceQualityFinding[];
 }
@@ -146,8 +147,18 @@ export interface JournalMonitoringSignal {
 
 export interface JournalMonitoringMetadata {
   localWarnings: string[];
+  warningEvidence?: WarningEvidenceSummary[];
   signals: JournalMonitoringSignal[];
   sourceQuality?: SourceQualityFinding[];
+}
+
+export interface WarningEvidenceSummary {
+  warningText: string;
+  source: string;
+  detail: string;
+  confidence: SourceQualityConfidence;
+  provenance?: string;
+  detectedAt?: string;
 }
 
 export type SourceCategory =
@@ -168,6 +179,7 @@ export interface SourceQualityFinding {
   provenance: string;
   tokenHint?: string;
   reason: string;
+  detectedAt?: string;
 }
 
 export interface JournalSourceProfile {

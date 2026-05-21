@@ -22,6 +22,7 @@ interface SourceHistory {
 
 interface SourceQualityAssessment {
   warnings: string[];
+  warningFindings: Array<{ warning: string; finding: SourceQualityFinding }>;
   findings: SourceQualityFinding[];
 }
 
@@ -43,15 +44,36 @@ export function buildSourceQualityAssessment(input: BuildSourceQualityAssessment
   const findings = dedupeFindings(rawFindings).slice(0, MAX_FINDINGS);
 
   const sourceHistory = buildSourceHistory(input.journalEntries);
-  const warnings = findings
+  const warningFindings = findings
     .map((finding) => {
       const tokenKey = normalizedTokenHint(finding.tokenHint);
-      return buildWarningForFinding(finding, tokenKey ? sourceHistory.get(tokenKey) : undefined);
+      return {
+        finding,
+        warning: buildWarningForFinding(finding, tokenKey ? sourceHistory.get(tokenKey) : undefined)
+      };
     })
-    .filter((warning): warning is string => warning !== undefined);
+    .filter(
+      (entry): entry is { finding: SourceQualityFinding; warning: string } => typeof entry.warning === 'string' && entry.warning.length > 0
+    );
+
+  const uniqueWarningFindings: Array<{ warning: string; finding: SourceQualityFinding }> = [];
+  const seen = new Set<string>();
+
+  for (const entry of warningFindings) {
+    if (seen.has(entry.warning)) {
+      continue;
+    }
+    seen.add(entry.warning);
+    uniqueWarningFindings.push(entry);
+
+    if (uniqueWarningFindings.length >= MAX_WARNINGS) {
+      break;
+    }
+  }
 
   return {
-    warnings: [...new Set(warnings)].slice(0, MAX_WARNINGS),
+    warnings: uniqueWarningFindings.map((entry) => entry.warning),
+    warningFindings: uniqueWarningFindings,
     findings
   };
 }
@@ -166,7 +188,8 @@ function collectMonitoringFinding(signal: MonitoringSignalLike): SourceQualityFi
     confidence,
     provenance: `Clipboard signal (${signal.source})`,
     ...(tokenHint ? { tokenHint } : {}),
-    reason
+    reason,
+    detectedAt: signal.detectedAt
   };
 }
 

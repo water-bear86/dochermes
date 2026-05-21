@@ -16,8 +16,10 @@ import type {
   SourceQualityFinding,
   SourceCategory,
   SourceQualityOutcome,
+  SourceQualityConfidence,
   MonitoringSignal,
   MonitoringStatus,
+  WarningEvidenceSummary,
   WindowSourceOption
 } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, clearJournalEntries, readJournalEntries } from './journal';
@@ -41,9 +43,27 @@ import {
   type WarningFeedbackRecord
 } from './warningFeedback';
 import { readLocalSettings, writeLocalSettings } from './localSettings';
-import { buildMemoryContext } from './memoryContext';
+import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { canBypassRemoteConsent, shouldCaptureWindowForPrivacy, type RemoteConsentBypassReason } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
+
+interface WarningEvidenceEntry {
+  source: string;
+  detail: string;
+  confidence: SourceQualityConfidence;
+  provenance?: string;
+  detectedAt?: string;
+}
+
+interface WarningCandidate {
+  text: string;
+  evidence: WarningEvidenceEntry;
+}
+
+interface WarningCard {
+  text: string;
+  evidences: WarningEvidenceEntry[];
+}
 
 declare global {
   interface Window {
@@ -186,14 +206,29 @@ export function App(): ReactElement {
     () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries }),
     [question, journalEntries, monitorSignals]
   );
-  const localWarnings = useMemo(
+  const localWarningCards = useMemo(
     () =>
-      [
-        ...localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
-        ...sourceQualityAssessment.warnings.filter((warning, index, warnings) => warnings.indexOf(warning) === index)
-      ],
-    [memoryContext.matchedPatterns.length, question, sourceQualityAssessment.warnings]
+      buildLocalWarningCards({
+        ruleWarnings: localRuleWarnings(memoryContext.matchedPatterns.length > 0, question),
+        sourceQualityWarnings: sourceQualityAssessment.warningFindings
+      }),
+    [memoryContext.matchedPatterns, question, sourceQualityAssessment.warningFindings]
   );
+  const localWarningEvidence = useMemo(
+    () =>
+      localWarningCards.flatMap((warning) =>
+        warning.evidences.map((evidence) => ({
+          warningText: warning.text,
+          source: evidence.source,
+          detail: evidence.detail,
+          confidence: evidence.confidence,
+          provenance: evidence.provenance,
+          detectedAt: evidence.detectedAt
+        }))
+      ),
+    [localWarningCards]
+  );
+  const localWarnings = useMemo(() => localWarningCards.map((warning) => warning.text), [localWarningCards]);
 
   useEffect(() => {
     const firstFinding = sourceQualityAssessment.findings[0];
@@ -357,8 +392,13 @@ export function App(): ReactElement {
       }
 
       const analysisStartedAt = performance.now();
-      const localWarningsSnapshot = [...localWarnings];
-      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals, sourceQualityAssessment.findings);
+      const warningEvidenceSnapshot = [...localWarningEvidence];
+      const monitoringSnapshot = buildMonitoringMetadata(
+        localWarnings,
+        monitorSignals,
+        sourceQualityAssessment.findings,
+        warningEvidenceSnapshot
+      );
 
       const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
@@ -436,7 +476,7 @@ export function App(): ReactElement {
         hermesMs = Math.round(performance.now() - hermesStart);
 
         const responseText =
-          localWarningsSnapshot.length > 0 ? `Local risk guardrail: ${localWarningsSnapshot.join(' ')}\n\n${answer}` : answer;
+          localWarnings.length > 0 ? `Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}` : answer;
         setResponse(responseText);
 
         setLastRequestMonitoringMetadata(monitoringSnapshot);
@@ -530,7 +570,18 @@ export function App(): ReactElement {
         setRequestState('idle');
       }
     },
-    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy, sourceQualityAssessment.findings, localWarnings, hermesHeartbeat.status]
+    [
+      bridge,
+      memoryContext,
+      monitorSignals,
+      question,
+      settings.connection,
+      settings.privacy,
+      sourceQualityAssessment.findings,
+      localWarnings,
+      localWarningEvidence,
+      hermesHeartbeat.status
+    ]
   );
 
   const askCoach = useCallback(async () => {
@@ -792,7 +843,12 @@ export function App(): ReactElement {
         notes,
         selectedWindow: selectedSource,
         screenshotCaptured: false,
-        monitoring: buildMonitoringMetadata(localWarnings, monitorSignals, sourceQualityAssessment.findings),
+        monitoring: buildMonitoringMetadata(
+          localWarnings,
+          monitorSignals,
+          sourceQualityAssessment.findings,
+          localWarningEvidence
+        ),
         sourceContext: buildJournalSourceContext()
       });
 
@@ -806,7 +862,16 @@ export function App(): ReactElement {
       setFrictionNoteText('');
       resetSourceContextDraft();
     },
-    [buildJournalSourceContext, localWarnings, monitorSignals, question, resetSourceContextDraft, selectedSource, sourceQualityAssessment.findings]
+    [
+      buildJournalSourceContext,
+      localWarnings,
+      localWarningEvidence,
+      monitorSignals,
+      question,
+      resetSourceContextDraft,
+      selectedSource,
+      sourceQualityAssessment.findings
+    ]
   );
 
   const proceedWithFrictionAction = useCallback(
@@ -1639,18 +1704,44 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {localWarnings.length > 0 ? (
+      {localWarningCards.length > 0 ? (
         <section className="message warning">
           <span className="label">Local guardrail</span>
-          <ul className="warning-list">
-            {localWarnings.map((warning) => (
-              <li key={warning}>
-                {warning}
+          <div className="warning-cards">
+            {localWarningCards.map((warning) => (
+              <article key={warning.text} className="warning-card">
+                <p className="warning-card-text">{warning.text}</p>
+                <p className="warning-card-subtitle">Why am I seeing this?</p>
+                <ul className="warning-evidence-list">
+                  {warning.evidences.length > 0 ? (
+                    warning.evidences.map((evidence, index) => (
+                      <li
+                        key={`${warning.text}-${evidence.source}-${evidence.detail}-${index}`}
+                        className={`warning-evidence ${isLowConfidenceEvidence(evidence.confidence) ? 'warning-evidence--low' : ''}`}
+                      >
+                        <div className="warning-evidence-header">
+                          <span className="warning-evidence-source">{evidence.source}</span>
+                          <span className={`warning-evidence-confidence ${isLowConfidenceEvidence(evidence.confidence) ? 'warning-evidence-confidence--low' : ''}`}>
+                            {formatEvidenceConfidence(evidence.confidence)}
+                            {isLowConfidenceEvidence(evidence.confidence) ? ' (uncertain)' : ''}
+                          </span>
+                        </div>
+                        <div className="warning-evidence-detail">{evidence.detail}</div>
+                        <small className="warning-evidence-meta">
+                          {evidence.provenance ? `Provenance: ${evidence.provenance}` : 'Provenance: local'}
+                          {evidence.detectedAt ? ` · ${formatWarningDetectedAt(evidence.detectedAt)}` : ''}
+                        </small>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="warning-evidence warning-evidence--empty">No detailed evidence available.</li>
+                  )}
+                </ul>
                 <div className="feedback-button-row">
                   <button
                     type="button"
                     onClick={() => {
-                      recordWarningFeedback(warning, 'took-it-anyway');
+                      recordWarningFeedback(warning.text, 'took-it-anyway');
                     }}
                   >
                     I took it anyway
@@ -1658,7 +1749,7 @@ export function App(): ReactElement {
                   <button
                     type="button"
                     onClick={() => {
-                      recordWarningFeedback(warning, 'skipped');
+                      recordWarningFeedback(warning.text, 'skipped');
                     }}
                   >
                     I skipped
@@ -1666,7 +1757,7 @@ export function App(): ReactElement {
                   <button
                     type="button"
                     onClick={() => {
-                      recordWarningFeedback(warning, 'followed-plan');
+                      recordWarningFeedback(warning.text, 'followed-plan');
                     }}
                   >
                     I followed the plan
@@ -1675,7 +1766,7 @@ export function App(): ReactElement {
                     type="button"
                     className="ghost"
                     onClick={() => {
-                      setFeedbackNoteWarning(warning);
+                      setFeedbackNoteWarning(warning.text);
                     }}
                   >
                     Add note
@@ -1683,15 +1774,15 @@ export function App(): ReactElement {
                   <button
                     type="button"
                     onClick={() => {
-                      recordWarningFeedback(warning, 'false-positive');
+                      recordWarningFeedback(warning.text, 'false-positive');
                     }}
                   >
                     Mark false positive
                   </button>
                 </div>
-              </li>
+              </article>
             ))}
-          </ul>
+          </div>
         </section>
       ) : null}
 
@@ -1970,6 +2061,7 @@ function buildHermesRequestPreview(input: {
   const profile = inferDataSharingScope(connection);
   const hasMonitoringContext =
     (monitoringContext?.localWarnings?.length ?? 0) > 0 ||
+    (monitoringContext?.warningEvidence?.length ?? 0) > 0 ||
     (monitoringContext?.signals?.length ?? 0) > 0 ||
     (monitoringContext?.sourceQuality?.length ?? 0) > 0;
   const payloadClasses = ['Question text', 'Selected window metadata'];
@@ -2099,10 +2191,23 @@ function normalizeBaseUrl(baseUrl: string): string {
 function buildMonitoringMetadata(
   localWarnings: string[],
   monitorSignals: MonitoringSignal[],
-  sourceQuality?: SourceQualityFinding[]
+  sourceQuality?: SourceQualityFinding[],
+  warningEvidence?: WarningEvidenceSummary[]
 ): JournalMonitoringMetadata {
   return {
     localWarnings,
+    ...(warningEvidence
+      ? {
+          warningEvidence: warningEvidence.slice(0, 12).map((entry) => ({
+            warningText: entry.warningText,
+            source: entry.source,
+            detail: entry.detail,
+            confidence: entry.confidence,
+            ...(entry.provenance ? { provenance: entry.provenance } : {}),
+            ...(entry.detectedAt ? { detectedAt: entry.detectedAt } : {})
+          }))
+        }
+      : {}),
     signals: monitorSignals.slice(0, 8).map((signal) => ({
       source: signal.source,
       kind: signal.kind,
@@ -2125,23 +2230,134 @@ function buildMonitoringMetadata(
   };
 }
 
-function localRiskWarnings(hasMemoryMatch: boolean, question: string): string[] {
+function localRuleWarnings(hasMemoryMatch: boolean, question: string): WarningCandidate[] {
   const normalized = question.toLowerCase().trim();
-  const warnings: string[] = [];
+  const warningCandidates: WarningCandidate[] = [];
 
   if (!normalized) {
-    return warnings;
+    return warningCandidates;
   }
 
   if (hasMemoryMatch) {
-    warnings.push('This setup resembles prior early-entry risk patterns; set confirmation plan before acting.');
+    warningCandidates.push({
+      text: EARLY_ENTRY_WARNING_TEXT,
+      evidence: {
+        source: 'Personal memory patterns',
+        detail: 'Matched prior early-entry behavior with negative outcome notes.',
+        confidence: 'medium',
+        provenance: 'Local memory'
+      }
+    });
   }
 
   if (/(enter now|all-in|ape|immediate|immediately|right now)/.test(normalized)) {
-    warnings.push('Immediate-entry question detected; local guardrail suggests avoiding first-tick fills.');
+    warningCandidates.push({
+      text: 'Immediate-entry question detected; local guardrail suggests avoiding first-tick fills.',
+      evidence: {
+        source: 'Question parser',
+        detail: 'Immediate-entry wording detected in the user question.',
+        confidence: 'low',
+        provenance: 'Question text'
+      }
+    });
   }
 
-  return warnings;
+  return warningCandidates;
+}
+
+function buildLocalWarningCards(input: {
+  ruleWarnings: WarningCandidate[];
+  sourceQualityWarnings: Array<{ warning: string; finding: SourceQualityFinding }>;
+}): WarningCard[] {
+  const cards = new Map<string, WarningCard>();
+  const evidenceKeys = new Map<string, Set<string>>();
+
+  for (const warning of input.ruleWarnings) {
+    const card = cards.get(warning.text) ?? { text: warning.text, evidences: [] };
+    const key = buildEvidenceKey(warning.text, warning.evidence);
+    const set = evidenceKeys.get(warning.text) ?? new Set<string>();
+
+    if (!set.has(key)) {
+      card.evidences.push(warning.evidence);
+      set.add(key);
+      evidenceKeys.set(warning.text, set);
+      cards.set(warning.text, card);
+    }
+  }
+
+  for (const { warning, finding } of input.sourceQualityWarnings) {
+    if (!warning || !finding) {
+      continue;
+    }
+
+    const evidence: WarningEvidenceEntry = {
+      source: `Source-quality signal (${finding.category})`,
+      detail: finding.tokenHint ? `${finding.reason}: ${shortenTokenHint(finding.tokenHint)}` : finding.reason,
+      confidence: finding.confidence,
+      provenance: finding.provenance,
+      ...(finding.detectedAt ? { detectedAt: finding.detectedAt } : {})
+    };
+
+    const card = cards.get(warning) ?? { text: warning, evidences: [] };
+    const key = buildEvidenceKey(warning, evidence);
+    const set = evidenceKeys.get(warning) ?? new Set<string>();
+
+    if (!set.has(key)) {
+      card.evidences.push(evidence);
+      set.add(key);
+      evidenceKeys.set(warning, set);
+      cards.set(warning, card);
+    }
+  }
+
+  const result = Array.from(cards.values()).map((card) => ({
+    text: card.text,
+    evidences: card.evidences
+      .slice()
+      .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence))
+  }));
+
+  return result.sort((left, right) => left.text.localeCompare(right.text));
+}
+
+function buildEvidenceKey(warningText: string, evidence: WarningEvidenceEntry): string {
+  return `${warningText}|${evidence.source}|${evidence.detail}|${evidence.confidence}`;
+}
+
+function shortenTokenHint(tokenHint: string, maximum = 16): string {
+  if (tokenHint.length <= maximum) {
+    return tokenHint;
+  }
+
+  return `${tokenHint.slice(0, 6)}…${tokenHint.slice(-5)}`;
+}
+
+function confidenceRank(confidence: SourceQualityConfidence): number {
+  if (confidence === 'high') {
+    return 3;
+  }
+  if (confidence === 'medium') {
+    return 2;
+  }
+
+  return 1;
+}
+
+function isLowConfidenceEvidence(confidence: SourceQualityConfidence): boolean {
+  return confidence === 'low';
+}
+
+function formatEvidenceConfidence(confidence: SourceQualityConfidence): string {
+  return `Confidence: ${confidence}`;
+}
+
+function formatWarningDetectedAt(detectedAt: string): string {
+  const parsed = new Date(detectedAt);
+  if (Number.isNaN(parsed.valueOf())) {
+    return detectedAt;
+  }
+
+  return parsed.toLocaleString();
 }
 
 function buildFrictionCard(input: {

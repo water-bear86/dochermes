@@ -471,6 +471,54 @@ describe('probeHermesConnection', () => {
     expect(capturedPrompt).not.toContain('1111111111111111111111111111111111111111');
   });
 
+  it('redacts source-quality token hints before sending legacy payloads', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const tokenHint = '0x1111111111111111111111111111111111111111';
+
+    await askHermes(
+      askInput({
+        connection: defaultConnection({
+          connectionKind: 'custom',
+          endpointMode: 'legacy-coach'
+        }),
+        privacy: {
+          preset: 'full',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: true,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
+        monitoringContext: {
+          localWarnings: ['Potential duplicate token'],
+          signals: [],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'Question text',
+              tokenHint,
+              reason: `Observed copied token ${tokenHint} from prior context`
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ answer: 'ok' });
+      }
+    );
+
+    const monitoringContext = capturedBody?.monitoringContext as Record<string, unknown> | undefined;
+    const sourceQuality = monitoringContext?.sourceQuality as Array<Record<string, unknown>> | undefined;
+    const finding = sourceQuality?.[0];
+
+    expect(finding?.tokenHint).not.toBe(tokenHint);
+    expect(finding?.tokenHint).toContain('[redacted address]');
+    expect(String(finding?.reason)).not.toContain(tokenHint);
+  });
+
   it('supports explicit legacy /coach probes', async () => {
     const requests: string[] = [];
     const result = await probeHermesConnection(

@@ -411,9 +411,12 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
 
   if (
     input.monitoringContext &&
-    (input.monitoringContext.signals.length > 0 || (input.monitoringContext.sourceQuality?.length ?? 0) > 0)
+    (input.monitoringContext.localWarnings.length > 0 ||
+      input.monitoringContext.signals.length > 0 ||
+      (input.monitoringContext.warningEvidence?.length ?? 0) > 0 ||
+      (input.monitoringContext.sourceQuality?.length ?? 0) > 0)
   ) {
-    lines.push('', 'Monitoring summary:', JSON.stringify(input.monitoringContext));
+    lines.push('', 'Monitoring summary (compact provenance):', summarizeMonitoringContext(input.monitoringContext));
   }
 
   if (input.memoryContext && (input.memoryContext.matchedPatterns.length > 0 || input.memoryContext.recentNotes.length > 0)) {
@@ -421,6 +424,36 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
   }
 
   return lines.join('\n');
+}
+
+function summarizeMonitoringContext(context: MonitoringContextPayload): string {
+  const summary: {
+    localWarnings: string[];
+    warningEvidence?: Array<{ warningText: string; source: string; confidence: string; detail?: string; detectedAt?: string }>;
+    sourceQuality?: Array<{ category: string; confidence: string; provenance: string }>;
+  } = {
+    localWarnings: context.localWarnings
+  };
+
+  if (context.warningEvidence && context.warningEvidence.length > 0) {
+    summary.warningEvidence = context.warningEvidence.slice(0, 12).map((entry) => ({
+      warningText: entry.warningText,
+      source: entry.source,
+      confidence: entry.confidence,
+      ...(entry.detail ? { detail: entry.detail } : {}),
+      ...(entry.detectedAt ? { detectedAt: entry.detectedAt } : {})
+    }));
+  }
+
+  if ((context.sourceQuality?.length ?? 0) > 0) {
+    summary.sourceQuality = context.sourceQuality!.slice(0, 6).map((entry) => ({
+      category: entry.category,
+      confidence: entry.confidence,
+      provenance: entry.provenance
+    }));
+  }
+
+  return JSON.stringify(summary);
 }
 
 function normalizePrivacySettings(value: PrivacySettings | undefined): PrivacySettings {
@@ -506,6 +539,18 @@ function applyMonitoringContext(
 
   return {
     localWarnings: monitoringContext.localWarnings.map((warning) => applyPrivacyRedaction(warning, redaction)),
+    ...(monitoringContext.warningEvidence
+      ? {
+          warningEvidence: monitoringContext.warningEvidence.map((entry) => ({
+            warningText: entry.warningText,
+            source: applyPrivacyRedaction(entry.source, redaction),
+            detail: applyPrivacyRedaction(entry.detail, redaction),
+            confidence: entry.confidence,
+            ...(entry.provenance ? { provenance: applyPrivacyRedaction(entry.provenance, redaction) } : {}),
+            ...(entry.detectedAt ? { detectedAt: entry.detectedAt } : {})
+          }))
+        }
+      : {}),
     signals: monitoringContext.signals.map((signal) => ({
       ...signal,
       maskedValue: applyPrivacyRedaction(signal.maskedValue, redaction)

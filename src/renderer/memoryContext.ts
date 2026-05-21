@@ -10,7 +10,7 @@ const CONFIRMATION_TERMS = ['confirmation', 'confirmed', 'wait', 'waited', 'supp
 const WIN_TERMS = ['win', 'won', 'profit', 'profitable', 'green', 'worked'];
 const OVERSIZE_TERMS = ['oversized', 'oversize', 'too big', 'overleveraged', 'over-leveraged'];
 const FOMO_TERMS = ['fomo', 'ape', 'chased', 'chase'];
-const EARLY_ENTRY_WARNING_TEXT =
+export const EARLY_ENTRY_WARNING_TEXT =
   'This resembles prior early-entry risk patterns; set a confirmation plan before acting.';
 
 export function buildMemoryContext(
