@@ -27,6 +27,7 @@ import {
   summarizeDiagnostics,
   sanitizeQuestionPreview,
   readRequestDiagnostics,
+  clearRequestDiagnostics,
   createRequestDiagnostic
 } from './requestDiagnostics';
 import { buildSourceQualityAssessment } from './sourceQuality';
@@ -529,7 +530,7 @@ export function App(): ReactElement {
         setRequestState('idle');
       }
     },
-    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy, sourceQualityAssessment.findings, localWarnings, settings.watchOCR, hermesHeartbeat.status]
+    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy, sourceQualityAssessment.findings, localWarnings, hermesHeartbeat.status]
   );
 
   const askCoach = useCallback(async () => {
@@ -637,6 +638,14 @@ export function App(): ReactElement {
     setTimeout(() => {
       setCopiedDiagnosticId((nextId) => (nextId === entry.id ? undefined : nextId));
     }, 2200);
+  }, []);
+
+  const clearDiagnosticsHistory = useCallback(() => {
+    setRequestDiagnostics(clearRequestDiagnostics(localStorage));
+  }, []);
+
+  const formatTiming = useCallback((value?: number): string => {
+    return value === undefined ? 'n/a' : `${value}ms`;
   }, []);
 
   const buildJournalSourceContext = useCallback(() => {
@@ -1380,15 +1389,21 @@ export function App(): ReactElement {
           </strong>
           {diagnosticSummary.count > 0 ? (
             <small>
-              Avg latency (success): {diagnosticSummary.avgLocalRiskMs}ms risk checks · {diagnosticSummary.avgOcrMs}ms OCR ·{' '}
-              {diagnosticSummary.avgRequestBuildMs}ms request build · {diagnosticSummary.avgCaptureMs}ms capture ·{' '}
-              {diagnosticSummary.avgHermesMs}ms Hermes · {diagnosticSummary.avgTotalMs}ms total
+              Avg latency (success): {formatTiming(diagnosticSummary.avgLocalRiskMs)} risk checks ·{' '}
+              {formatTiming(diagnosticSummary.avgOcrMs)} OCR · {formatTiming(diagnosticSummary.avgRequestBuildMs)} request build ·{' '}
+              {formatTiming(diagnosticSummary.avgCaptureMs)} capture · {formatTiming(diagnosticSummary.avgHermesMs)} Hermes ·{' '}
+              {formatTiming(diagnosticSummary.avgTotalMs)} total
             </small>
           ) : null}
         </div>
-        <button type="button" onClick={() => setDiagnosticsOpen((open) => !open)}>
-          {diagnosticsOpen ? 'Hide history' : 'Show history'}
-        </button>
+        <div className="button-row">
+          <button type="button" onClick={clearDiagnosticsHistory} disabled={requestDiagnostics.length === 0}>
+            Clear history
+          </button>
+          <button type="button" onClick={() => setDiagnosticsOpen((open) => !open)}>
+            {diagnosticsOpen ? 'Hide history' : 'Show history'}
+          </button>
+        </div>
       </section>
 
       {diagnosticsOpen ? (
@@ -1417,9 +1432,9 @@ export function App(): ReactElement {
                   </div>
                   <div className="diagnostic-metrics">
                     <small>
-                      Risk {diagnostic.timings.localRiskMs ?? 0}ms · OCR {diagnostic.timings.ocrMs ?? 0}ms ·
-                      Build {diagnostic.timings.requestBuildMs ?? 0}ms · Capture {diagnostic.timings.captureMs ?? 0}ms · Hermes{' '}
-                      {diagnostic.timings.hermesMs ?? 0}ms · Total {diagnostic.timings.totalMs ?? 0}ms
+                      Risk {formatTiming(diagnostic.timings.localRiskMs)} · OCR {formatTiming(diagnostic.timings.ocrMs)} · Build{' '}
+                      {formatTiming(diagnostic.timings.requestBuildMs)} · Capture {formatTiming(diagnostic.timings.captureMs)} · Hermes{' '}
+                      {formatTiming(diagnostic.timings.hermesMs)} · Total {formatTiming(diagnostic.timings.totalMs)}
                     </small>
                   </div>
                   {diagnostic.failure ? (
@@ -1856,9 +1871,9 @@ export function App(): ReactElement {
           <p>{response}</p>
           {requestMetrics ? (
             <small className="timing">
-              Local risk checks: {requestMetrics.localRiskMs ?? 0}ms · OCR: {requestMetrics.ocrMs ?? 0}ms · Request build: {requestMetrics.requestBuildMs ?? 0}ms ·
-              Capture: {requestMetrics.captureMs ?? 0}ms · Hermes: {requestMetrics.hermesMs ?? 0}ms ·
-              Total: {requestMetrics.totalMs ?? 0}ms
+              Local risk checks: {formatTiming(requestMetrics.localRiskMs)} · OCR: {formatTiming(requestMetrics.ocrMs)} · Request build:{' '}
+              {formatTiming(requestMetrics.requestBuildMs)} · Capture: {formatTiming(requestMetrics.captureMs)} · Hermes:{' '}
+              {formatTiming(requestMetrics.hermesMs)} · Total: {formatTiming(requestMetrics.totalMs)}
             </small>
           ) : null}
           <label htmlFor="journal-notes">Session notes</label>

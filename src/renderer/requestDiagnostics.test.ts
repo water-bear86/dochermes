@@ -118,6 +118,26 @@ describe('request diagnostics persistence', () => {
     expect(summary.avgLocalRiskMs).toBe(12);
     expect(summary.avgOcrMs).toBe(4);
   });
+
+  it('keeps OCR average undefined when no successful OCR timings are recorded', () => {
+    const storage = createStorage('[]');
+    const successNoOcr: HermesRequestDiagnostic = createRequestDiagnostic({
+      ...BASE_DIAGNOSTIC_INPUT,
+      id: 'req-no-ocr',
+      timings: {
+        localRiskMs: 2,
+        requestBuildMs: 5,
+        captureMs: 7,
+        hermesMs: 10,
+        totalMs: 24
+      } as HermesRequestTiming
+    });
+
+    appendRequestDiagnostic(storage, successNoOcr);
+    const summary = summarizeDiagnostics(readRequestDiagnostics(storage));
+
+    expect(summary.avgOcrMs).toBeUndefined();
+  });
 });
 
 describe('diagnostic reporting', () => {

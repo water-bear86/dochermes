@@ -45,7 +45,7 @@ export interface HermesRequestAverages {
   successCount: number;
   failureCount: number;
   avgLocalRiskMs: number;
-  avgOcrMs: number;
+  avgOcrMs?: number;
   avgCaptureMs: number;
   avgRequestBuildMs: number;
   avgHermesMs: number;
@@ -107,6 +107,11 @@ export function appendRequestDiagnostic(
 
   storage.setItem(REQUEST_DIAGNOSTICS_KEY, JSON.stringify(list));
   return list;
+}
+
+export function clearRequestDiagnostics(storage: Pick<Storage, 'removeItem'>): HermesRequestDiagnostic[] {
+  storage.removeItem(REQUEST_DIAGNOSTICS_KEY);
+  return [];
 }
 
 export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
@@ -173,11 +178,12 @@ export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
 export function summarizeDiagnostics(diagnostics: HermesRequestDiagnostic[]): HermesRequestAverages {
   const success = diagnostics.filter((diagnostic) => diagnostic.status === 'success');
   const fallback = { count: diagnostics.length, successCount: success.length, failureCount: diagnostics.length - success.length };
+  const ocrSamples = success.filter((entry) => entry.timings.ocrMs !== undefined);
 
   return {
     ...fallback,
     avgLocalRiskMs: Math.round(average(success, (entry) => entry.timings.localRiskMs ?? 0)),
-    avgOcrMs: Math.round(average(success, (entry) => entry.timings.ocrMs ?? 0)),
+    avgOcrMs: ocrSamples.length > 0 ? Math.round(average(ocrSamples, (entry) => entry.timings.ocrMs ?? 0)) : undefined,
     avgCaptureMs: Math.round(average(success, (entry) => entry.timings.captureMs ?? 0)),
     avgRequestBuildMs: Math.round(average(success, (entry) => entry.timings.requestBuildMs ?? 0)),
     avgHermesMs: Math.round(average(success, (entry) => entry.timings.hermesMs ?? 0)),
