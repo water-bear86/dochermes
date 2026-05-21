@@ -510,17 +510,17 @@ function applyMonitoringContext(
       ...signal,
       maskedValue: applyPrivacyRedaction(signal.maskedValue, redaction)
     })),
-    ...(monitoringContext.sourceQuality
-      ? {
-          sourceQuality: monitoringContext.sourceQuality.map((finding) => ({
-            category: finding.category,
-            confidence: finding.confidence,
-            provenance: finding.provenance,
-            reason: applyPrivacyRedaction(finding.reason, redaction),
-            ...(finding.tokenHint ? { tokenHint: finding.tokenHint } : {})
-          }))
-        }
-      : {})
+        ...(monitoringContext.sourceQuality
+          ? {
+              sourceQuality: monitoringContext.sourceQuality.map((finding) => ({
+                category: finding.category,
+                confidence: finding.confidence,
+                provenance: finding.provenance,
+                reason: applyPrivacyRedaction(finding.reason, redaction),
+                ...(finding.tokenHint ? { tokenHint: applyPrivacyRedaction(finding.tokenHint, redaction) } : {})
+              }))
+            }
+          : {})
   };
 }
 

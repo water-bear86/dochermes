@@ -440,6 +440,15 @@ describe('probeHermesConnection', () => {
               detectedAt: '2026-05-21T12:00:00.000Z',
               message: 'user seen'
             } as JournalMonitoringSignal
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'clipboard',
+              tokenHint: '0x1111111111111111111111111111111111111111',
+              reason: 'Repeated copied token with prior low outcome'
+            }
           ]
         }
       }),
@@ -459,6 +468,7 @@ describe('probeHermesConnection', () => {
     expect(capturedPrompt).toContain('[redacted address]');
     expect(capturedPrompt).toContain('[redacted username]');
     expect(capturedPrompt).toContain('[redacted amount]');
+    expect(capturedPrompt).not.toContain('1111111111111111111111111111111111111111');
   });
 
   it('supports explicit legacy /coach probes', async () => {
