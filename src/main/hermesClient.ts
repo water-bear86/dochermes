@@ -486,15 +486,24 @@ function normalizePrivacyRedaction(rawValue: PrivacyRedactionSettings | undefine
 
 function buildPrivacyAwarePayloadInput(input: AskHermesInput): BuildHermesPayloadInput {
   const privacy = normalizePrivacySettings(input.privacy);
+  const redaction =
+    privacy.preset === 'maximum'
+      ? {
+          redactAddresses: true,
+          redactBalances: true,
+          redactUsernames: true,
+          redactAmounts: true
+        }
+      : privacy.redaction;
   return {
-    question: applyPrivacyRedaction(input.question, privacy.redaction).trim(),
+    question: applyPrivacyRedaction(input.question, redaction).trim(),
     screenshotDataUrl:
       privacy.preset === 'maximum' ? MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL : input.screenshotDataUrl,
     selectedWindow: maybeSanitizeSelectedWindow(input.selectedWindow, privacy.preset),
-    memoryContext: privacy.preset === 'maximum' ? undefined : applyMemoryContextRedaction(input.memoryContext, privacy.redaction),
+    memoryContext: privacy.preset === 'maximum' ? undefined : applyMemoryContextRedaction(input.memoryContext, redaction),
     monitoringContext: applyMonitoringContext(
       maybeRestrictMonitoringContext(input.monitoringContext, privacy.preset),
-      privacy.redaction
+      redaction
     )
   };
 }

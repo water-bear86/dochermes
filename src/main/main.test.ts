@@ -118,4 +118,24 @@ describe('main ipc validation', () => {
 
     expect(askHermesMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['missing question', 'Question is required.', (input: typeof baseInput) => ({ ...input, question: '  ' })],
+    ['missing connection', 'Hermes connection settings are required.', () => ({ ...baseInput, connection: undefined as never })],
+    [
+      'missing window kind',
+      'Selected window kind is invalid.',
+      (input: typeof baseInput) => ({ ...input, selectedWindow: { ...input.selectedWindow, kind: 'monitor' as const } })
+    ],
+    ['invalid base URL', 'Hermes base URL must be a valid http or https URL.', (input: typeof baseInput) => ({ ...input, connection: { ...input.connection, baseUrl: 'ftp://example.com' } })],
+    ['missing model id', 'Hermes model ID is required.', (input: typeof baseInput) => ({ ...input, connection: { ...input.connection, modelId: '   ' } })]
+  ])(
+    'rejects malformed ask payload: %s', async (_label, expectedMessage, buildInput) => {
+      const invalidInput = buildInput(baseInput);
+      const handler = getHermesAskHandler();
+
+      await expect(handler(undefined, invalidInput)).rejects.toThrow(expectedMessage);
+      expect(askHermesMock).not.toHaveBeenCalled();
+    }
+  );
 });

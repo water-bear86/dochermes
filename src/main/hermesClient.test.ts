@@ -471,6 +471,74 @@ describe('probeHermesConnection', () => {
     expect(capturedPrompt).not.toContain('1111111111111111111111111111111111111111');
   });
 
+  it('forces full redaction for maximum privacy regardless of redaction toggles', async () => {
+    let capturedPrompt = '';
+
+    await askHermes(
+      askInput({
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        },
+        question: 'Enter 12 SOL with @alpha bot address 0xAbCdEf0123456789abcdef0123456789abcdef0123',
+        memoryContext: {
+          matchedPatterns: [
+            {
+              name: 'pattern-1',
+              evidenceCount: 2,
+              summary: 'Wallet 0xAbCdEf0123456789abcdef0123456789abcdef0123 appeared in prior notes.',
+              recommendation: 'Wait for confirmation.'
+            }
+          ],
+          recentNotes: []
+        },
+        monitoringContext: {
+          localWarnings: ['Potential immediate entry around 0xAbCdEf0123456789abcdef0123456789abcdef0123'],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              confidence: 'high',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'wallet detected'
+            } as JournalMonitoringSignal
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'question',
+              reason: `Repeatedly pasted wallet 0xAbCdEf0123456789abcdef0123456789abcdef0123`,
+              tokenHint: '0xAbCdEf0123456789abcdef0123456789abcdef0123'
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const message = (body.messages as Array<{ content?: unknown }>)[1];
+        if (!message || typeof message !== 'object' || !('content' in message) || !Array.isArray(message.content)) {
+          throw new Error('Malformed request');
+        }
+
+        const textItem = (message.content as Array<{ type: string; text?: string }>).find((item) => item.type === 'text');
+        capturedPrompt = textItem?.text ?? '';
+        return jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+      }
+    );
+
+    expect(capturedPrompt).toContain('[redacted address]');
+    expect(capturedPrompt).toContain('[redacted amount]');
+    expect(capturedPrompt).toContain('[redacted username]');
+    expect(capturedPrompt).not.toContain('0xAbCdEf0123456789abcdef0123456789abcdef0123');
+  });
+
   it('redacts source-quality token hints before sending legacy payloads', async () => {
     let capturedBody: Record<string, unknown> | undefined;
     const tokenHint = '0x1111111111111111111111111111111111111111';
