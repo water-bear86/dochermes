@@ -10,7 +10,9 @@ import type {
   HermesConnectionReport,
   HermesEndpointMode,
   HermesConnectionStatus,
+  DataSharingScope,
   LocalSettings,
+  HermesRequestDiagnostic,
   SourceQualityFinding,
   SourceCategory,
   SourceQualityOutcome,
@@ -19,6 +21,14 @@ import type {
   WindowSourceOption
 } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, clearJournalEntries, readJournalEntries } from './journal';
+import {
+  appendRequestDiagnostic,
+  buildDiagnosticReport,
+  summarizeDiagnostics,
+  sanitizeQuestionPreview,
+  readRequestDiagnostics,
+  createRequestDiagnostic
+} from './requestDiagnostics';
 import { buildSourceQualityAssessment } from './sourceQuality';
 import {
   appendWarningFeedback,
@@ -49,8 +59,6 @@ declare global {
 type RequestState = 'idle' | 'loading-sources' | 'capturing' | 'asking';
 type PickerMode = 'pair' | 'ask';
 type HermesHeartbeatStatus = 'unknown' | HermesConnectionStatus;
-
-type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
 
 type HermesRequestPreview = {
   destinationOrigin: string;
@@ -114,12 +122,19 @@ export function App(): ReactElement {
   const [pickerMode, setPickerMode] = useState<PickerMode>('pair');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [copiedDiagnosticId, setCopiedDiagnosticId] = useState<string | undefined>();
   const [requestMetrics, setRequestMetrics] = useState<{
     captureMs?: number;
-    localAnalysisMs?: number;
+    localRiskMs?: number;
+    ocrMs?: number;
+    requestBuildMs?: number;
     hermesMs?: number;
     totalMs?: number;
   } | undefined>();
+  const [requestDiagnostics, setRequestDiagnostics] = useState<HermesRequestDiagnostic[]>(
+    () => readRequestDiagnostics(localStorage)
+  );
   const [monitorSignals, setMonitorSignals] = useState<MonitoringSignal[]>([]);
   const [lastRequestMonitoringMetadata, setLastRequestMonitoringMetadata] = useState<
     JournalMonitoringMetadata | undefined
@@ -164,6 +179,7 @@ export function App(): ReactElement {
     () => buildMemoryContext(journalEntries, question, warningFeedbackEntries),
     [journalEntries, question, warningFeedbackEntries]
   );
+  const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
   const sourceQualityAssessment = useMemo(
     () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries }),
@@ -339,6 +355,8 @@ export function App(): ReactElement {
         return;
       }
 
+      const analysisStartedAt = performance.now();
+      const localWarningsSnapshot = [...localWarnings];
       const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals, sourceQualityAssessment.findings);
 
       const nextPreview = buildHermesRequestPreview({
@@ -364,26 +382,45 @@ export function App(): ReactElement {
       setLastRequestMonitoringMetadata(undefined);
       setRequestState('capturing');
 
-      const totalStart = performance.now();
-      const localAnalysisStart = performance.now();
-      const localAnalysisMs = Math.round(performance.now() - localAnalysisStart);
+      const requestId = createRequestContextId();
+      const requestStartedAt = new Date().toISOString();
+      const timingStarted = performance.now();
+      let localRiskMs = Math.round(performance.now() - analysisStartedAt);
+      let ocrMs = 0;
+      let requestBuildMs = 0;
+      let captureMs = 0;
+      let hermesMs = 0;
+      let failure: HermesRequestDiagnostic['failure'];
+      let diagnosticError: string | undefined;
+      const requestContext = inferDataSharingScope(settings.connection);
+
+      if (settings.watchOCR) {
+        ocrMs = 0;
+      }
+      let stage: Exclude<HermesRequestDiagnostic['failure'], undefined>['stage'] = 'validation';
 
       try {
         const isAvailable = await bridge.validateSelectedWindow(source.id);
         if (!isAvailable) {
+          failure = {
+            stage: 'validation',
+            reason: 'The selected trading window is no longer available. Select a window again.'
+          };
           throw new Error('The selected trading window is no longer available. Select a window again.');
         }
 
+        stage = 'capture';
         const captureStart = performance.now();
         const shouldCaptureWindow = shouldCaptureWindowForPrivacy(settings.privacy);
         const capture = shouldCaptureWindow
           ? await bridge.captureWindowSource(source.id)
           : MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL;
-        const captureMs = shouldCaptureWindow ? Math.round(performance.now() - captureStart) : 0;
+        captureMs = shouldCaptureWindow ? Math.round(performance.now() - captureStart) : 0;
         setScreenshotDataUrl(shouldCaptureWindow ? capture : undefined);
-        setRequestState('asking');
 
-        const hermesStart = performance.now();
+        setRequestState('asking');
+        stage = 'request-build';
+        const requestBuildStart = performance.now();
         const request: AskHermesInput = {
           connection: settings.connection,
           question,
@@ -393,20 +430,22 @@ export function App(): ReactElement {
           monitoringContext: monitoringSnapshot,
           privacy: settings.privacy
         };
-        const answer = await bridge.askHermes(request);
-        const hermesMs = Math.round(performance.now() - hermesStart);
+        requestBuildMs = Math.round(performance.now() - requestBuildStart);
 
-        if (localWarnings.length > 0) {
-          setResponse(`Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}`);
-        } else {
-          setResponse(answer);
-        }
+        stage = 'hermes';
+        const hermesStart = performance.now();
+        const answer = await bridge.askHermes(request);
+        hermesMs = Math.round(performance.now() - hermesStart);
+
+        const responseText =
+          localWarningsSnapshot.length > 0 ? `Local risk guardrail: ${localWarningsSnapshot.join(' ')}\n\n${answer}` : answer;
+        setResponse(responseText);
 
         setLastRequestMonitoringMetadata(monitoringSnapshot);
         setLastRequestContext({
-          id: createRequestContextId(),
+          id: requestId,
           question,
-          response: localWarnings.length > 0 ? `Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}` : answer,
+          response: responseText,
           selectedWindowId: source.id,
           selectedWindowName: source.name,
           selectedWindowKind: source.kind
@@ -418,13 +457,23 @@ export function App(): ReactElement {
         setEditingFeedbackAction('followed-plan');
         setEditingFeedbackNotes('');
         setRequestMetrics({
-          localAnalysisMs,
+          localRiskMs,
+          ocrMs,
+          requestBuildMs,
           captureMs,
           hermesMs,
-          totalMs: Math.round(performance.now() - totalStart)
+          totalMs: Math.round(performance.now() - timingStarted)
         });
       } catch (nextError) {
         const errorMessage = readError(nextError);
+        diagnosticError = errorMessage;
+
+        if (!failure) {
+          failure = {
+            stage,
+            reason: errorMessage
+          };
+        }
 
         if (/not available/.test(errorMessage) || /trading window/.test(errorMessage)) {
           setSettings((current) => ({
@@ -436,10 +485,54 @@ export function App(): ReactElement {
 
         setError(errorMessage);
       } finally {
-        setRequestState('idle');
+        const totalMs = Math.round(performance.now() - timingStarted);
+        const diagnostic = createRequestDiagnostic({
+          id: requestId,
+          startedAt: requestStartedAt,
+          completedAt: new Date().toISOString(),
+          status: failure ? 'failure' : 'success',
+          questionPreview: sanitizeQuestionPreview(question),
+          selectedWindowName: source.name,
+          selectedWindowId: source.id,
+          selectedWindowKind: source.kind,
+          connection: {
+            connectionKind: settings.connection.connectionKind,
+            endpointMode: settings.connection.endpointMode,
+            baseUrl: settings.connection.baseUrl,
+            modelId: settings.connection.modelId,
+            resolvedEndpoint: resolveDebugEndpoint(settings.connection),
+            resolvedAdapter: resolveDebugAdapter(settings.connection)
+          },
+          requestContext: {
+            dataSharingScope: requestContext.scope,
+            preset: settings.privacy.preset
+          },
+          request: {
+            redactionEnabled:
+              settings.privacy.redaction.redactAddresses ||
+              settings.privacy.redaction.redactBalances ||
+              settings.privacy.redaction.redactUsernames ||
+              settings.privacy.redaction.redactAmounts,
+            usedFallbackImage: settings.privacy.preset === 'maximum'
+          },
+          timings: {
+            localRiskMs,
+            ocrMs,
+            requestBuildMs,
+            captureMs,
+            hermesMs,
+            totalMs
+          },
+          connectionStatus: hermesHeartbeat.status === 'unknown' ? undefined : hermesHeartbeat.status,
+          ...(failure ? { failure } : {}),
+          ...(diagnosticError ? { debugNotes: diagnosticError } : {})
+        });
+
+        setRequestDiagnostics((current) => appendRequestDiagnostic(localStorage, diagnostic));
+      setRequestState('idle');
       }
     },
-    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy]
+    [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy, sourceQualityAssessment.findings, localWarnings, settings.watchOCR, hermesHeartbeat.status]
   );
 
   const askCoach = useCallback(async () => {
@@ -539,6 +632,15 @@ export function App(): ReactElement {
     await navigator.clipboard.writeText(connectionReport.debugReport);
     setCopiedReport(true);
   }, [connectionReport]);
+
+  const copyDiagnosticReport = useCallback(async (entry: HermesRequestDiagnostic) => {
+    await navigator.clipboard.writeText(buildDiagnosticReport(entry));
+    setCopiedDiagnosticId(entry.id);
+
+    setTimeout(() => {
+      setCopiedDiagnosticId((nextId) => (nextId === entry.id ? undefined : nextId));
+    }, 2200);
+  }, []);
 
   const buildJournalSourceContext = useCallback(() => {
     const tokenHint = journalSourceTokenHint.trim();
@@ -1272,6 +1374,72 @@ export function App(): ReactElement {
         ) : null}
       </section>
 
+      <section className="control-strip control-strip--multi" aria-label="Request diagnostics">
+        <div>
+          <span className="label">Request diagnostics</span>
+          <strong>
+            {diagnosticSummary.count} recent request{diagnosticSummary.count === 1 ? '' : 's'} ·{' '}
+            {diagnosticSummary.successCount}/{diagnosticSummary.count} success
+          </strong>
+          {diagnosticSummary.count > 0 ? (
+            <small>
+              Avg latency (success): {diagnosticSummary.avgLocalRiskMs}ms risk checks · {diagnosticSummary.avgOcrMs}ms OCR ·{' '}
+              {diagnosticSummary.avgRequestBuildMs}ms request build · {diagnosticSummary.avgCaptureMs}ms capture ·{' '}
+              {diagnosticSummary.avgHermesMs}ms Hermes · {diagnosticSummary.avgTotalMs}ms total
+            </small>
+          ) : null}
+        </div>
+        <button type="button" onClick={() => setDiagnosticsOpen((open) => !open)}>
+          {diagnosticsOpen ? 'Hide history' : 'Show history'}
+        </button>
+      </section>
+
+      {diagnosticsOpen ? (
+        <section className="message diagnostics" aria-label="Diagnostics history">
+          <div className="section-heading compact">
+            <h2>Diagnostics history</h2>
+          </div>
+          {requestDiagnostics.length > 0 ? (
+            <ol className="diagnostic-history">
+              {requestDiagnostics.slice(0, 8).map((diagnostic) => (
+                <li key={diagnostic.id} className={`diagnostic-item ${diagnostic.status}`}>
+                  <div className="diagnostic-item-row">
+                    <strong>{diagnostic.status.toUpperCase()}</strong>
+                    <span>{diagnostic.selectedWindowName}</span>
+                    <small>
+                      {diagnostic.connection.connectionKind}/{diagnostic.connection.endpointMode}
+                    </small>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void copyDiagnosticReport(diagnostic);
+                      }}
+                    >
+                      {copiedDiagnosticId === diagnostic.id ? 'Report copied' : 'Copy report'}
+                    </button>
+                  </div>
+                  <div className="diagnostic-metrics">
+                    <small>
+                      Risk {diagnostic.timings.localRiskMs ?? 0}ms · OCR {diagnostic.timings.ocrMs ?? 0}ms ·
+                      Build {diagnostic.timings.requestBuildMs ?? 0}ms · Capture {diagnostic.timings.captureMs ?? 0}ms · Hermes{' '}
+                      {diagnostic.timings.hermesMs ?? 0}ms · Total {diagnostic.timings.totalMs ?? 0}ms
+                    </small>
+                  </div>
+                  {diagnostic.failure ? (
+                    <small>
+                      Failure: {diagnostic.failure.stage ?? 'unknown'} — {diagnostic.failure.reason ?? 'no detail'}
+                    </small>
+                  ) : null}
+                  {diagnostic.debugNotes ? <small>Note: {diagnostic.debugNotes}</small> : null}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="diagnostics-empty">No diagnostics recorded yet.</p>
+          )}
+        </section>
+      ) : null}
+
       {pendingRemoteConsent ? (
         <section className="message warning" aria-label="Remote Hermes consent">
           <span className="label">Remote Hermes target</span>
@@ -1691,7 +1859,8 @@ export function App(): ReactElement {
           <p>{response}</p>
           {requestMetrics ? (
             <small className="timing">
-              Local analysis: {requestMetrics.localAnalysisMs ?? 0}ms · Capture: {requestMetrics.captureMs ?? 0}ms · Hermes: {requestMetrics.hermesMs ?? 0}ms ·
+              Local risk checks: {requestMetrics.localRiskMs ?? 0}ms · OCR: {requestMetrics.ocrMs ?? 0}ms · Request build: {requestMetrics.requestBuildMs ?? 0}ms ·
+              Capture: {requestMetrics.captureMs ?? 0}ms · Hermes: {requestMetrics.hermesMs ?? 0}ms ·
               Total: {requestMetrics.totalMs ?? 0}ms
             </small>
           ) : null}
@@ -1875,6 +2044,43 @@ function originFromBaseUrl(baseUrl: string): string {
     return new URL(baseUrl).origin;
   } catch {
     return baseUrl;
+  }
+}
+
+function resolveDebugEndpoint(connection: HermesConnectionSettings): string {
+  const baseUrl = normalizeBaseUrl(connection.baseUrl);
+  if (connection.endpointMode === 'legacy-coach') {
+    return `${baseUrl}/coach`;
+  }
+
+  if (connection.endpointMode === 'custom') {
+    return baseUrl;
+  }
+
+  return `${baseUrl}/v1/chat/completions`;
+}
+
+function resolveDebugAdapter(connection: HermesConnectionSettings): HermesEndpointMode {
+  if (connection.endpointMode === 'auto') {
+    return 'openai-chat';
+  }
+
+  return connection.endpointMode;
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  try {
+    const trimmed = baseUrl.trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    const normalized = new URL(trimmed);
+    normalized.hash = '';
+    normalized.search = '';
+    return normalized.toString().replace(/\/+$/, '');
+  } catch {
+    return baseUrl.replace(/\/+$/, '');
   }
 }
 

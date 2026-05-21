@@ -369,6 +369,63 @@ textarea:focus {
   font-size: 11px;
 }
 
+.diagnostics-summary-note,
+.diagnostic-history {
+  margin: 8px 0 0;
+  color: #d0d4cb;
+  font-size: 12px;
+}
+
+.diagnostic-history {
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostic-item {
+  border-top: 1px solid #2c3532;
+  padding-top: 8px;
+}
+
+.diagnostic-item strong {
+  color: #f4f1e8;
+}
+
+.diagnostic-item .diagnostic-item-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.diagnostic-item .diagnostic-item-row button {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.diagnostic-item .diagnostic-metrics {
+  margin-top: 4px;
+}
+
+.diagnostic-item .diagnostic-metrics small {
+  color: #b4b7aa;
+}
+
+.diagnostics-empty {
+  margin: 8px 0 0;
+  color: #9ca49b;
+  font-size: 12px;
+}
+
+.diagnostic-item.success strong {
+  color: #aee89c;
+}
+
+.diagnostic-item.failure strong {
+  color: #ffb7aa;
+}
+
 .timing {
   display: block;
   margin-top: 8px;

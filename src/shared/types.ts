@@ -18,6 +18,7 @@ export interface WindowSourceRef {
 export type HermesConnectionKind = 'local' | 'hosted' | 'custom';
 export type HermesEndpointMode = 'auto' | 'openai-chat' | 'legacy-coach' | 'custom';
 export type HermesConnectionStatus = 'connected' | 'degraded' | 'disconnected' | 'auth-error' | 'model-error' | 'incompatible';
+export type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
 
 export type FrictionStrictness = 'low' | 'standard' | 'high';
 
@@ -173,6 +174,51 @@ export interface JournalSourceProfile {
   category: SourceCategory;
   outcome: SourceQualityOutcome;
   tokenHint?: string;
+}
+
+export interface HermesRequestTiming {
+  localRiskMs?: number;
+  ocrMs?: number;
+  requestBuildMs?: number;
+  captureMs?: number;
+  hermesMs?: number;
+  totalMs?: number;
+}
+
+export interface HermesFailureDetail {
+  stage?: 'validation' | 'local-analysis' | 'capture' | 'request-build' | 'hermes' | 'total';
+  reason?: string;
+}
+
+export interface HermesRequestDiagnostic {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  status: 'success' | 'failure';
+  questionPreview: string;
+  selectedWindowName: string;
+  selectedWindowKind: WindowSourceKind;
+  selectedWindowId: string;
+  connection: {
+    connectionKind: HermesConnectionKind;
+    endpointMode: HermesEndpointMode;
+    baseUrl: string;
+    modelId: string;
+    resolvedEndpoint?: string;
+    resolvedAdapter?: HermesEndpointMode;
+  };
+  requestContext?: {
+    dataSharingScope: DataSharingScope;
+    preset: PrivacyPreset;
+  };
+  request: {
+    redactionEnabled: boolean;
+    usedFallbackImage: boolean;
+  };
+  timings: HermesRequestTiming;
+  connectionStatus?: HermesConnectionStatus;
+  failure?: HermesFailureDetail;
+  debugNotes?: string;
 }
 
 export interface CoachBridgeApi {
