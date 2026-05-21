@@ -14,7 +14,8 @@ const defaultBudget: SessionBudgetSettings = {
   maxTradesPerSession: 4,
   maxLossPerSessionPercent: 12,
   cooldownMinutesAfterLoss: 45,
-  maxSizeMultiplier: 1.5
+  maxSizeMultiplier: 1.5,
+  tiltSensitivity: 'standard'
 };
 
 function makeEntry(overrides: Partial<JournalEntry>): JournalEntry {
@@ -273,7 +274,66 @@ describe('buildSessionRiskAssessment', () => {
     });
 
     expect(
-      result.warnings.some((warning) => warning.text.includes('Tilt-risk pattern: urgent entry language after recent losses'))
+      result.warnings.some((warning) => warning.text.includes('urgent language after 1 recent loss'))
     ).toBe(true);
+  });
+
+  it('warns on rapid sequential trades in the configured sensitivity window', () => {
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T10:30:00.000Z'),
+      question: 'Buy 0.3 SOL',
+      journalEntries: [
+        makeEntry({
+          id: '1',
+          createdAt: '2026-05-21T10:00:00.000Z',
+          question: 'Buy 0.2 SOL'
+        }),
+        makeEntry({
+          id: '2',
+          createdAt: '2026-05-21T10:17:00.000Z',
+          question: 'Buy 0.1 SOL'
+        }),
+        makeEntry({
+          id: '3',
+          createdAt: '2026-05-21T10:25:00.000Z',
+          question: 'Buy 0.25 SOL'
+        })
+      ],
+      riskBudget: {
+        ...defaultBudget,
+        tiltSensitivity: 'high'
+      }
+    });
+
+    expect(
+      result.warnings.some((warning) => warning.text.includes('High trading pace detected'))
+    ).toBe(true);
+  });
+
+  it('warns when a candidate token appeared recently in session history', () => {
+    const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T10:30:00.000Z'),
+      question: `Buy this ${token} now`,
+      journalEntries: [
+        makeEntry({
+          id: '1',
+          createdAt: '2026-05-21T09:45:00.000Z',
+          question: `Watch ${token}`
+        }),
+        makeEntry({
+          id: '2',
+          createdAt: '2026-05-21T09:50:00.000Z',
+          response: `Copied ${token}`
+        })
+      ],
+      riskBudget: defaultBudget
+    });
+
+    expect(
+      result.warnings.some((warning) => warning.text.includes('Tilt-risk pattern'))
+    ).toBe(true);
+    expect(result.status.tiltSensitivity).toBe('standard');
   });
 });

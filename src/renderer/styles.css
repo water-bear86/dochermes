@@ -541,6 +541,69 @@ textarea:focus {
   font-size: 11px;
 }
 
+.session-risk-status {
+  border-color: #4b4f3b;
+  background: #1a1f18;
+}
+
+.session-risk-status--ok {
+  border-color: #4e7446;
+  background: #182018;
+}
+
+.session-risk-status--low {
+  border-color: #6a5a2c;
+  background: #201f12;
+}
+
+.session-risk-status--medium {
+  border-color: #88622c;
+  background: #291f13;
+}
+
+.session-risk-status--high {
+  border-color: #733535;
+  background: #241414;
+}
+
+.session-risk-status--off {
+  border-color: #384238;
+  background: #151a18;
+}
+
+.session-risk-grid {
+  margin-top: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.session-risk-grid div {
+  border: 1px solid #353d39;
+  border-radius: 7px;
+  padding: 6px;
+  background: #121515;
+}
+
+.session-risk-grid strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #c8d4c7;
+}
+
+.session-risk-grid p {
+  margin: 0;
+  color: #f4f1e8;
+  word-break: break-word;
+}
+
+.session-risk-note {
+  display: block;
+  margin-top: 8px;
+  color: #b7bead;
+  font-size: 11px;
+}
+
 .source-quality-chip-list {
   display: flex;
   flex-wrap: wrap;

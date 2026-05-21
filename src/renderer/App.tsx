@@ -199,6 +199,12 @@ export function App(): ReactElement {
   const [journalSourceOutcome, setJournalSourceOutcome] = useState<SourceQualityOutcome>('unknown');
   const [journalSourceTokenHint, setJournalSourceTokenHint] = useState('');
   const isMaximumPrivacy = settings.privacy.preset === 'maximum';
+  const isTextRedactionEnabled =
+    isMaximumPrivacy ||
+    settings.privacy.redaction.redactAddresses ||
+    settings.privacy.redaction.redactBalances ||
+    settings.privacy.redaction.redactUsernames ||
+    settings.privacy.redaction.redactAmounts;
   const validatedPairRef = useRef<string | undefined>(undefined);
   const heartbeatInFlightRef = useRef(false);
   const sourceContextAutoFillRequestId = useRef<string | undefined>(undefined);
@@ -251,6 +257,34 @@ export function App(): ReactElement {
     [localWarningCards]
   );
   const localWarnings = useMemo(() => localWarningCards.map((warning) => warning.text), [localWarningCards]);
+  const sessionRiskStatusClass = useMemo(() => {
+    if (!sessionRiskAssessment.status.enabled) {
+      return 'session-risk-status--off';
+    }
+
+    if (sessionRiskAssessment.warnings.some((warning) => warning.text.includes('Session max-loss budget exceeded'))) {
+      return 'session-risk-status--high';
+    }
+
+    if (sessionRiskAssessment.warnings.some((warning) => warning.text.includes('Cooldown active')))
+      return 'session-risk-status--medium';
+
+    if (sessionRiskAssessment.warnings.length >= 2) {
+      return 'session-risk-status--medium';
+    }
+
+    if (sessionRiskAssessment.warnings.length === 1) {
+      return 'session-risk-status--low';
+    }
+
+    return 'session-risk-status--ok';
+  }, [sessionRiskAssessment.status.enabled, sessionRiskAssessment.warnings]);
+
+  const sessionRiskLossText = sessionRiskAssessment.status.hasLossData
+    ? `${sessionRiskAssessment.status.knownLossPercent.toFixed(2)}% of ${sessionRiskAssessment.status.maxLossPerSessionPercent}%`
+    : 'No structured loss data today';
+  const sessionRiskTradeText = `${sessionRiskAssessment.status.tradeCount}/${sessionRiskAssessment.status.maxTradesPerSession}`;
+
 
   useEffect(() => {
     const firstFinding = sourceQualityAssessment.findings[0];
@@ -578,11 +612,7 @@ export function App(): ReactElement {
             preset: settings.privacy.preset
           },
           request: {
-            redactionEnabled:
-              settings.privacy.redaction.redactAddresses ||
-              settings.privacy.redaction.redactBalances ||
-              settings.privacy.redaction.redactUsernames ||
-              settings.privacy.redaction.redactAmounts,
+            redactionEnabled: isTextRedactionEnabled,
             usedFallbackImage: settings.privacy.preset === 'maximum'
           },
           timings: {
@@ -1216,6 +1246,41 @@ export function App(): ReactElement {
         </button>
       </section>
 
+      <section className={`message session-risk-status ${sessionRiskStatusClass}`} aria-label="Session risk budget status">
+        <span className="label">Session risk status</span>
+        <div className="session-risk-grid">
+          <div>
+            <strong>Trades today</strong>
+            <p>{sessionRiskTradeText}</p>
+          </div>
+          <div>
+            <strong>Loss usage</strong>
+            <p>{sessionRiskLossText}</p>
+          </div>
+          <div>
+            <strong>Cooldown</strong>
+            <p>
+              {sessionRiskAssessment.status.cooldownMinutesLeft === undefined
+                ? 'N/A'
+                : `${Math.max(0, Math.ceil(sessionRiskAssessment.status.cooldownMinutesLeft))} min left`}
+            </p>
+          </div>
+          <div>
+            <strong>Tilt sensitivity</strong>
+            <p>{sessionRiskAssessment.status.tiltSensitivity}</p>
+          </div>
+        </div>
+        {sessionRiskAssessment.status.candidateSize ? (
+          <p className="session-risk-note">
+            Candidate size: {sessionRiskAssessment.status.candidateSize} · Session median: {sessionRiskAssessment.status.medianSize ?? 'unknown'}
+          </p>
+        ) : null}
+        <small className="session-risk-note">
+          Session budget engine returned {sessionRiskAssessment.warnings.length} guardrail signal
+          {sessionRiskAssessment.warnings.length === 1 ? '' : 's'} for this question.
+        </small>
+      </section>
+
       <section className="settings-panel" aria-label="Local settings">
         <div className="section-heading compact">
           <h2>Local settings</h2>
@@ -1531,6 +1596,22 @@ export function App(): ReactElement {
                 });
               }}
             />
+            <label htmlFor="risk-budget-tilt-sensitivity">Tilt sensitivity</label>
+            <select
+              id="risk-budget-tilt-sensitivity"
+              value={settings.riskBudget.tiltSensitivity}
+              disabled={!settings.riskBudget.enabled}
+              onChange={(event) => {
+                updateRiskBudget({
+                  tiltSensitivity: event.target.value as LocalSettings['riskBudget']['tiltSensitivity']
+                });
+              }}
+            >
+              <option value="low">Low</option>
+              <option value="standard">Standard</option>
+              <option value="high">High</option>
+            </select>
+            <small className="subtle-note">Higher sensitivity triggers more rapid-repetition and urgency checks.</small>
             <label className="check-row" htmlFor="clipboard-watch">
               <input
                 id="clipboard-watch"
@@ -2259,13 +2340,17 @@ function buildHermesRequestPreview(input: {
     payloadClasses.push('Compact memory context');
   }
 
-  if (
+  const isTextRedactionEnabled =
+    privacy.preset === 'maximum' ||
     privacy.redaction.redactAddresses ||
     privacy.redaction.redactBalances ||
     privacy.redaction.redactUsernames ||
-    privacy.redaction.redactAmounts
-  ) {
-    payloadClasses.push('Text redaction enabled');
+    privacy.redaction.redactAmounts;
+
+  if (isTextRedactionEnabled) {
+    payloadClasses.push(
+      privacy.preset === 'maximum' ? 'Text redaction enabled (maximum privacy)' : 'Text redaction enabled'
+    );
   }
 
   return {

@@ -41,7 +41,8 @@ describe('parseLocalSettings', () => {
             maxTradesPerSession: 9,
             maxLossPerSessionPercent: 18,
             cooldownMinutesAfterLoss: 22,
-            maxSizeMultiplier: 1.8
+            maxSizeMultiplier: 1.8,
+            tiltSensitivity: 'standard'
           },
           keepAlwaysOnTop: false,
           armed: true,
@@ -80,7 +81,8 @@ describe('parseLocalSettings', () => {
         maxTradesPerSession: 9,
         maxLossPerSessionPercent: 18,
         cooldownMinutesAfterLoss: 22,
-        maxSizeMultiplier: 1.8
+        maxSizeMultiplier: 1.8,
+        tiltSensitivity: 'standard'
       },
       keepAlwaysOnTop: false,
       armed: true,
@@ -276,7 +278,8 @@ describe('serializeLocalSettings', () => {
           maxTradesPerSession: 6,
           maxLossPerSessionPercent: 18,
           cooldownMinutesAfterLoss: 20,
-          maxSizeMultiplier: 1.8
+          maxSizeMultiplier: 1.8,
+          tiltSensitivity: 'standard'
         },
         keepAlwaysOnTop: true,
         armed: false,
@@ -289,7 +292,7 @@ describe('serializeLocalSettings', () => {
         }
       })
     ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"riskBudget":{"enabled":true,"maxTradesPerSession":6,"maxLossPerSessionPercent":18,"cooldownMinutesAfterLoss":20,"maxSizeMultiplier":1.8},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Window","kind":"window"}}'
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"riskBudget":{"enabled":true,"maxTradesPerSession":6,"maxLossPerSessionPercent":18,"cooldownMinutesAfterLoss":20,"maxSizeMultiplier":1.8,"tiltSensitivity":"standard"},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Window","kind":"window"}}'
     );
   });
 });

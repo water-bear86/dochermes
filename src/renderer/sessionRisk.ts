@@ -5,6 +5,47 @@ const GAIN_KEYWORDS = /(?:gain|gains|won|positive|profit|targeted)/i;
 const URGENT_KEYWORDS = /\b(all-in|immediate|immediately|ape|fomo|urgent|right now|now or never)\b/i;
 const TILT_LOSS_WINDOW_MS = 120 * 60 * 1000;
 const SIZE_PATTERN = /(?:\b(?:size|alloc|allocating|risk|position|amount|qty)?\s*[:=]?\s*)?(\d+(?:\.\d+)?)\s*(sol|usdc|usdt|usdc\.e|usdt\.e|eth|weth|btc|wbtc|bnb|arb|usd|usde|sui)\b/gi;
+const TOKEN_PATTERNS = [
+  /0x[a-fA-F0-9]{40}\b/g,
+  /\b[1-9A-HJ-NP-Za-km-z]{40,44}\b/g
+];
+const TILT_SENSITIVITY_PRESETS = {
+  low: {
+    rapidTradeWindowMinutes: 45,
+    rapidTradeThreshold: 4,
+    repeatedContractWindowMinutes: 90,
+    repeatedContractMinMatches: 2,
+    tiltUrgentAfterLossMultiplier: 1,
+    sizeAfterLossMultiplier: 3
+  },
+  standard: {
+    rapidTradeWindowMinutes: 25,
+    rapidTradeThreshold: 3,
+    repeatedContractWindowMinutes: 45,
+    repeatedContractMinMatches: 2,
+    tiltUrgentAfterLossMultiplier: 1.4,
+    sizeAfterLossMultiplier: 2.2
+  },
+  high: {
+    rapidTradeWindowMinutes: 15,
+    rapidTradeThreshold: 2,
+    repeatedContractWindowMinutes: 30,
+    repeatedContractMinMatches: 2,
+    tiltUrgentAfterLossMultiplier: 1.2,
+    sizeAfterLossMultiplier: 1.8
+  }
+} as const;
+
+type TiltSensitivity = SessionBudgetSettings['tiltSensitivity'];
+
+interface TiltSensitivityPreset {
+  rapidTradeWindowMinutes: number;
+  rapidTradeThreshold: number;
+  repeatedContractWindowMinutes: number;
+  repeatedContractMinMatches: number;
+  tiltUrgentAfterLossMultiplier: number;
+  sizeAfterLossMultiplier: number;
+}
 
 export interface SessionRiskWarningCandidate {
   text: string;
@@ -32,6 +73,7 @@ export interface SessionRiskAssessment {
     medianSize?: string;
     sizeUnit?: string;
     hasLossData: boolean;
+    tiltSensitivity: TiltSensitivity;
   };
 }
 
@@ -43,6 +85,8 @@ export function buildSessionRiskAssessment(input: {
 }): SessionRiskAssessment {
   const riskBudget = input.riskBudget;
   const now = (input.now ?? (() => new Date()))();
+  const sensitivity = riskBudget.tiltSensitivity ?? 'standard';
+  const tiltProfile = TILT_SENSITIVITY_PRESETS[sensitivity];
   const sessionDate = toSessionDate(now);
   const sessionEntries = input.journalEntries
     .filter((entry) => toSessionDate(new Date(entry.createdAt)) === sessionDate)
@@ -79,6 +123,17 @@ export function buildSessionRiskAssessment(input: {
       )
     : undefined;
   const recentLosses = losses.filter((loss) => now.valueOf() - new Date(loss.occurredAt).valueOf() <= TILT_LOSS_WINDOW_MS).length;
+  const rapidTrades = countRecentTrades({
+    entries: sessionEntries,
+    now,
+    windowMinutes: tiltProfile.rapidTradeWindowMinutes
+  });
+  const repeatedContractWarningEvidence = buildRecentTokenMatches({
+    question: input.question,
+    entries: sessionEntries,
+    now,
+    windowMinutes: tiltProfile.repeatedContractWindowMinutes
+  });
   const nextTradeNumber = tradeCount + 1;
   const isUrgentQuestion = URGENT_KEYWORDS.test(input.question);
 
@@ -89,7 +144,9 @@ export function buildSessionRiskAssessment(input: {
     addLossWarning(warnings, riskBudget, knownLossPercent, hasLossData);
     addCooldownWarning(warnings, riskBudget, cooldownMinutesLeft);
     addSizeMultiplierWarning(warnings, riskBudget, candidateSize, medianSize, nextTradeNumber);
-    addTiltWarning(warnings, riskBudget, isUrgentQuestion, recentLosses);
+    addRapidTradeWarning(warnings, riskBudget, rapidTrades, tiltProfile);
+    addRepeatedContractWarning(warnings, riskBudget, repeatedContractWarningEvidence, tiltProfile);
+    addTiltWarning(warnings, riskBudget, isUrgentQuestion, recentLosses, tiltProfile, candidateSize, medianSize);
   }
 
   const status = {
@@ -104,7 +161,8 @@ export function buildSessionRiskAssessment(input: {
     candidateSize: candidateSourceSize,
     medianSize: medianSize === undefined ? undefined : `${medianSize}`,
     sizeUnit: candidateSize?.unit,
-    hasLossData
+    hasLossData,
+    tiltSensitivity: sensitivity
   };
 
   return { warnings, status };
@@ -229,6 +287,59 @@ function addCooldownWarning(
   }
 }
 
+function addRapidTradeWarning(
+  warnings: SessionRiskWarningCandidate[],
+  budget: SessionBudgetSettings,
+  recentTradeCount: number,
+  tiltProfile: TiltSensitivityPreset
+): void {
+  if (!budget.enabled || !isPositiveInteger(tiltProfile.rapidTradeThreshold)) {
+    return;
+  }
+
+  if (recentTradeCount >= tiltProfile.rapidTradeThreshold) {
+    warnings.push({
+      text: `High trading pace detected: ${recentTradeCount} logged trades in the last ${tiltProfile.rapidTradeWindowMinutes} minutes.`,
+      evidence: {
+        source: 'Tilt detector',
+        detail: 'Trade cadence is high relative to your configured sensitivity.',
+        confidence:
+          recentTradeCount >= tiltProfile.rapidTradeThreshold * 1.4 ? 'medium' : 'low'
+      }
+    });
+  }
+}
+
+function addRepeatedContractWarning(
+  warnings: SessionRiskWarningCandidate[],
+  budget: SessionBudgetSettings,
+  tokenMatches: TokenMatch[],
+  tiltProfile: TiltSensitivityPreset
+): void {
+  if (!budget.enabled) {
+    return;
+  }
+
+  if (tokenMatches.length === 0) {
+    return;
+  }
+
+  const filtered = tokenMatches.filter((entry) => entry.matches >= tiltProfile.repeatedContractMinMatches);
+  if (filtered.length === 0) {
+    return;
+  }
+
+  const topMatch = filtered.sort((left, right) => right.matches - left.matches)[0];
+  warnings.push({
+    text: `Tilt-risk pattern: ${topMatch.token} appeared in ${topMatch.matches} prior entries within ${tiltProfile.repeatedContractWindowMinutes}m.`,
+    evidence: {
+      source: 'Tilt detector',
+      detail: 'Repeated token/contract appears in recent local history. Pace-based overtrading risk is elevated.',
+      confidence: topMatch.matches >= 3 ? 'high' : 'medium'
+    }
+  });
+}
+
 function addSizeMultiplierWarning(
   warnings: SessionRiskWarningCandidate[],
   budget: SessionBudgetSettings,
@@ -273,15 +384,33 @@ function addTiltWarning(
   warnings: SessionRiskWarningCandidate[],
   budget: SessionBudgetSettings,
   isUrgentQuestion: boolean,
-  recentLossCount: number
+  recentLossCount: number,
+  tiltProfile: TiltSensitivityPreset,
+  candidateSize: TradeSize | undefined,
+  medianSize: number | undefined
 ): void {
   if (!budget.enabled || !isUrgentQuestion) {
     return;
   }
 
   if (recentLossCount >= 1) {
+    if (candidateSize && medianSize !== undefined) {
+      const urgencyThreshold = medianSize * tiltProfile.tiltUrgentAfterLossMultiplier;
+      if (candidateSize.value >= urgencyThreshold) {
+        warnings.push({
+          text: `Urgent size request (${candidateSize.value}${candidateSize.unit}) is above urgency baseline.`
+          + ` Median is ${round2(medianSize)}${candidateSize.unit}.`,
+          evidence: {
+            source: 'Behavioral check',
+            detail: `Loss context + urgent wording plus large size request often indicates impulsive risk expansion.`,
+            confidence: 'medium'
+          }
+        });
+      }
+    }
+
     warnings.push({
-      text: 'Tilt-risk pattern: urgent entry language after recent losses.',
+      text: `Tilt-risk pattern: urgent language after ${recentLossCount} recent loss${recentLossCount === 1 ? '' : 'es'}.`,
       evidence: {
         source: 'Behavioral check',
         detail: 'Recent loss + urgent language is a higher-propensity overtrading signal.',
@@ -301,6 +430,93 @@ function addTiltWarning(
       }
     });
   }
+
+  if (candidateSize && budget.maxSizeMultiplier > 0) {
+    const urgencyBaseline = budget.maxSizeMultiplier * tiltProfile.sizeAfterLossMultiplier;
+    const threshold = isFinite(urgencyBaseline) ? urgencyBaseline : Number.POSITIVE_INFINITY;
+    if (candidateSize.value >= threshold) {
+      warnings.push({
+        text: `Urgent size request (${candidateSize.value}${candidateSize.unit}) exceeds a conservative urgency-size threshold.`,
+        evidence: {
+          source: 'Behavioral check',
+          detail: 'Urgent wording with high size request is a common impulsive-entry pattern.',
+          confidence: 'low'
+        }
+      });
+    }
+  }
+}
+
+interface TokenMatch {
+  token: string;
+  matches: number;
+}
+
+function buildRecentTokenMatches(input: {
+  question: string;
+  entries: JournalEntry[];
+  now: Date;
+  windowMinutes: number;
+}): TokenMatch[] {
+  const observed = new Map<string, number>();
+  const nowAt = input.now.valueOf();
+  const historyWindowMs = input.windowMinutes * 60_000;
+  const questionTokens = new Set(parseTokenHints(input.question));
+
+  if (questionTokens.size === 0) {
+    return [];
+  }
+
+  for (const entry of input.entries) {
+    const when = new Date(entry.createdAt).valueOf();
+    if (!Number.isFinite(when)) {
+      continue;
+    }
+
+    if (nowAt - when > historyWindowMs) {
+      continue;
+    }
+
+    const entryTokens = parseTokenHints(`${entry.question} ${entry.response} ${entry.notes}`);
+    for (const token of entryTokens) {
+      if (!questionTokens.has(token)) {
+        continue;
+      }
+
+      observed.set(token, (observed.get(token) ?? 0) + 1);
+    }
+  }
+
+  return [...observed.entries()]
+    .map(([token, matches]) => ({
+      token,
+      matches
+    }))
+    .sort((left, right) => right.matches - left.matches);
+}
+
+function countRecentTrades(input: { entries: JournalEntry[]; now: Date; windowMinutes: number }): number {
+  const windowMs = input.windowMinutes * 60_000;
+  return input.entries.filter((entry) => {
+    const timestamp = new Date(entry.createdAt).valueOf();
+    if (!Number.isFinite(timestamp)) {
+      return false;
+    }
+
+    return input.now.valueOf() - timestamp <= windowMs;
+  }).length;
+}
+
+function parseTokenHints(text: string): string[] {
+  const normalized = text.toLowerCase();
+  const tokens = new Set<string>();
+  for (const pattern of TOKEN_PATTERNS) {
+    for (const match of normalized.matchAll(pattern)) {
+      tokens.add(match[0]);
+    }
+  }
+
+  return [...tokens];
 }
 
 function parseLossPercent(entry: JournalEntry): number | undefined {

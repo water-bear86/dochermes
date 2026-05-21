@@ -65,12 +65,15 @@ export interface FrictionSettings {
   strictness: FrictionStrictness;
 }
 
+export type TiltSensitivity = 'low' | 'standard' | 'high';
+
 export interface SessionBudgetSettings {
   enabled: boolean;
   maxTradesPerSession: number;
   maxLossPerSessionPercent: number;
   cooldownMinutesAfterLoss: number;
   maxSizeMultiplier: number;
+  tiltSensitivity: TiltSensitivity;
 }
 
 export interface MonitoringContextPayload {

@@ -40,7 +40,8 @@ export const DEFAULT_RISK_BUDGET_SETTINGS: SessionBudgetSettings = {
   maxTradesPerSession: 4,
   maxLossPerSessionPercent: 12,
   cooldownMinutesAfterLoss: 45,
-  maxSizeMultiplier: 2
+  maxSizeMultiplier: 2,
+  tiltSensitivity: 'standard'
 };
 
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
@@ -195,8 +196,13 @@ function parseRiskBudgetSettings(rawRiskBudget: unknown): SessionBudgetSettings 
       candidate.cooldownMinutesAfterLoss,
       DEFAULT_RISK_BUDGET_SETTINGS.cooldownMinutesAfterLoss
     ),
-    maxSizeMultiplier: sanitizeSizeMultiplier(candidate.maxSizeMultiplier)
+    maxSizeMultiplier: sanitizeSizeMultiplier(candidate.maxSizeMultiplier),
+    tiltSensitivity: parseTiltSensitivity(candidate.tiltSensitivity)
   };
+}
+
+function parseTiltSensitivity(value: unknown): SessionBudgetSettings['tiltSensitivity'] {
+  return value === 'low' || value === 'standard' || value === 'high' ? value : DEFAULT_RISK_BUDGET_SETTINGS.tiltSensitivity;
 }
 
 function sanitizeSizeMultiplier(value: unknown): number {
