@@ -16,6 +16,14 @@ import type {
   WindowSourceOption
 } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
+import {
+  appendWarningFeedback,
+  deleteWarningFeedback,
+  readWarningFeedbackEntries,
+  updateWarningFeedback,
+  type WarningFeedbackAction,
+  type WarningFeedbackRecord
+} from './warningFeedback';
 import { readLocalSettings, writeLocalSettings } from './localSettings';
 import { buildMemoryContext } from './memoryContext';
 
@@ -44,6 +52,15 @@ type HermesRequestPreview = {
   payloadClasses: string[];
   localOnlyClasses: string[];
   requiresRemoteConsent: boolean;
+};
+
+type LastRequestContext = {
+  id: string;
+  question: string;
+  response: string;
+  selectedWindowId: string;
+  selectedWindowName: string;
+  selectedWindowKind: WindowSourceOption['kind'];
 };
 
 const HERMES_HEALTH_POLL_MS = 60_000;
@@ -93,13 +110,25 @@ export function App(): ReactElement {
   const [requestPreview, setRequestPreview] = useState<HermesRequestPreview | undefined>();
   const [pendingRemoteConsent, setPendingRemoteConsent] = useState<HermesRequestPreview | undefined>();
   const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
+  const [warningFeedbackEntries, setWarningFeedbackEntries] = useState(() =>
+    readWarningFeedbackEntries(localStorage)
+  );
+  const [lastRequestContext, setLastRequestContext] = useState<LastRequestContext | undefined>();
+  const [feedbackNoteWarning, setFeedbackNoteWarning] = useState<string | undefined>();
+  const [feedbackNoteText, setFeedbackNoteText] = useState('');
+  const [editingFeedbackId, setEditingFeedbackId] = useState<string | undefined>();
+  const [editingFeedbackAction, setEditingFeedbackAction] = useState<WarningFeedbackAction>('followed-plan');
+  const [editingFeedbackNotes, setEditingFeedbackNotes] = useState('');
   const validatedPairRef = useRef<string | undefined>(undefined);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
-  const memoryContext = useMemo(() => buildMemoryContext(journalEntries, question), [journalEntries, question]);
+  const memoryContext = useMemo(
+    () => buildMemoryContext(journalEntries, question, warningFeedbackEntries),
+    [journalEntries, question, warningFeedbackEntries]
+  );
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
 
 
@@ -313,7 +342,20 @@ export function App(): ReactElement {
         }
 
         setLastRequestMonitoringMetadata(monitoringSnapshot);
+        setLastRequestContext({
+          id: createRequestContextId(),
+          question,
+          response: localWarnings.length > 0 ? `Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}` : answer,
+          selectedWindowId: source.id,
+          selectedWindowName: source.name,
+          selectedWindowKind: source.kind
+        });
         setJournalSavedMessage('');
+        setFeedbackNoteWarning(undefined);
+        setFeedbackNoteText('');
+        setEditingFeedbackId(undefined);
+        setEditingFeedbackAction('followed-plan');
+        setEditingFeedbackNotes('');
         setRequestMetrics({
           localAnalysisMs,
           captureMs,
@@ -443,6 +485,83 @@ export function App(): ReactElement {
     setJournalSavedMessage('Saved to local journal.');
     setJournalNotes('');
   }, [journalNotes, lastRequestMonitoringMetadata, question, response, screenshotDataUrl, selectedSource]);
+
+  const recordWarningFeedback = useCallback(
+    (warningText: string, action: WarningFeedbackAction, notes?: string) => {
+      if (!lastRequestContext) {
+        setError('Answer context is missing; send a new trade check first.');
+        return;
+      }
+
+      const nextEntries = appendWarningFeedback(localStorage, {
+        warningText,
+        action,
+        question: lastRequestContext.question,
+        response: lastRequestContext.response,
+        selectedWindow: {
+          id: lastRequestContext.selectedWindowId,
+          name: lastRequestContext.selectedWindowName,
+          kind: lastRequestContext.selectedWindowKind,
+          thumbnailDataUrl: ''
+        },
+        requestId: lastRequestContext.id,
+        notes
+      });
+      setWarningFeedbackEntries(nextEntries);
+      setFeedbackNoteWarning(undefined);
+      setFeedbackNoteText('');
+      setError('');
+      setJournalSavedMessage('Feedback logged.');
+    },
+    [lastRequestContext]
+  );
+
+  const saveAddNoteFeedback = useCallback(() => {
+    if (!feedbackNoteWarning) {
+      setFeedbackNoteWarning(undefined);
+      return;
+    }
+
+    if (!feedbackNoteText.trim()) {
+      setFeedbackNoteWarning(undefined);
+      return;
+    }
+
+    recordWarningFeedback(feedbackNoteWarning, 'added-note', feedbackNoteText.trim());
+  }, [feedbackNoteText, feedbackNoteWarning, recordWarningFeedback]);
+
+  const beginEditFeedback = useCallback((entry: WarningFeedbackRecord) => {
+    setEditingFeedbackId(entry.id);
+    setEditingFeedbackAction(entry.action);
+    setEditingFeedbackNotes(entry.notes ?? '');
+    setFeedbackNoteWarning(undefined);
+    setFeedbackNoteText('');
+  }, []);
+
+  const saveEditedFeedback = useCallback(() => {
+    if (!editingFeedbackId) {
+      return;
+    }
+
+    const nextEntries = updateWarningFeedback(localStorage, editingFeedbackId, {
+      action: editingFeedbackAction,
+      notes: editingFeedbackNotes
+    });
+    setWarningFeedbackEntries(nextEntries);
+    setEditingFeedbackId(undefined);
+    setEditingFeedbackNotes('');
+    setEditingFeedbackAction('followed-plan');
+  }, [editingFeedbackAction, editingFeedbackId, editingFeedbackNotes]);
+
+  const deleteWarningFeedbackEntry = useCallback((entryId: string) => {
+    const nextEntries = deleteWarningFeedback(localStorage, entryId);
+    setWarningFeedbackEntries(nextEntries);
+    if (editingFeedbackId === entryId) {
+      setEditingFeedbackId(undefined);
+      setEditingFeedbackAction('followed-plan');
+      setEditingFeedbackNotes('');
+    }
+  }, [editingFeedbackId]);
 
   const statusText = useMemo(() => {
     switch (requestState) {
@@ -1020,9 +1139,82 @@ export function App(): ReactElement {
           <span className="label">Local guardrail</span>
           <ul className="warning-list">
             {localWarnings.map((warning) => (
-              <li key={warning}>{warning}</li>
+              <li key={warning}>
+                {warning}
+                <div className="feedback-button-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recordWarningFeedback(warning, 'took-it-anyway');
+                    }}
+                  >
+                    I took it anyway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recordWarningFeedback(warning, 'skipped');
+                    }}
+                  >
+                    I skipped
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recordWarningFeedback(warning, 'followed-plan');
+                    }}
+                  >
+                    I followed the plan
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      setFeedbackNoteWarning(warning);
+                    }}
+                  >
+                    Add note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recordWarningFeedback(warning, 'false-positive');
+                    }}
+                  >
+                    Mark false positive
+                  </button>
+                </div>
+              </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {feedbackNoteWarning ? (
+        <section className="message">
+          <span className="label">Add feedback note</span>
+          <p>Warning: {feedbackNoteWarning}</p>
+          <textarea
+            className="notes"
+            value={feedbackNoteText}
+            onChange={(event) => setFeedbackNoteText(event.target.value)}
+            placeholder="Why was this warning skipped or valid?"
+          />
+          <div className="button-row">
+            <button type="button" onClick={saveAddNoteFeedback}>
+              Save note
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setFeedbackNoteWarning(undefined);
+                setFeedbackNoteText('');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -1062,6 +1254,79 @@ export function App(): ReactElement {
               <small>{pattern.evidenceCount} local journal notes matched</small>
             </div>
           ))}
+        </section>
+      ) : null}
+
+      {warningFeedbackEntries.length > 0 ? (
+        <section className="message" aria-label="Warning feedback log">
+          <span className="label">Warning feedback</span>
+          <div className="warning-feedback-list">
+            {warningFeedbackEntries.map((entry) => (
+              <div key={entry.id} className="warning-feedback-item">
+                <strong>{entry.warningText}</strong>
+                <p>{entry.action.replace('-', ' ')}</p>
+                <small>
+                  {new Date(entry.createdAt).toLocaleString()} · {entry.selectedWindowName}
+                </small>
+                {entry.notes ? <small>Notes: {entry.notes}</small> : null}
+                {entry.updatedAt ? <small>Updated: {new Date(entry.updatedAt).toLocaleString()}</small> : null}
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      beginEditFeedback(entry);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button type="button" className="ghost" onClick={() => deleteWarningFeedbackEntry(entry.id)}>
+                    Delete
+                  </button>
+                </div>
+
+                {editingFeedbackId === entry.id ? (
+                  <div className="feedback-edit-row">
+                    <label htmlFor={`edit-action-${entry.id}`}>Action</label>
+                    <select
+                      id={`edit-action-${entry.id}`}
+                      value={editingFeedbackAction}
+                      onChange={(event) => setEditingFeedbackAction(event.target.value as WarningFeedbackAction)}
+                    >
+                      <option value="took-it-anyway">Took it anyway</option>
+                      <option value="skipped">Skipped</option>
+                      <option value="followed-plan">Followed plan</option>
+                      <option value="added-note">Added note</option>
+                      <option value="false-positive">Mark false positive</option>
+                    </select>
+                    <label htmlFor={`edit-notes-${entry.id}`}>Notes</label>
+                    <textarea
+                      id={`edit-notes-${entry.id}`}
+                      value={editingFeedbackNotes}
+                      onChange={(event) => setEditingFeedbackNotes(event.target.value)}
+                      className="notes"
+                    />
+                    <div className="button-row">
+                      <button type="button" onClick={saveEditedFeedback}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => {
+                          setEditingFeedbackId(undefined);
+                          setEditingFeedbackAction('followed-plan');
+                          setEditingFeedbackNotes('');
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 
@@ -1125,6 +1390,11 @@ function readError(error: unknown): string {
   }
 
   return 'Unexpected Hermes Coach error.';
+}
+
+function createRequestContextId(): string {
+  const random = Math.random().toString(16).slice(2, 10);
+  return `req-${Date.now()}-${random}`;
 }
 
 type DataSharingProfile = {

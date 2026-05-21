@@ -204,3 +204,20 @@ export interface MemoryContext {
     selectedWindowName: string;
   }>;
 }
+
+export type WarningFeedbackAction = 'took-it-anyway' | 'skipped' | 'followed-plan' | 'added-note' | 'false-positive';
+
+export interface WarningFeedbackRecord {
+  id: string;
+  createdAt: string;
+  requestId?: string;
+  warningText: string;
+  action: WarningFeedbackAction;
+  question: string;
+  response: string;
+  selectedWindowName: string;
+  selectedWindowId: string;
+  selectedWindowKind: WindowSourceKind;
+  notes?: string;
+  updatedAt?: string;
+}

@@ -507,6 +507,49 @@ textarea:focus {
   margin: 4px 0;
 }
 
+.feedback-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.feedback-button-row button {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.warning-feedback-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.warning-feedback-item {
+  border-top: 1px solid #2d3532;
+  padding-top: 10px;
+}
+
+.warning-feedback-item p {
+  margin: 4px 0;
+  color: #f4f1e8;
+}
+
+.warning-feedback-item small {
+  display: block;
+}
+
+.feedback-edit-row {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.feedback-edit-row textarea {
+  min-height: 58px;
+}
+
 .monitor-list {
   margin: 8px 0 0 18px;
   padding: 0;
