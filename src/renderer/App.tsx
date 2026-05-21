@@ -78,16 +78,21 @@ type FrictionCard = {
 };
 
 const HERMES_HEALTH_POLL_MS = 60_000;
-const SOURCE_CATEGORY_OPTIONS: SourceCategory[] = [
-  'unknown',
-  'telegram',
-  'discord',
-  'social',
-  'dex-link',
-  'token-address',
-  'wallet'
+const SOURCE_CATEGORY_OPTIONS: Array<{ value: SourceCategory; label: string }> = [
+  { value: 'unknown', label: 'Unknown source' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'social', label: 'Social media' },
+  { value: 'dex-link', label: 'DEX link' },
+  { value: 'token-address', label: 'Token address' },
+  { value: 'wallet', label: 'Wallet-related' }
 ];
-const SOURCE_OUTCOME_OPTIONS: SourceQualityOutcome[] = ['unknown', 'good', 'neutral', 'bad'];
+const SOURCE_OUTCOME_OPTIONS: Array<{ value: SourceQualityOutcome; label: string }> = [
+  { value: 'unknown', label: 'Unknown / not scored' },
+  { value: 'good', label: 'Good outcome' },
+  { value: 'neutral', label: 'Neutral outcome' },
+  { value: 'bad', label: 'Bad outcome' }
+];
 
 export function App(): ReactElement {
   const [settings, setSettings] = useState<LocalSettings>(() => readLocalSettings(localStorage));
@@ -172,6 +177,18 @@ export function App(): ReactElement {
       ],
     [memoryContext.matchedPatterns.length, question, sourceQualityAssessment.warnings]
   );
+
+  useEffect(() => {
+    const firstFinding = sourceQualityAssessment.findings[0];
+    if (!firstFinding) {
+      return;
+    }
+
+    setJournalSourceCategory((current) => (current === 'unknown' ? firstFinding.category : current));
+    if (!journalSourceTokenHint.trim() && firstFinding.tokenHint) {
+      setJournalSourceTokenHint(firstFinding.tokenHint);
+    }
+  }, [sourceQualityAssessment.findings, journalSourceTokenHint]);
 
 
   const updateConnection = useCallback((updates: Partial<LocalSettings['connection']>) => {
@@ -1696,8 +1713,8 @@ export function App(): ReactElement {
             onChange={(event) => setJournalSourceCategory(event.target.value as SourceCategory)}
           >
             {SOURCE_CATEGORY_OPTIONS.map((option) => (
-              <option value={option} key={option}>
-                {option}
+              <option value={option.value} key={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -1708,8 +1725,8 @@ export function App(): ReactElement {
             onChange={(event) => setJournalSourceOutcome(event.target.value as SourceQualityOutcome)}
           >
             {SOURCE_OUTCOME_OPTIONS.map((option) => (
-              <option value={option} key={option}>
-                {option}
+              <option value={option.value} key={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
