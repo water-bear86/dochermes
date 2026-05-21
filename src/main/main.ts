@@ -381,6 +381,11 @@ function assertAskHermesInput(input: unknown): AskHermesInput {
     throw new Error('Screenshot must be a PNG data URL.');
   }
 
+  const screenshotBytes = estimateBase64Bytes(record.screenshotDataUrl);
+  if (screenshotBytes > 12_000_000) {
+    throw new Error('Screenshot payload is too large. Close the source window or resize capture target.');
+  }
+
   if (!record.selectedWindow || typeof record.selectedWindow !== 'object') {
     throw new Error('Selected window is required.');
   }
@@ -453,6 +458,17 @@ function isConnectionKind(value: unknown): value is HermesConnectionKind {
 
 function isEndpointMode(value: unknown): value is HermesEndpointMode {
   return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom';
+}
+
+function estimateBase64Bytes(dataUrl: string): number {
+  const match = dataUrl.match(/^data:image\/png;base64,(.+)$/);
+  if (!match || !match[1]) {
+    return 0;
+  }
+
+  const base64 = match[1];
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor(base64.length * 3 / 4 - padding);
 }
 
 app.whenReady().then(() => {

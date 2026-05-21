@@ -22,7 +22,7 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true
     }
   });
 

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 
 import type {
   AskHermesInput,
+  MemoryContext,
   JournalMonitoringMetadata,
   CoachBridgeApi,
+  HermesConnectionSettings,
   HermesConnectionKind,
   HermesConnectionReport,
   HermesEndpointMode,
@@ -32,6 +34,16 @@ declare global {
 type RequestState = 'idle' | 'loading-sources' | 'capturing' | 'asking';
 type PickerMode = 'pair' | 'ask';
 type HermesHeartbeatStatus = 'unknown' | HermesConnectionStatus;
+
+type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
+
+type HermesRequestPreview = {
+  destinationOrigin: string;
+  endpointMode: HermesEndpointMode;
+  dataSharingScope: DataSharingScope;
+  payloadClasses: string[];
+  requiresRemoteConsent: boolean;
+};
 
 const HERMES_HEALTH_POLL_MS = 60_000;
 
@@ -77,6 +89,8 @@ export function App(): ReactElement {
     textCapable: false,
     imageCapable: false
   });
+  const [requestPreview, setRequestPreview] = useState<HermesRequestPreview | undefined>();
+  const [pendingRemoteConsent, setPendingRemoteConsent] = useState<HermesRequestPreview | undefined>();
   const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
   const bridge = window.hermesCoach;
 
@@ -84,6 +98,8 @@ export function App(): ReactElement {
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
   const memoryContext = useMemo(() => buildMemoryContext(journalEntries, question), [journalEntries, question]);
+  const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
+
 
   const updateConnection = useCallback((updates: Partial<LocalSettings['connection']>) => {
     setConnectionReport(undefined);
@@ -210,8 +226,13 @@ export function App(): ReactElement {
     }
   }, [settings.watchClipboard, settings.watchOCR]);
 
+  useEffect(() => {
+    setRequestPreview(undefined);
+    setPendingRemoteConsent(undefined);
+  }, [settings.connection]);
+
   const askWithSource = useCallback(
-    async (source: WindowSourceOption | undefined) => {
+    async (source: WindowSourceOption | undefined, skipRemoteConsent = false) => {
       if (!bridge) {
         setError('Hermes Coach must be run from the desktop add-on to capture windows.');
         return;
@@ -228,6 +249,21 @@ export function App(): ReactElement {
         return;
       }
 
+      const nextPreview = buildHermesRequestPreview({
+        connection: settings.connection,
+        selectedWindow: source,
+        memoryContext,
+        monitorSignals
+      });
+      setRequestPreview(nextPreview);
+
+      if (nextPreview.requiresRemoteConsent && !skipRemoteConsent) {
+        setPendingRemoteConsent(nextPreview);
+        setError('Remote Hermes destination selected. Confirm before sending screenshot.');
+        return;
+      }
+
+      setPendingRemoteConsent(undefined);
       setError('');
       setResponse('');
       setScreenshotDataUrl(undefined);
@@ -609,6 +645,11 @@ export function App(): ReactElement {
               <option value="legacy-coach">Legacy /coach</option>
               <option value="custom">Exact custom endpoint</option>
             </select>
+            <div className={`privacy-indicator ${connectionScope.className}`}>
+              <span className="label">Data-sharing scope</span>
+              <strong>{connectionScope.title}</strong>
+              <small>{connectionScope.description}</small>
+            </div>
 
             <label htmlFor="gateway">Hermes base URL</label>
             <input
@@ -722,6 +763,34 @@ export function App(): ReactElement {
         ) : null}
       </section>
 
+      {pendingRemoteConsent ? (
+        <section className="message warning" aria-label="Remote Hermes consent">
+          <span className="label">Remote Hermes target</span>
+          <p>
+            This request will be sent to <strong>{pendingRemoteConsent.destinationOrigin}</strong> and include:
+          </p>
+          <p>{pendingRemoteConsent.payloadClasses.join(' · ')}</p>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedSource) {
+                  setPendingRemoteConsent(undefined);
+                  setError('Select a trading window first.');
+                  return;
+                }
+                void askWithSource(selectedSource, true);
+              }}
+            >
+              I understand, send now
+            </button>
+            <button type="button" className="ghost" onClick={() => setPendingRemoteConsent(undefined)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {pickerOpen ? (
         <section className="window-picker" aria-label="Available windows">
           <div className="section-heading">
@@ -744,6 +813,20 @@ export function App(): ReactElement {
                 <span>{source.name}</span>
                 <small>{source.kind}</small>
               </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {requestPreview ? (
+        <section className="message" aria-label="Hermes request preview">
+          <span className="label">Sent to Hermes</span>
+          <p>
+            Destination: <strong>{requestPreview.destinationOrigin}</strong> ({requestPreview.dataSharingScope})
+          </p>
+          <div className="payload-row">
+            {requestPreview.payloadClasses.map((entry) => (
+              <span key={entry}>{entry}</span>
             ))}
           </div>
         </section>
@@ -873,6 +956,90 @@ function readError(error: unknown): string {
   }
 
   return 'Unexpected Hermes Coach error.';
+}
+
+type DataSharingProfile = {
+  title: string;
+  description: string;
+  className: string;
+  scope: DataSharingScope;
+  requiresRemoteConsent: boolean;
+};
+
+function buildHermesRequestPreview(input: {
+  connection: HermesConnectionSettings;
+  selectedWindow: WindowSourceOption;
+  memoryContext: MemoryContext;
+  monitorSignals: MonitoringSignal[];
+}): HermesRequestPreview {
+  const { connection, memoryContext, monitorSignals } = input;
+  const profile = inferDataSharingScope(connection);
+  const payloadClasses = ['Question text', 'Selected window metadata', 'Screenshot image'];
+
+  if (memoryContext.matchedPatterns.length > 0 || memoryContext.recentNotes.length > 0) {
+    payloadClasses.push('Compact memory context');
+  }
+
+  if (monitorSignals.length > 0) {
+    payloadClasses.push('Monitoring signal summary');
+  }
+
+  return {
+    destinationOrigin: originFromBaseUrl(connection.baseUrl),
+    endpointMode: connection.endpointMode,
+    dataSharingScope: profile.scope,
+    payloadClasses,
+    requiresRemoteConsent: profile.requiresRemoteConsent
+  };
+}
+
+function inferDataSharingScope(connection: HermesConnectionSettings): DataSharingProfile {
+  const isLocal = isLoopbackEndpoint(connection.baseUrl);
+
+  if (connection.connectionKind === 'local' && isLocal) {
+    return {
+      title: 'Local-first',
+      description: 'Local Hermes only; keep sensitive context on your machine.',
+      className: 'scope-local',
+      scope: 'local-first',
+      requiresRemoteConsent: false
+    };
+  }
+
+  if (connection.connectionKind === 'hosted') {
+    return {
+      title: 'Hosted',
+      description: 'Window data and context are sent to configured hosted Hermes.',
+      className: 'scope-hosted',
+      scope: 'hosted',
+      requiresRemoteConsent: true
+    };
+  }
+
+  return {
+    title: 'Advanced custom endpoint',
+    description: 'Requests go to an advanced/custom target you configured.',
+    className: 'scope-advanced',
+    scope: 'advanced',
+    requiresRemoteConsent: !isLocal
+  };
+}
+
+function isLoopbackEndpoint(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl);
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function originFromBaseUrl(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return baseUrl;
+  }
 }
 
 function buildMonitoringMetadata(
