@@ -94,6 +94,7 @@ export function App(): ReactElement {
   const [pendingRemoteConsent, setPendingRemoteConsent] = useState<HermesRequestPreview | undefined>();
   const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
   const validatedPairRef = useRef<string | undefined>(undefined);
+  const heartbeatInFlightRef = useRef(false);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -503,7 +504,7 @@ export function App(): ReactElement {
   }, []);
 
   const runHermesHeartbeat = useCallback(async () => {
-    if (isCheckingHermes) {
+    if (heartbeatInFlightRef.current) {
       return;
     }
 
@@ -511,6 +512,7 @@ export function App(): ReactElement {
       return;
     }
 
+    heartbeatInFlightRef.current = true;
     setIsCheckingHermes(true);
     try {
       const report = await bridge.testHermesConnection(settings.connection);
@@ -531,12 +533,17 @@ export function App(): ReactElement {
         imageCapable: false
       });
     } finally {
+      heartbeatInFlightRef.current = false;
       setIsCheckingHermes(false);
     }
-  }, [bridge, isCheckingHermes, settings.connection]);
+  }, [bridge, settings.connection]);
 
   useEffect(() => {
-    runHermesHeartbeat();
+    if (!bridge) {
+      return undefined;
+    }
+
+    void runHermesHeartbeat();
     const timer = setInterval(() => {
       void runHermesHeartbeat();
     }, HERMES_HEALTH_POLL_MS);
@@ -544,7 +551,7 @@ export function App(): ReactElement {
     return () => {
       clearInterval(timer);
     };
-  }, [runHermesHeartbeat]);
+  }, [bridge, runHermesHeartbeat]);
 
   const onSelectSource = useCallback(
     (source: WindowSourceOption) => {
