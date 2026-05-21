@@ -386,7 +386,7 @@ export function App(): ReactElement {
       const requestStartedAt = new Date().toISOString();
       const timingStarted = performance.now();
       let localRiskMs = Math.round(performance.now() - analysisStartedAt);
-      let ocrMs = 0;
+      let ocrMs: number | undefined;
       let requestBuildMs = 0;
       let captureMs = 0;
       let hermesMs = 0;
@@ -394,9 +394,6 @@ export function App(): ReactElement {
       let diagnosticError: string | undefined;
       const requestContext = inferDataSharingScope(settings.connection);
 
-      if (settings.watchOCR) {
-        ocrMs = 0;
-      }
       let stage: Exclude<HermesRequestDiagnostic['failure'], undefined>['stage'] = 'validation';
 
       try {
@@ -529,7 +526,7 @@ export function App(): ReactElement {
         });
 
         setRequestDiagnostics((current) => appendRequestDiagnostic(localStorage, diagnostic));
-      setRequestState('idle');
+        setRequestState('idle');
       }
     },
     [bridge, memoryContext, monitorSignals, question, settings.connection, settings.privacy, sourceQualityAssessment.findings, localWarnings, settings.watchOCR, hermesHeartbeat.status]
