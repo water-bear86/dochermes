@@ -409,7 +409,10 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
     '- captureRequiresUserSelection: true'
   ];
 
-  if (input.monitoringContext && input.monitoringContext.signals.length > 0) {
+  if (
+    input.monitoringContext &&
+    (input.monitoringContext.signals.length > 0 || (input.monitoringContext.sourceQuality?.length ?? 0) > 0)
+  ) {
     lines.push('', 'Monitoring summary:', JSON.stringify(input.monitoringContext));
   }
 
@@ -506,7 +509,18 @@ function applyMonitoringContext(
     signals: monitoringContext.signals.map((signal) => ({
       ...signal,
       maskedValue: applyPrivacyRedaction(signal.maskedValue, redaction)
-    }))
+    })),
+    ...(monitoringContext.sourceQuality
+      ? {
+          sourceQuality: monitoringContext.sourceQuality.map((finding) => ({
+            category: finding.category,
+            confidence: finding.confidence,
+            provenance: finding.provenance,
+            reason: applyPrivacyRedaction(finding.reason, redaction),
+            ...(finding.tokenHint ? { tokenHint: finding.tokenHint } : {})
+          }))
+        }
+      : {})
   };
 }
 

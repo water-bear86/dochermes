@@ -11,11 +11,15 @@ import type {
   HermesEndpointMode,
   HermesConnectionStatus,
   LocalSettings,
+  SourceQualityFinding,
+  SourceCategory,
+  SourceQualityOutcome,
   MonitoringSignal,
   MonitoringStatus,
   WindowSourceOption
 } from '../shared/types';
 import { appendJournalEntry, buildJournalEntry, clearJournalEntries, readJournalEntries } from './journal';
+import { buildSourceQualityAssessment } from './sourceQuality';
 import {
   appendWarningFeedback,
   clearWarningFeedbackEntries,
@@ -74,6 +78,16 @@ type FrictionCard = {
 };
 
 const HERMES_HEALTH_POLL_MS = 60_000;
+const SOURCE_CATEGORY_OPTIONS: SourceCategory[] = [
+  'unknown',
+  'telegram',
+  'discord',
+  'social',
+  'dex-link',
+  'token-address',
+  'wallet'
+];
+const SOURCE_OUTCOME_OPTIONS: SourceQualityOutcome[] = ['unknown', 'good', 'neutral', 'bad'];
 
 export function App(): ReactElement {
   const [settings, setSettings] = useState<LocalSettings>(() => readLocalSettings(localStorage));
@@ -131,6 +145,9 @@ export function App(): ReactElement {
   const [editingFeedbackNotes, setEditingFeedbackNotes] = useState('');
   const [frictionCard, setFrictionCard] = useState<FrictionCard | undefined>();
   const [frictionNoteText, setFrictionNoteText] = useState('');
+  const [journalSourceCategory, setJournalSourceCategory] = useState<SourceCategory>('unknown');
+  const [journalSourceOutcome, setJournalSourceOutcome] = useState<SourceQualityOutcome>('unknown');
+  const [journalSourceTokenHint, setJournalSourceTokenHint] = useState('');
   const validatedPairRef = useRef<string | undefined>(undefined);
   const heartbeatInFlightRef = useRef(false);
   const bridge = window.hermesCoach;
@@ -143,9 +160,17 @@ export function App(): ReactElement {
     [journalEntries, question, warningFeedbackEntries]
   );
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
+  const sourceQualityAssessment = useMemo(
+    () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries }),
+    [question, journalEntries, monitorSignals]
+  );
   const localWarnings = useMemo(
-    () => localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
-    [question, memoryContext.matchedPatterns.length]
+    () =>
+      [
+        ...localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
+        ...sourceQualityAssessment.warnings.filter((warning, index, warnings) => warnings.indexOf(warning) === index)
+      ],
+    [memoryContext.matchedPatterns.length, question, sourceQualityAssessment.warnings]
   );
 
 
@@ -297,8 +322,7 @@ export function App(): ReactElement {
         return;
       }
 
-      const localWarnings = localRiskWarnings(memoryContext.matchedPatterns.length > 0, question);
-      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals);
+      const monitoringSnapshot = buildMonitoringMetadata(localWarnings, monitorSignals, sourceQualityAssessment.findings);
 
       const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
@@ -499,6 +523,25 @@ export function App(): ReactElement {
     setCopiedReport(true);
   }, [connectionReport]);
 
+  const buildJournalSourceContext = useCallback(() => {
+    const tokenHint = journalSourceTokenHint.trim();
+    if (journalSourceCategory === 'unknown' && journalSourceOutcome === 'unknown' && !tokenHint) {
+      return undefined;
+    }
+
+    return {
+      category: journalSourceCategory,
+      outcome: journalSourceOutcome,
+      ...(tokenHint ? { tokenHint } : {})
+    };
+  }, [journalSourceCategory, journalSourceOutcome, journalSourceTokenHint]);
+
+  const resetSourceContextDraft = useCallback(() => {
+    setJournalSourceCategory('unknown');
+    setJournalSourceOutcome('unknown');
+    setJournalSourceTokenHint('');
+  }, []);
+
   const saveJournalEntry = useCallback(() => {
     if (!selectedSource || !response) {
       setError('A coach response and selected window are required before saving to the journal.');
@@ -511,13 +554,24 @@ export function App(): ReactElement {
       notes: journalNotes,
       selectedWindow: selectedSource,
       screenshotCaptured: Boolean(screenshotDataUrl),
-      monitoring: lastRequestMonitoringMetadata
+      monitoring: lastRequestMonitoringMetadata,
+      sourceContext: buildJournalSourceContext()
     });
     const nextEntries = appendJournalEntry(localStorage, entry);
     setJournalEntries(nextEntries);
     setJournalSavedMessage('Saved to local journal.');
     setJournalNotes('');
-  }, [journalNotes, lastRequestMonitoringMetadata, question, response, screenshotDataUrl, selectedSource]);
+    resetSourceContextDraft();
+  }, [
+    buildJournalSourceContext,
+    journalNotes,
+    lastRequestMonitoringMetadata,
+    question,
+    response,
+    resetSourceContextDraft,
+    screenshotDataUrl,
+    selectedSource
+  ]);
 
   const recordWarningFeedback = useCallback(
     (warningText: string, action: WarningFeedbackAction, notes?: string) => {
@@ -613,7 +667,8 @@ export function App(): ReactElement {
         notes,
         selectedWindow: selectedSource,
         screenshotCaptured: false,
-        monitoring: buildMonitoringMetadata(localWarnings, monitorSignals)
+        monitoring: buildMonitoringMetadata(localWarnings, monitorSignals, sourceQualityAssessment.findings),
+        sourceContext: buildJournalSourceContext()
       });
 
       const nextEntries = appendJournalEntry(localStorage, {
@@ -624,8 +679,9 @@ export function App(): ReactElement {
       setJournalSavedMessage('Saved to local journal.');
       setFrictionCard(undefined);
       setFrictionNoteText('');
+      resetSourceContextDraft();
     },
-    [localWarnings, monitorSignals, question, selectedSource]
+    [buildJournalSourceContext, localWarnings, monitorSignals, question, resetSourceContextDraft, selectedSource, sourceQualityAssessment.findings]
   );
 
   const proceedWithFrictionAction = useCallback(
@@ -1630,6 +1686,40 @@ export function App(): ReactElement {
             onChange={(event) => setJournalNotes(event.target.value)}
             placeholder="What happened next?"
           />
+          <div className="section-heading compact">
+            <h2>Source quality tag</h2>
+          </div>
+          <label htmlFor="source-category">Source category</label>
+          <select
+            id="source-category"
+            value={journalSourceCategory}
+            onChange={(event) => setJournalSourceCategory(event.target.value as SourceCategory)}
+          >
+            {SOURCE_CATEGORY_OPTIONS.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="source-outcome">Outcome</label>
+          <select
+            id="source-outcome"
+            value={journalSourceOutcome}
+            onChange={(event) => setJournalSourceOutcome(event.target.value as SourceQualityOutcome)}
+          >
+            {SOURCE_OUTCOME_OPTIONS.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="source-token-hint">Token/address hint (optional)</label>
+          <input
+            id="source-token-hint"
+            value={journalSourceTokenHint}
+            onChange={(event) => setJournalSourceTokenHint(event.target.value)}
+            placeholder="Optional token hint (e.g. contract/address)"
+          />
           <div className="journal-actions">
             <button type="button" onClick={saveJournalEntry}>
               Save journal
@@ -1681,7 +1771,9 @@ function buildHermesRequestPreview(input: {
   const { connection, memoryContext, privacy, monitoringContext } = input;
   const profile = inferDataSharingScope(connection);
   const hasMonitoringContext =
-    (monitoringContext?.localWarnings?.length ?? 0) > 0 || (monitoringContext?.signals?.length ?? 0) > 0;
+    (monitoringContext?.localWarnings?.length ?? 0) > 0 ||
+    (monitoringContext?.signals?.length ?? 0) > 0 ||
+    (monitoringContext?.sourceQuality?.length ?? 0) > 0;
   const payloadClasses = ['Question text', 'Selected window metadata'];
   const localOnlyClasses: string[] = [];
 
@@ -1771,7 +1863,8 @@ function originFromBaseUrl(baseUrl: string): string {
 
 function buildMonitoringMetadata(
   localWarnings: string[],
-  monitorSignals: MonitoringSignal[]
+  monitorSignals: MonitoringSignal[],
+  sourceQuality?: SourceQualityFinding[]
 ): JournalMonitoringMetadata {
   return {
     localWarnings,
@@ -1782,7 +1875,18 @@ function buildMonitoringMetadata(
       confidence: signal.confidence,
       detectedAt: signal.detectedAt,
       ...(signal.message ? { message: signal.message } : {})
-    }))
+    })),
+    ...(sourceQuality
+      ? {
+          sourceQuality: sourceQuality.slice(0, 6).map((finding) => ({
+            category: finding.category,
+            confidence: finding.confidence,
+            provenance: finding.provenance,
+            reason: finding.reason,
+            ...(finding.tokenHint ? { tokenHint: finding.tokenHint } : {})
+          }))
+        }
+      : {})
   };
 }
 

@@ -67,6 +67,7 @@ export interface FrictionSettings {
 export interface MonitoringContextPayload {
   localWarnings: string[];
   signals: JournalMonitoringSignal[];
+  sourceQuality?: SourceQualityFinding[];
 }
 
 export interface HermesConnectionSettings {
@@ -145,6 +146,33 @@ export interface JournalMonitoringSignal {
 export interface JournalMonitoringMetadata {
   localWarnings: string[];
   signals: JournalMonitoringSignal[];
+  sourceQuality?: SourceQualityFinding[];
+}
+
+export type SourceCategory =
+  | 'telegram'
+  | 'discord'
+  | 'social'
+  | 'dex-link'
+  | 'token-address'
+  | 'wallet'
+  | 'unknown';
+
+export type SourceQualityOutcome = 'good' | 'neutral' | 'bad' | 'unknown';
+export type SourceQualityConfidence = 'low' | 'medium' | 'high';
+
+export interface SourceQualityFinding {
+  category: SourceCategory;
+  confidence: SourceQualityConfidence;
+  provenance: string;
+  tokenHint?: string;
+  reason: string;
+}
+
+export interface JournalSourceProfile {
+  category: SourceCategory;
+  outcome: SourceQualityOutcome;
+  tokenHint?: string;
 }
 
 export interface CoachBridgeApi {
@@ -195,6 +223,7 @@ export interface JournalEntry {
     imageStored: false;
   };
   monitoring?: JournalMonitoringMetadata;
+  sourceContext?: JournalSourceProfile;
 }
 
 export interface MemoryPattern {

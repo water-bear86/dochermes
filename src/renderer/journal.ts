@@ -1,4 +1,32 @@
-import type { JournalEntry, JournalMonitoringMetadata, WindowSourceOption } from '../shared/types';
+import type {
+  JournalEntry,
+  JournalMonitoringMetadata,
+  JournalSourceProfile,
+  SourceCategory,
+  SourceQualityOutcome,
+  SourceQualityFinding,
+  WindowSourceOption
+} from '../shared/types';
+
+const JOURNAL_SOURCE_CATEGORIES = [
+  'telegram',
+  'discord',
+  'social',
+  'dex-link',
+  'token-address',
+  'wallet',
+  'unknown'
+] as const;
+
+const JOURNAL_SOURCE_OUTCOMES = ['good', 'neutral', 'bad', 'unknown'] as const;
+
+function isJournalSourceCategory(value: unknown): value is SourceCategory {
+  return typeof value === 'string' && (JOURNAL_SOURCE_CATEGORIES as readonly string[]).includes(value);
+}
+
+function isJournalSourceOutcome(value: unknown): value is SourceQualityOutcome {
+  return typeof value === 'string' && (JOURNAL_SOURCE_OUTCOMES as readonly string[]).includes(value);
+}
 
 export const JOURNAL_KEY = 'hermes.journal.v1';
 export const JOURNAL_ENTRY_LIMIT = 100;
@@ -10,6 +38,7 @@ interface BuildJournalEntryInput {
   selectedWindow: WindowSourceOption;
   screenshotCaptured: boolean;
   monitoring?: JournalMonitoringMetadata;
+  sourceContext?: JournalSourceProfile;
 }
 
 interface BuildJournalEntryOptions {
@@ -42,6 +71,13 @@ export function buildJournalEntry(
 
   if (input.monitoring) {
     base.monitoring = cloneMonitoringMetadata(input.monitoring);
+  }
+  if (input.sourceContext) {
+    base.sourceContext = {
+      category: input.sourceContext.category,
+      outcome: input.sourceContext.outcome,
+      ...(input.sourceContext.tokenHint ? { tokenHint: input.sourceContext.tokenHint } : {})
+    };
   }
 
   return base;
@@ -114,7 +150,41 @@ function isJournalEntry(value: unknown): value is JournalEntry {
         Array.isArray(record.monitoring.localWarnings) &&
         Array.isArray(record.monitoring.signals) &&
         record.monitoring.localWarnings.every((item: unknown) => typeof item === 'string') &&
-        record.monitoring.signals.every(isMonitoringSignal)))
+        record.monitoring.signals.every(isMonitoringSignal) &&
+        (!record.monitoring.sourceQuality ||
+          (Array.isArray(record.monitoring.sourceQuality) && record.monitoring.sourceQuality.every(isSourceQualityFinding))))) &&
+    (!record.sourceContext ||
+      (record.sourceContext &&
+        typeof record.sourceContext === 'object' &&
+        record.sourceContext !== null &&
+        typeof record.sourceContext.category === 'string' &&
+        isJournalSourceCategory(record.sourceContext.category) &&
+        typeof record.sourceContext.outcome === 'string' &&
+        isJournalSourceOutcome(record.sourceContext.outcome) &&
+        (record.sourceContext.tokenHint === undefined || typeof record.sourceContext.tokenHint === 'string'))
+    )
+  );
+}
+
+function isSourceQualityFinding(value: unknown): value is SourceQualityFinding {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as SourceQualityFinding;
+
+  return (
+    (record.category === 'telegram' ||
+      record.category === 'discord' ||
+      record.category === 'social' ||
+      record.category === 'dex-link' ||
+      record.category === 'token-address' ||
+      record.category === 'wallet' ||
+      record.category === 'unknown') &&
+    (record.confidence === 'low' || record.confidence === 'medium' || record.confidence === 'high') &&
+    typeof record.provenance === 'string' &&
+    (record.tokenHint === undefined || typeof record.tokenHint === 'string') &&
+    typeof record.reason === 'string'
   );
 }
 
@@ -150,7 +220,18 @@ function cloneMonitoringMetadata(input: JournalMonitoringMetadata): JournalMonit
       confidence: signal.confidence,
       detectedAt: signal.detectedAt,
       ...(signal.message ? { message: signal.message } : {})
-    }))
+    })),
+    ...(input.sourceQuality
+      ? {
+          sourceQuality: input.sourceQuality.map((finding) => ({
+            category: finding.category,
+            confidence: finding.confidence,
+            provenance: finding.provenance,
+            reason: finding.reason,
+            ...(finding.tokenHint ? { tokenHint: finding.tokenHint } : {})
+          }))
+        }
+      : {})
   };
 }
 

@@ -99,6 +99,42 @@ describe('buildJournalEntry', () => {
       }
     });
   });
+
+  it('stores source context when provided', () => {
+    const entry = buildJournalEntry(
+      {
+        question: 'Should I buy?',
+        response: 'Wait for confirmation.',
+        notes: 'Copied from Telegram',
+        selectedWindow: {
+          id: 'window:2',
+          name: 'Trading Window',
+          kind: 'window',
+          thumbnailDataUrl: 'data:image/png;base64,preview'
+        },
+        screenshotCaptured: true,
+        sourceContext: {
+          category: 'telegram',
+          outcome: 'bad',
+          tokenHint: 'ABC1234567890'
+        }
+      },
+      {
+        now: () => new Date('2026-05-20T02:00:00.000Z'),
+        createId: () => 'entry-3'
+      }
+    );
+
+    expect(entry).toMatchObject({
+      id: 'entry-3',
+      createdAt: '2026-05-20T02:00:00.000Z',
+      sourceContext: {
+        category: 'telegram',
+        outcome: 'bad',
+        tokenHint: 'ABC1234567890'
+      }
+    });
+  });
 });
 
 describe('parseJournalEntries', () => {
@@ -144,6 +180,101 @@ describe('parseJournalEntries', () => {
     );
 
     expect(entries.map((entry) => entry.id)).toEqual(['new', 'old']);
+  });
+
+  it('drops malformed source profile data when parsing journal entries', () => {
+    const entries = parseJournalEntries(
+      JSON.stringify([
+        {
+          id: 'good',
+          createdAt: '2026-05-18T19:00:00.000Z',
+          question: 'Old?',
+          response: 'Old response',
+          notes: '',
+          selectedWindow: {
+            id: 'window:1',
+            name: 'Old Window',
+            kind: 'window'
+          },
+          screenshot: {
+            captured: true,
+            imageStored: false
+          },
+          sourceContext: {
+            category: 'bad',
+            outcome: 'great'
+          }
+        },
+        {
+          id: 'new',
+          createdAt: '2026-05-18T21:00:00.000Z',
+          question: 'New?',
+          response: 'New response',
+          notes: 'Reviewed',
+          selectedWindow: {
+            id: 'screen:0',
+            name: 'Entire Screen',
+            kind: 'screen'
+          },
+          screenshot: {
+            captured: false,
+            imageStored: false
+          },
+          sourceContext: {
+            category: 'wallet',
+            outcome: 'neutral',
+            tokenHint: '0xabc'
+          }
+        }
+      ])
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(['new']);
+  });
+
+  it('accepts source-quality monitoring metadata', () => {
+    const entries = parseJournalEntries(
+      JSON.stringify([
+        {
+          id: 'checked',
+          createdAt: '2026-05-18T19:00:00.000Z',
+          question: 'New?',
+          response: 'New response',
+          notes: 'Reviewed',
+          selectedWindow: {
+            id: 'window:1',
+            name: 'Old Window',
+            kind: 'window'
+          },
+          screenshot: {
+            captured: true,
+            imageStored: false
+          },
+          monitoring: {
+            localWarnings: ['Source quality warning'],
+            signals: [],
+            sourceQuality: [
+              {
+                category: 'discord',
+                confidence: 'medium',
+                provenance: 'Clipboard link',
+                reason: 'Repeated signal with prior bad outcome.',
+                tokenHint: '0x123'
+              }
+            ]
+          }
+        }
+      ])
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.monitoring?.sourceQuality?.[0]).toEqual({
+      category: 'discord',
+      confidence: 'medium',
+      provenance: 'Clipboard link',
+      reason: 'Repeated signal with prior bad outcome.',
+      tokenHint: '0x123'
+    });
   });
 });
 
