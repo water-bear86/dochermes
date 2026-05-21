@@ -42,10 +42,11 @@ import {
   type WarningFeedbackAction,
   type WarningFeedbackRecord
 } from './warningFeedback';
-import { readLocalSettings, writeLocalSettings } from './localSettings';
+import { DEFAULT_RISK_BUDGET_SETTINGS, readLocalSettings, writeLocalSettings } from './localSettings';
 import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { canBypassRemoteConsent, shouldCaptureWindowForPrivacy, type RemoteConsentBypassReason } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
+import { buildSessionRiskAssessment } from './sessionRisk';
 
 interface WarningEvidenceEntry {
   source: string;
@@ -122,6 +123,12 @@ const SOURCE_OUTCOME_OPTIONS: Array<{ value: SourceQualityOutcome; label: string
   { value: 'neutral', label: 'Neutral outcome' },
   { value: 'bad', label: 'Bad outcome' }
 ];
+const SOURCE_OUTCOME_HELP: Record<SourceQualityOutcome, string> = {
+  unknown: 'No outcome logged yet for this source.',
+  good: 'Source led to a positive outcome.',
+  neutral: 'Source was observed but outcome was not clearly good or bad.',
+  bad: 'Source led to a negative outcome.'
+};
 const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
 
@@ -191,8 +198,10 @@ export function App(): ReactElement {
   const [journalSourceCategory, setJournalSourceCategory] = useState<SourceCategory>('unknown');
   const [journalSourceOutcome, setJournalSourceOutcome] = useState<SourceQualityOutcome>('unknown');
   const [journalSourceTokenHint, setJournalSourceTokenHint] = useState('');
+  const isMaximumPrivacy = settings.privacy.preset === 'maximum';
   const validatedPairRef = useRef<string | undefined>(undefined);
   const heartbeatInFlightRef = useRef(false);
+  const sourceContextAutoFillRequestId = useRef<string | undefined>(undefined);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -208,13 +217,24 @@ export function App(): ReactElement {
     () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries }),
     [question, journalEntries, monitorSignals]
   );
+  const sessionRiskAssessment = useMemo(
+    () =>
+      buildSessionRiskAssessment({
+        question,
+        journalEntries,
+        riskBudget: settings.riskBudget
+      }),
+    [journalEntries, question, settings.riskBudget]
+  );
+  const topSourceQualityFinding = sourceQualityAssessment.findings[0];
+  const topSourceQualityCategoryLabel = topSourceQualityFinding ? sourceCategoryLabel(topSourceQualityFinding.category) : '';
   const localWarningCards = useMemo(
     () =>
       buildLocalWarningCards({
-        ruleWarnings: localRuleWarnings(memoryContext.matchedPatterns.length > 0, question),
+        ruleWarnings: [...localRuleWarnings(memoryContext.matchedPatterns.length > 0, question), ...sessionRiskAssessment.warnings],
         sourceQualityWarnings: sourceQualityAssessment.warningFindings
       }),
-    [memoryContext.matchedPatterns, question, sourceQualityAssessment.warningFindings]
+    [memoryContext.matchedPatterns, question, sessionRiskAssessment.warnings, sourceQualityAssessment.warningFindings]
   );
   const localWarningEvidence = useMemo(
     () =>
@@ -252,6 +272,16 @@ export function App(): ReactElement {
       ...current,
       connection: {
         ...current.connection,
+        ...updates
+      }
+    }));
+  }, []);
+
+  const updateRiskBudget = useCallback((updates: Partial<LocalSettings['riskBudget']>) => {
+    setSettings((current) => ({
+      ...current,
+      riskBudget: {
+        ...current.riskBudget,
         ...updates
       }
     }));
@@ -718,7 +748,42 @@ export function App(): ReactElement {
     setJournalSourceCategory('unknown');
     setJournalSourceOutcome('unknown');
     setJournalSourceTokenHint('');
+    sourceContextAutoFillRequestId.current = undefined;
   }, []);
+
+  const applySourceContextFromFinding = useCallback(
+    (finding: SourceQualityFinding | undefined, force = false) => {
+      if (!finding) {
+        return;
+      }
+
+      const hasManualCategory = journalSourceCategory !== 'unknown';
+      const hasManualTokenHint = journalSourceTokenHint.trim().length > 0;
+
+      if (!force && (hasManualCategory || hasManualTokenHint)) {
+        return;
+      }
+
+      if (finding.category && (!hasManualCategory || force)) {
+        setJournalSourceCategory(finding.category);
+      }
+
+      if (!hasManualTokenHint || force) {
+        setJournalSourceTokenHint(finding.tokenHint ?? '');
+      }
+    },
+    [journalSourceCategory, journalSourceTokenHint]
+  );
+
+  useEffect(() => {
+    const requestId = lastRequestContext?.id;
+    if (!requestId || sourceContextAutoFillRequestId.current === requestId) {
+      return;
+    }
+
+    applySourceContextFromFinding(topSourceQualityFinding);
+    sourceContextAutoFillRequestId.current = requestId;
+  }, [applySourceContextFromFinding, lastRequestContext?.id, topSourceQualityFinding]);
 
   const saveJournalEntry = useCallback(() => {
     if (!selectedSource || !response) {
@@ -1219,7 +1284,8 @@ export function App(): ReactElement {
               <input
                 id="redact-addresses"
                 type="checkbox"
-                checked={settings.privacy.redaction.redactAddresses}
+                checked={isMaximumPrivacy || settings.privacy.redaction.redactAddresses}
+                disabled={isMaximumPrivacy}
                 onChange={(event) =>
                   setSettings((current) => ({
                     ...current,
@@ -1240,7 +1306,8 @@ export function App(): ReactElement {
               <input
                 id="redact-usernames"
                 type="checkbox"
-                checked={settings.privacy.redaction.redactUsernames}
+                checked={isMaximumPrivacy || settings.privacy.redaction.redactUsernames}
+                disabled={isMaximumPrivacy}
                 onChange={(event) =>
                   setSettings((current) => ({
                     ...current,
@@ -1261,7 +1328,8 @@ export function App(): ReactElement {
               <input
                 id="redact-balances"
                 type="checkbox"
-                checked={settings.privacy.redaction.redactBalances}
+                checked={isMaximumPrivacy || settings.privacy.redaction.redactBalances}
+                disabled={isMaximumPrivacy}
                 onChange={(event) =>
                   setSettings((current) => ({
                     ...current,
@@ -1282,7 +1350,8 @@ export function App(): ReactElement {
               <input
                 id="redact-amounts"
                 type="checkbox"
-                checked={settings.privacy.redaction.redactAmounts}
+                checked={isMaximumPrivacy || settings.privacy.redaction.redactAmounts}
+                disabled={isMaximumPrivacy}
                 onChange={(event) =>
                   setSettings((current) => ({
                     ...current,
@@ -1298,6 +1367,8 @@ export function App(): ReactElement {
               />
               <span>Redact amounts and token values</span>
             </label>
+
+            {isMaximumPrivacy ? <small className="subtle-note">Maximum privacy forces all redaction options on.</small> : null}
 
             <label htmlFor="gateway">Hermes base URL</label>
             <input
@@ -1387,6 +1458,79 @@ export function App(): ReactElement {
               <option value="standard">Standard</option>
               <option value="high">High</option>
             </select>
+            <label className="check-row" htmlFor="risk-budget-enabled">
+              <input
+                id="risk-budget-enabled"
+                type="checkbox"
+                checked={settings.riskBudget.enabled}
+                onChange={(event) =>
+                  updateRiskBudget({
+                    enabled: event.target.checked
+                  })
+                }
+              />
+              <span>Enable session risk budget</span>
+            </label>
+            <label htmlFor="risk-budget-max-trades">Max trades per session</label>
+            <input
+              id="risk-budget-max-trades"
+              type="number"
+              min="0"
+              step="1"
+              value={settings.riskBudget.maxTradesPerSession}
+              disabled={!settings.riskBudget.enabled}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateRiskBudget({
+                  maxTradesPerSession: Number.isFinite(nextValue) ? Math.max(0, Math.round(nextValue)) : DEFAULT_RISK_BUDGET_SETTINGS.maxTradesPerSession
+                });
+              }}
+            />
+            <label htmlFor="risk-budget-max-loss">Max loss per session %</label>
+            <input
+              id="risk-budget-max-loss"
+              type="number"
+              min="0"
+              step="1"
+              value={settings.riskBudget.maxLossPerSessionPercent}
+              disabled={!settings.riskBudget.enabled}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateRiskBudget({
+                  maxLossPerSessionPercent: Number.isFinite(nextValue) ? Math.max(0, nextValue) : DEFAULT_RISK_BUDGET_SETTINGS.maxLossPerSessionPercent
+                });
+              }}
+            />
+            <label htmlFor="risk-budget-cooldown">Cooldown after loss (m)</label>
+            <input
+              id="risk-budget-cooldown"
+              type="number"
+              min="0"
+              step="1"
+              value={settings.riskBudget.cooldownMinutesAfterLoss}
+              disabled={!settings.riskBudget.enabled}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateRiskBudget({
+                  cooldownMinutesAfterLoss: Number.isFinite(nextValue) ? Math.max(0, Math.round(nextValue)) : DEFAULT_RISK_BUDGET_SETTINGS.cooldownMinutesAfterLoss
+                });
+              }}
+            />
+            <label htmlFor="risk-budget-size-multiplier">Max size multiplier</label>
+            <input
+              id="risk-budget-size-multiplier"
+              type="number"
+              min="1"
+              step="0.1"
+              value={settings.riskBudget.maxSizeMultiplier}
+              disabled={!settings.riskBudget.enabled}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateRiskBudget({
+                  maxSizeMultiplier: Number.isFinite(nextValue) ? Math.max(1, Math.round(nextValue * 100) / 100) : DEFAULT_RISK_BUDGET_SETTINGS.maxSizeMultiplier
+                });
+              }}
+            />
             <label className="check-row" htmlFor="clipboard-watch">
               <input
                 id="clipboard-watch"
@@ -1969,17 +2113,38 @@ export function App(): ReactElement {
               {formatTiming(requestMetrics.hermesMs)} · Total: {formatTiming(requestMetrics.totalMs)}
             </small>
           ) : null}
-          <label htmlFor="journal-notes">Session notes</label>
-          <textarea
-            id="journal-notes"
-            className="notes"
-            value={journalNotes}
-            onChange={(event) => setJournalNotes(event.target.value)}
-            placeholder="What happened next?"
-          />
-          <div className="section-heading compact">
-            <h2>Source quality tag</h2>
+        </section>
+      ) : null}
+
+      {response ? (
+        <section className="message" aria-label="Source context">
+          <div className="section-heading compact source-outcome-heading">
+            <h2>Source context</h2>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                applySourceContextFromFinding(topSourceQualityFinding, true);
+              }}
+              disabled={!topSourceQualityFinding}
+            >
+              Apply detected source
+            </button>
           </div>
+          <small className="source-outcome-hint">Track source context so future source-quality checks learn from your outcomes.</small>
+          {topSourceQualityFinding ? (
+            <div className="source-quality-chip-list">
+              <span className="source-quality-chip">
+                {topSourceQualityCategoryLabel} · confidence {topSourceQualityFinding.confidence} ·{' '}
+                {topSourceQualityFinding.provenance}
+              </span>
+              {topSourceQualityFinding.tokenHint ? (
+                <span className="source-quality-chip">Token hint: {topSourceQualityFinding.tokenHint}</span>
+              ) : null}
+            </div>
+          ) : (
+            <small className="source-outcome-hint">No source detected in this request. Fill category/outcome manually if needed.</small>
+          )}
           <label htmlFor="source-category">Source category</label>
           <select
             id="source-category"
@@ -2004,12 +2169,21 @@ export function App(): ReactElement {
               </option>
             ))}
           </select>
+          <small className="source-outcome-hint">{SOURCE_OUTCOME_HELP[journalSourceOutcome]}</small>
           <label htmlFor="source-token-hint">Token/address hint (optional)</label>
           <input
             id="source-token-hint"
             value={journalSourceTokenHint}
             onChange={(event) => setJournalSourceTokenHint(event.target.value)}
             placeholder="Optional token hint (e.g. contract/address)"
+          />
+          <label htmlFor="journal-notes">Session notes</label>
+          <textarea
+            id="journal-notes"
+            className="notes"
+            value={journalNotes}
+            onChange={(event) => setJournalNotes(event.target.value)}
+            placeholder="What happened next?"
           />
           <div className="journal-actions">
             <button type="button" onClick={saveJournalEntry}>
@@ -2351,6 +2525,11 @@ function isLowConfidenceEvidence(confidence: SourceQualityConfidence): boolean {
 
 function formatEvidenceConfidence(confidence: SourceQualityConfidence): string {
   return `Confidence: ${confidence}`;
+}
+
+function sourceCategoryLabel(category: SourceCategory): string {
+  const option = SOURCE_CATEGORY_OPTIONS.find((entry) => entry.value === category);
+  return option?.label ?? category;
 }
 
 function formatWarningDetectedAt(detectedAt: string): string {

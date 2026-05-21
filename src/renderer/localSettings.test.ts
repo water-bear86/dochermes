@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_LOCAL_SETTINGS, parseLocalSettings, serializeLocalSettings } from './localSettings';
+import {
+  DEFAULT_LOCAL_SETTINGS,
+  DEFAULT_RISK_BUDGET_SETTINGS,
+  parseLocalSettings,
+  serializeLocalSettings
+} from './localSettings';
 
 describe('parseLocalSettings', () => {
   it('returns defaults when storage has no settings', () => {
@@ -30,6 +35,13 @@ describe('parseLocalSettings', () => {
           friction: {
             enabled: false,
             strictness: 'high'
+          },
+          riskBudget: {
+            enabled: true,
+            maxTradesPerSession: 9,
+            maxLossPerSessionPercent: 18,
+            cooldownMinutesAfterLoss: 22,
+            maxSizeMultiplier: 1.8
           },
           keepAlwaysOnTop: false,
           armed: true,
@@ -62,6 +74,13 @@ describe('parseLocalSettings', () => {
       friction: {
         enabled: false,
         strictness: 'high'
+      },
+      riskBudget: {
+        enabled: true,
+        maxTradesPerSession: 9,
+        maxLossPerSessionPercent: 18,
+        cooldownMinutesAfterLoss: 22,
+        maxSizeMultiplier: 1.8
       },
       keepAlwaysOnTop: false,
       armed: true,
@@ -104,6 +123,7 @@ describe('parseLocalSettings', () => {
         enabled: true,
         strictness: 'standard'
       },
+      riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -139,6 +159,7 @@ describe('parseLocalSettings', () => {
         enabled: true,
         strictness: 'standard'
       },
+      riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -172,6 +193,7 @@ describe('parseLocalSettings', () => {
         enabled: true,
         strictness: 'standard'
       },
+      riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -202,6 +224,13 @@ describe('parseLocalSettings', () => {
           friction: {
             enabled: 'no',
             strictness: 'ultra'
+          },
+          riskBudget: {
+            enabled: 'yes',
+            maxTradesPerSession: 'four',
+            maxLossPerSessionPercent: -1,
+            cooldownMinutesAfterLoss: 30.2,
+            maxSizeMultiplier: 0
           },
           keepAlwaysOnTop: 'yes',
           armed: 'yes',
@@ -242,18 +271,25 @@ describe('serializeLocalSettings', () => {
           enabled: true,
           strictness: 'standard'
         },
+        riskBudget: {
+          enabled: true,
+          maxTradesPerSession: 6,
+          maxLossPerSessionPercent: 18,
+          cooldownMinutesAfterLoss: 20,
+          maxSizeMultiplier: 1.8
+        },
         keepAlwaysOnTop: true,
         armed: false,
         watchClipboard: false,
         watchOCR: false,
         pairedWindow: {
           id: 'window:1',
-          name: 'Trading Terminal',
+          name: 'Trading Window',
           kind: 'window'
         }
       })
     ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Terminal","kind":"window"}}'
+      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"riskBudget":{"enabled":true,"maxTradesPerSession":6,"maxLossPerSessionPercent":18,"cooldownMinutesAfterLoss":20,"maxSizeMultiplier":1.8},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Window","kind":"window"}}'
     );
   });
 });

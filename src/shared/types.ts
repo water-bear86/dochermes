@@ -65,6 +65,14 @@ export interface FrictionSettings {
   strictness: FrictionStrictness;
 }
 
+export interface SessionBudgetSettings {
+  enabled: boolean;
+  maxTradesPerSession: number;
+  maxLossPerSessionPercent: number;
+  cooldownMinutesAfterLoss: number;
+  maxSizeMultiplier: number;
+}
+
 export interface MonitoringContextPayload {
   localWarnings: string[];
   warningEvidence?: WarningEvidenceSummary[];
@@ -258,6 +266,7 @@ export interface LocalSettings {
   connection: HermesConnectionSettings;
   privacy: PrivacySettings;
   friction: FrictionSettings;
+  riskBudget: SessionBudgetSettings;
   keepAlwaysOnTop: boolean;
   armed: boolean;
   watchClipboard: boolean;

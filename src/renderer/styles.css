@@ -529,6 +529,32 @@ textarea:focus {
   text-align: right;
 }
 
+.source-outcome-heading h2 {
+  margin-bottom: 0;
+}
+
+.source-outcome-hint {
+  color: #9ea39b;
+  margin-bottom: 4px;
+  margin-top: -2px;
+  display: block;
+  font-size: 11px;
+}
+
+.source-quality-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-quality-chip {
+  border: 1px solid #3a433f;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #cfd4cb;
+  font-size: 11px;
+}
+
 .error {
   border-color: #6b3838;
   color: #ffd5cd;

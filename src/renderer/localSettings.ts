@@ -4,6 +4,7 @@ import type {
   HermesConnectionSettings,
   LocalSettings,
   FrictionSettings,
+  SessionBudgetSettings,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -34,10 +35,19 @@ export const DEFAULT_FRICTION_SETTINGS: FrictionSettings = {
   strictness: 'standard'
 };
 
+export const DEFAULT_RISK_BUDGET_SETTINGS: SessionBudgetSettings = {
+  enabled: false,
+  maxTradesPerSession: 4,
+  maxLossPerSessionPercent: 12,
+  cooldownMinutesAfterLoss: 45,
+  maxSizeMultiplier: 2
+};
+
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   connection: DEFAULT_HERMES_CONNECTION,
   privacy: DEFAULT_PRIVACY_SETTINGS,
   friction: DEFAULT_FRICTION_SETTINGS,
+  riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
   keepAlwaysOnTop: true,
   armed: false,
   watchClipboard: false,
@@ -53,11 +63,13 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
     const parsed = JSON.parse(rawValue) as Partial<LocalSettings> & {
       gatewayUrl?: unknown;
     };
+    const pairedWindow = parsePairedWindow(parsed.pairedWindow);
 
     return {
       connection: parseConnectionSettings(parsed.connection, parsed.gatewayUrl),
       privacy: parsePrivacySettings(parsed.privacy),
       friction: parseFrictionSettings(parsed.friction),
+      riskBudget: parseRiskBudgetSettings(parsed.riskBudget),
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
           ? parsed.keepAlwaysOnTop
@@ -66,7 +78,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       watchClipboard:
         typeof parsed.watchClipboard === 'boolean' ? parsed.watchClipboard : DEFAULT_LOCAL_SETTINGS.watchClipboard,
       watchOCR: typeof parsed.watchOCR === 'boolean' ? parsed.watchOCR : DEFAULT_LOCAL_SETTINGS.watchOCR,
-      pairedWindow: parsePairedWindow(parsed.pairedWindow)
+      ...(pairedWindow ? { pairedWindow } : {})
     };
   } catch {
     return DEFAULT_LOCAL_SETTINGS;
@@ -78,6 +90,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
     connection: settings.connection,
     privacy: settings.privacy,
     friction: settings.friction,
+    riskBudget: settings.riskBudget,
     keepAlwaysOnTop: settings.keepAlwaysOnTop,
     armed: settings.armed,
     watchClipboard: settings.watchClipboard,
@@ -159,6 +172,59 @@ function parseFrictionSettings(rawFriction: unknown): FrictionSettings {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_FRICTION_SETTINGS.enabled,
     strictness
   };
+}
+
+function parseRiskBudgetSettings(rawRiskBudget: unknown): SessionBudgetSettings {
+  if (!rawRiskBudget || typeof rawRiskBudget !== 'object') {
+    return DEFAULT_RISK_BUDGET_SETTINGS;
+  }
+
+  const candidate = rawRiskBudget as Partial<SessionBudgetSettings>;
+
+  return {
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_RISK_BUDGET_SETTINGS.enabled,
+    maxTradesPerSession: sanitizeNonNegativeInteger(
+      candidate.maxTradesPerSession,
+      DEFAULT_RISK_BUDGET_SETTINGS.maxTradesPerSession
+    ),
+    maxLossPerSessionPercent: sanitizeNonNegativeNumber(
+      candidate.maxLossPerSessionPercent,
+      DEFAULT_RISK_BUDGET_SETTINGS.maxLossPerSessionPercent
+    ),
+    cooldownMinutesAfterLoss: sanitizeNonNegativeInteger(
+      candidate.cooldownMinutesAfterLoss,
+      DEFAULT_RISK_BUDGET_SETTINGS.cooldownMinutesAfterLoss
+    ),
+    maxSizeMultiplier: sanitizeSizeMultiplier(candidate.maxSizeMultiplier)
+  };
+}
+
+function sanitizeSizeMultiplier(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_RISK_BUDGET_SETTINGS.maxSizeMultiplier;
+  }
+
+  if (value < 1) {
+    return DEFAULT_RISK_BUDGET_SETTINGS.maxSizeMultiplier;
+  }
+
+  return Math.round(value * 100) / 100;
+}
+
+function sanitizeNonNegativeInteger(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+
+  return value;
+}
+
+function sanitizeNonNegativeNumber(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+
+  return value;
 }
 
 function parsePrivacyPreset(value: unknown): PrivacyPreset {
