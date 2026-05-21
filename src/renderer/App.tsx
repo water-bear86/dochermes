@@ -63,6 +63,13 @@ type LastRequestContext = {
   selectedWindowKind: WindowSourceOption['kind'];
 };
 
+type FrictionCard = {
+  id: string;
+  question: string;
+  warnings: string[];
+  prompts: string[];
+};
+
 const HERMES_HEALTH_POLL_MS = 60_000;
 
 export function App(): ReactElement {
@@ -119,6 +126,8 @@ export function App(): ReactElement {
   const [editingFeedbackId, setEditingFeedbackId] = useState<string | undefined>();
   const [editingFeedbackAction, setEditingFeedbackAction] = useState<WarningFeedbackAction>('followed-plan');
   const [editingFeedbackNotes, setEditingFeedbackNotes] = useState('');
+  const [frictionCard, setFrictionCard] = useState<FrictionCard | undefined>();
+  const [frictionNoteText, setFrictionNoteText] = useState('');
   const validatedPairRef = useRef<string | undefined>(undefined);
   const bridge = window.hermesCoach;
 
@@ -130,6 +139,10 @@ export function App(): ReactElement {
     [journalEntries, question, warningFeedbackEntries]
   );
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
+  const localWarnings = useMemo(
+    () => localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
+    [question, memoryContext.matchedPatterns.length]
+  );
 
 
   const updateConnection = useCallback((updates: Partial<LocalSettings['connection']>) => {
@@ -394,8 +407,19 @@ export function App(): ReactElement {
       return;
     }
 
+    const nextFrictionCard = buildFrictionCard({
+      question,
+      localWarnings,
+      matchedPatternCount: memoryContext.matchedPatterns.length
+    });
+
+    if (nextFrictionCard) {
+      setFrictionCard(nextFrictionCard);
+      return;
+    }
+
     await askWithSource(selectedSource);
-  }, [askWithSource, hasQuestion, loadSources, selectedSource]);
+  }, [askWithSource, hasQuestion, localWarnings, loadSources, selectedSource]);
 
   const testConnection = useCallback(async () => {
     if (!bridge) {
@@ -563,6 +587,59 @@ export function App(): ReactElement {
     }
   }, [editingFeedbackId]);
 
+  const persistFrictionJournalAction = useCallback(
+    (actionLabel: string, note?: string) => {
+      if (!selectedSource) {
+        setError('A trading window is required before saving a friction decision.');
+        return;
+      }
+
+      const questionContext = question.trim();
+      const notes = note?.trim() || '';
+      const response = buildFrictionDecision(actionLabel, notes);
+
+      const entry = buildJournalEntry({
+        question: questionContext,
+        response,
+        notes,
+        selectedWindow: selectedSource,
+        screenshotCaptured: false,
+        monitoring: buildMonitoringMetadata(localWarnings, monitorSignals)
+      });
+
+      const nextEntries = appendJournalEntry(localStorage, {
+        ...entry,
+        notes
+      });
+      setJournalEntries(nextEntries);
+      setJournalSavedMessage('Saved to local journal.');
+      setFrictionCard(undefined);
+      setFrictionNoteText('');
+    },
+    [localWarnings, monitorSignals, question, selectedSource]
+  );
+
+  const proceedWithFrictionAction = useCallback(
+    (actionLabel: string, selected: WindowSourceOption, shouldAsk = false) => {
+      setError('');
+      setFrictionCard(undefined);
+      persistFrictionJournalAction(actionLabel, frictionNoteText.trim() || undefined);
+      setFrictionNoteText('');
+
+      if (shouldAsk) {
+        void askWithSource(selected, true);
+        setJournalSavedMessage('');
+        return;
+      }
+    },
+    [askWithSource, frictionNoteText, persistFrictionJournalAction]
+  );
+
+  const clearFrictionCard = useCallback(() => {
+    setFrictionCard(undefined);
+    setFrictionNoteText('');
+  }, []);
+
   const statusText = useMemo(() => {
     switch (requestState) {
       case 'loading-sources':
@@ -594,11 +671,6 @@ export function App(): ReactElement {
         return 'Hermes check-in: checking...';
     }
   }, [hermesHeartbeat.status]);
-
-  const localWarnings = useMemo(
-    () => localRiskWarnings(memoryContext.matchedPatterns.length > 0, question),
-    [question, memoryContext.matchedPatterns.length]
-  );
 
   const appendSignalToQuestion = useCallback((signal: MonitoringSignal) => {
     const tokenHint = signal.value.trim();
@@ -683,10 +755,21 @@ export function App(): ReactElement {
       setPickerOpen(false);
 
       if (pickerMode === 'ask') {
+        const nextFrictionCard = buildFrictionCard({
+          question,
+          localWarnings,
+          matchedPatternCount: memoryContext.matchedPatterns.length
+        });
+
+        if (nextFrictionCard) {
+          setFrictionCard(nextFrictionCard);
+          return;
+        }
+
         void askWithSource(nextSource);
       }
     },
-    [askWithSource, pickerMode]
+    [askWithSource, memoryContext.matchedPatterns.length, localWarnings, pickerMode, question]
   );
 
   const toggleArmed = useCallback(() => {
@@ -1134,6 +1217,98 @@ export function App(): ReactElement {
         </button>
       </section>
 
+      {frictionCard ? (
+        <section className="message warning">
+          <span className="label">Pre-trade friction card</span>
+          <p>{frictionCard.question ? `High-risk context: ${frictionCard.question}` : 'High-risk context detected.'}</p>
+          {frictionCard.warnings.length > 0 ? (
+            <div className="warning-list">
+              {frictionCard.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
+          <div className="warning-list">
+            {frictionCard.prompts.map((prompt) => (
+              <p key={prompt}>{prompt}</p>
+            ))}
+          </div>
+          <div className="button-row" style={{ marginTop: '8px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedSource) {
+                  void proceedWithFrictionAction('I have a plan', selectedSource, true);
+                }
+              }}
+            >
+              I have a plan
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedSource) {
+                  void proceedWithFrictionAction('Skip this trade', selectedSource);
+                }
+              }}
+            >
+              Skip this trade
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedSource) {
+                  void proceedWithFrictionAction('Ask Hermes', selectedSource, true);
+                }
+              }}
+            >
+              Ask Hermes
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                clearFrictionCard();
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+          <label htmlFor="friction-note">Add friction note</label>
+          <textarea
+            id="friction-note"
+            className="notes"
+            value={frictionNoteText}
+            onChange={(event) => setFrictionNoteText(event.target.value)}
+            placeholder="If this is a false-positive or special case, capture it here."
+          />
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => {
+                if (!frictionNoteText.trim()) {
+                  return;
+                }
+
+                persistFrictionJournalAction('Friction note added', frictionNoteText.trim());
+              }}
+            >
+              Save note
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setFrictionNoteText('');
+              }}
+            >
+              Clear note
+            </button>
+          </div>
+          <small>Dismiss does not log an action. Use an action to proceed, skip, or save a note.</small>
+        </section>
+      ) : null}
+
       {localWarnings.length > 0 ? (
         <section className="message warning">
           <span className="label">Local guardrail</span>
@@ -1537,4 +1712,39 @@ function localRiskWarnings(hasMemoryMatch: boolean, question: string): string[] 
   }
 
   return warnings;
+}
+
+function buildFrictionCard(input: {
+  question: string;
+  localWarnings: string[];
+  matchedPatternCount: number;
+}): FrictionCard | undefined {
+  const normalized = input.question.toLowerCase();
+  const hasUrgentSignal = /(immediate|right now|all-in|ape|momentum)/.test(normalized);
+  const hasHistoricalRiskSignal = input.matchedPatternCount > 0 || input.localWarnings.length > 0;
+
+  if (!hasUrgentSignal && !hasHistoricalRiskSignal) {
+    return undefined;
+  }
+
+  const prompts = [
+    'Why now? What changed in the last 30 seconds that would invalidate this setup?',
+    'What confirms you are wrong before entering? What is your invalidation plan?',
+    'What is the max loss and first action if that threshold is hit?'
+  ];
+
+  return {
+    id: createRequestContextId(),
+    question: input.question.trim(),
+    warnings: [...input.localWarnings],
+    prompts: input.matchedPatternCount > 0 ? [...prompts, 'Do you still have session risk budget for this entry?'] : prompts
+  };
+}
+
+function buildFrictionDecision(actionLabel: string, note?: string): string {
+  if (note) {
+    return `${actionLabel}. Note: ${note}`;
+  }
+
+  return `${actionLabel}.`;
 }
