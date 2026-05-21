@@ -249,11 +249,10 @@ export function App(): ReactElement {
         return;
       }
 
-      const nextPreview = buildHermesRequestPreview({
+  const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
         selectedWindow: source,
-        memoryContext,
-        monitorSignals
+        memoryContext
       });
       setRequestPreview(nextPreview);
 
@@ -970,18 +969,13 @@ function buildHermesRequestPreview(input: {
   connection: HermesConnectionSettings;
   selectedWindow: WindowSourceOption;
   memoryContext: MemoryContext;
-  monitorSignals: MonitoringSignal[];
 }): HermesRequestPreview {
-  const { connection, memoryContext, monitorSignals } = input;
+  const { connection, memoryContext } = input;
   const profile = inferDataSharingScope(connection);
   const payloadClasses = ['Question text', 'Selected window metadata', 'Screenshot image'];
 
   if (memoryContext.matchedPatterns.length > 0 || memoryContext.recentNotes.length > 0) {
     payloadClasses.push('Compact memory context');
-  }
-
-  if (monitorSignals.length > 0) {
-    payloadClasses.push('Monitoring signal summary');
   }
 
   return {
@@ -996,7 +990,7 @@ function buildHermesRequestPreview(input: {
 function inferDataSharingScope(connection: HermesConnectionSettings): DataSharingProfile {
   const isLocal = isLoopbackEndpoint(connection.baseUrl);
 
-  if (connection.connectionKind === 'local' && isLocal) {
+  if (isLocal && connection.connectionKind !== 'hosted') {
     return {
       title: 'Local-first',
       description: 'Local Hermes only; keep sensitive context on your machine.',
