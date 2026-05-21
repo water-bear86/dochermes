@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JournalEntry, SessionBudgetSettings } from '../shared/types';
+import type { JournalEntry, SessionBudgetSettings, SourceQualityFinding } from '../shared/types';
+import { DEFAULT_RISK_BUDGET_SETTINGS } from './localSettings';
 import { buildSessionRiskAssessment } from './sessionRisk';
 
 const baseWindow = {
@@ -9,13 +10,21 @@ const baseWindow = {
   kind: 'window' as const
 } as const;
 
+const sourceFinding: SourceQualityFinding = {
+  category: 'telegram',
+  confidence: 'medium',
+  provenance: 'Question text',
+  reason: 'Telegram signal'
+};
+
 const defaultBudget: SessionBudgetSettings = {
   enabled: true,
   maxTradesPerSession: 4,
   maxLossPerSessionPercent: 12,
   cooldownMinutesAfterLoss: 45,
   maxSizeMultiplier: 1.5,
-  tiltSensitivity: 'standard'
+  tiltSensitivity: 'standard',
+  sourceConstraints: DEFAULT_RISK_BUDGET_SETTINGS.sourceConstraints
 };
 
 function makeEntry(overrides: Partial<JournalEntry>): JournalEntry {
@@ -335,5 +344,34 @@ describe('buildSessionRiskAssessment', () => {
       result.warnings.some((warning) => warning.text.includes('Tilt-risk pattern'))
     ).toBe(true);
     expect(result.status.tiltSensitivity).toBe('standard');
+  });
+
+  it('applies source-specific source-size constraints as policy-level warnings', () => {
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T10:30:00.000Z'),
+      question: 'Buy 4 SOL now',
+      journalEntries: [
+        makeEntry({
+          id: '1',
+          createdAt: '2026-05-21T10:00:00.000Z',
+          question: 'Buy 2 SOL'
+        })
+      ],
+      riskBudget: {
+        ...defaultBudget,
+        maxSizeMultiplier: 2,
+        sourceConstraints: {
+          ...defaultBudget.sourceConstraints,
+          telegram: {
+            enabled: true,
+            maxSizeMultiplier: 1
+          }
+        }
+      },
+      sourceFindings: [sourceFinding]
+    });
+
+    expect(result.warnings.some((warning) => warning.text.includes('Trade size may be oversized'))).toBe(true);
+    expect(result.warnings.some((warning) => warning.policyLevel === 'policy')).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_RISK_BUDGET_SETTINGS,
+  DEFAULT_SOURCE_CONSTRAINTS,
   parseLocalSettings,
   serializeLocalSettings
 } from './localSettings';
@@ -43,7 +44,9 @@ describe('parseLocalSettings', () => {
             cooldownMinutesAfterLoss: 22,
             maxSizeMultiplier: 1.8,
             tiltSensitivity: 'standard'
+            // not expected, parse should default constraints for missing source rules
           },
+          coachMode: 'advisory',
           keepAlwaysOnTop: false,
           armed: true,
           watchClipboard: true,
@@ -82,8 +85,10 @@ describe('parseLocalSettings', () => {
         maxLossPerSessionPercent: 18,
         cooldownMinutesAfterLoss: 22,
         maxSizeMultiplier: 1.8,
-        tiltSensitivity: 'standard'
+        tiltSensitivity: 'standard',
+        sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
       },
+      coachMode: 'advisory',
       keepAlwaysOnTop: false,
       armed: true,
       watchClipboard: true,
@@ -126,6 +131,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -162,6 +168,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -196,6 +203,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -252,47 +260,89 @@ describe('parseLocalSettings', () => {
 describe('serializeLocalSettings', () => {
   it('serializes only the settings shape the app owns', () => {
     expect(
-      serializeLocalSettings({
-        connection: {
-          connectionKind: 'local',
-          endpointMode: 'auto',
-          baseUrl: 'http://localhost:8642',
-          modelId: 'hermes-agent',
-          bearerToken: ''
-        },
-        privacy: {
-          preset: 'balanced',
-          redaction: {
-            redactAddresses: true,
-            redactBalances: false,
-            redactUsernames: true,
-            redactAmounts: true
+      JSON.parse(
+        serializeLocalSettings({
+          connection: {
+            connectionKind: 'local',
+            endpointMode: 'auto',
+            baseUrl: 'http://localhost:8642',
+            modelId: 'hermes-agent',
+            bearerToken: ''
+          },
+          privacy: {
+            preset: 'balanced',
+            redaction: {
+              redactAddresses: true,
+              redactBalances: false,
+              redactUsernames: true,
+              redactAmounts: true
+            }
+          },
+          friction: {
+            enabled: true,
+            strictness: 'standard'
+          },
+          riskBudget: {
+            enabled: true,
+            maxTradesPerSession: 6,
+            maxLossPerSessionPercent: 18,
+            cooldownMinutesAfterLoss: 20,
+            maxSizeMultiplier: 1.8,
+            tiltSensitivity: 'standard',
+            sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
+          },
+          coachMode: 'advisory',
+          keepAlwaysOnTop: true,
+          armed: false,
+          watchClipboard: false,
+          watchOCR: false,
+          pairedWindow: {
+            id: 'window:1',
+            name: 'Trading Window',
+            kind: 'window'
           }
-        },
-        friction: {
-          enabled: true,
-          strictness: 'standard'
-        },
-        riskBudget: {
-          enabled: true,
-          maxTradesPerSession: 6,
-          maxLossPerSessionPercent: 18,
-          cooldownMinutesAfterLoss: 20,
-          maxSizeMultiplier: 1.8,
-          tiltSensitivity: 'standard'
-        },
-        keepAlwaysOnTop: true,
-        armed: false,
-        watchClipboard: false,
-        watchOCR: false,
-        pairedWindow: {
-          id: 'window:1',
-          name: 'Trading Window',
-          kind: 'window'
+        })
+      )
+    ).toEqual({
+      connection: {
+        connectionKind: 'local',
+        endpointMode: 'auto',
+        baseUrl: 'http://localhost:8642',
+        modelId: 'hermes-agent',
+        bearerToken: ''
+      },
+      privacy: {
+        preset: 'balanced',
+        redaction: {
+          redactAddresses: true,
+          redactBalances: false,
+          redactUsernames: true,
+          redactAmounts: true
         }
-      })
-    ).toBe(
-      '{"connection":{"connectionKind":"local","endpointMode":"auto","baseUrl":"http://localhost:8642","modelId":"hermes-agent","bearerToken":""},"privacy":{"preset":"balanced","redaction":{"redactAddresses":true,"redactBalances":false,"redactUsernames":true,"redactAmounts":true}},"friction":{"enabled":true,"strictness":"standard"},"riskBudget":{"enabled":true,"maxTradesPerSession":6,"maxLossPerSessionPercent":18,"cooldownMinutesAfterLoss":20,"maxSizeMultiplier":1.8,"tiltSensitivity":"standard"},"keepAlwaysOnTop":true,"armed":false,"watchClipboard":false,"watchOCR":false,"pairedWindow":{"id":"window:1","name":"Trading Window","kind":"window"}}'
-    );
+      },
+      friction: {
+        enabled: true,
+        strictness: 'standard'
+      },
+      coachMode: 'advisory',
+      riskBudget: {
+        enabled: true,
+        maxTradesPerSession: 6,
+        maxLossPerSessionPercent: 18,
+        cooldownMinutesAfterLoss: 20,
+        maxSizeMultiplier: 1.8,
+        tiltSensitivity: 'standard',
+        sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
+      },
+      keepAlwaysOnTop: true,
+      armed: false,
+      watchClipboard: false,
+      watchOCR: false,
+      pairedWindow: {
+        id: 'window:1',
+        name: 'Trading Window',
+        kind: 'window'
+      }
+    });
   });
 });

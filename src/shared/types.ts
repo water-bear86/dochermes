@@ -21,6 +21,8 @@ export type HermesConnectionStatus = 'connected' | 'degraded' | 'disconnected' |
 export type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
 
 export type FrictionStrictness = 'low' | 'standard' | 'high';
+export type CoachMode = 'advisory' | 'guardrail' | 'policy';
+export type SessionRiskPolicyLevel = 'advisory' | 'guardrail' | 'policy';
 
 export type ClipboardCandidateKind =
   | 'evm-address'
@@ -65,6 +67,13 @@ export interface FrictionSettings {
   strictness: FrictionStrictness;
 }
 
+export interface SourceConstraintSetting {
+  enabled: boolean;
+  maxSizeMultiplier: number;
+}
+
+export type SourceConstraintCatalog = Partial<Record<SourceCategory, SourceConstraintSetting>>;
+
 export type TiltSensitivity = 'low' | 'standard' | 'high';
 
 export interface SessionBudgetSettings {
@@ -74,6 +83,7 @@ export interface SessionBudgetSettings {
   cooldownMinutesAfterLoss: number;
   maxSizeMultiplier: number;
   tiltSensitivity: TiltSensitivity;
+  sourceConstraints: SourceConstraintCatalog;
 }
 
 export interface MonitoringContextPayload {
@@ -269,6 +279,7 @@ export interface LocalSettings {
   connection: HermesConnectionSettings;
   privacy: PrivacySettings;
   friction: FrictionSettings;
+  coachMode: CoachMode;
   riskBudget: SessionBudgetSettings;
   keepAlwaysOnTop: boolean;
   armed: boolean;

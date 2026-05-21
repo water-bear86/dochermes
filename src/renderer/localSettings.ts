@@ -4,7 +4,10 @@ import type {
   HermesConnectionSettings,
   LocalSettings,
   FrictionSettings,
+  CoachMode,
   SessionBudgetSettings,
+  SourceConstraintCatalog,
+  SourceCategory,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -35,19 +38,33 @@ export const DEFAULT_FRICTION_SETTINGS: FrictionSettings = {
   strictness: 'standard'
 };
 
+const DEFAULT_COACH_MODE: CoachMode = 'advisory';
+
+export const DEFAULT_SOURCE_CONSTRAINTS: SourceConstraintCatalog = {
+  'telegram': { enabled: false, maxSizeMultiplier: 1 },
+  'discord': { enabled: false, maxSizeMultiplier: 1 },
+  'social': { enabled: false, maxSizeMultiplier: 1 },
+  'dex-link': { enabled: false, maxSizeMultiplier: 1 },
+  'token-address': { enabled: false, maxSizeMultiplier: 1 },
+  'wallet': { enabled: false, maxSizeMultiplier: 1 },
+  'unknown': { enabled: false, maxSizeMultiplier: 1 }
+};
+
 export const DEFAULT_RISK_BUDGET_SETTINGS: SessionBudgetSettings = {
   enabled: false,
   maxTradesPerSession: 4,
   maxLossPerSessionPercent: 12,
   cooldownMinutesAfterLoss: 45,
   maxSizeMultiplier: 2,
-  tiltSensitivity: 'standard'
+  tiltSensitivity: 'standard',
+  sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
 };
 
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   connection: DEFAULT_HERMES_CONNECTION,
   privacy: DEFAULT_PRIVACY_SETTINGS,
   friction: DEFAULT_FRICTION_SETTINGS,
+  coachMode: DEFAULT_COACH_MODE,
   riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
   keepAlwaysOnTop: true,
   armed: false,
@@ -71,6 +88,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       privacy: parsePrivacySettings(parsed.privacy),
       friction: parseFrictionSettings(parsed.friction),
       riskBudget: parseRiskBudgetSettings(parsed.riskBudget),
+      coachMode: parseCoachMode(parsed.coachMode),
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
           ? parsed.keepAlwaysOnTop
@@ -88,14 +106,15 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 
 export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
-    connection: settings.connection,
-    privacy: settings.privacy,
-    friction: settings.friction,
-    riskBudget: settings.riskBudget,
-    keepAlwaysOnTop: settings.keepAlwaysOnTop,
-    armed: settings.armed,
-    watchClipboard: settings.watchClipboard,
-    watchOCR: settings.watchOCR,
+      connection: settings.connection,
+      privacy: settings.privacy,
+      friction: settings.friction,
+      coachMode: settings.coachMode,
+      riskBudget: settings.riskBudget,
+      keepAlwaysOnTop: settings.keepAlwaysOnTop,
+      armed: settings.armed,
+      watchClipboard: settings.watchClipboard,
+      watchOCR: settings.watchOCR,
     pairedWindow: settings.pairedWindow
   });
 }
@@ -175,6 +194,10 @@ function parseFrictionSettings(rawFriction: unknown): FrictionSettings {
   };
 }
 
+function parseCoachMode(value: unknown): CoachMode {
+  return value === 'advisory' || value === 'guardrail' || value === 'policy' ? value : DEFAULT_COACH_MODE;
+}
+
 function parseRiskBudgetSettings(rawRiskBudget: unknown): SessionBudgetSettings {
   if (!rawRiskBudget || typeof rawRiskBudget !== 'object') {
     return DEFAULT_RISK_BUDGET_SETTINGS;
@@ -197,8 +220,62 @@ function parseRiskBudgetSettings(rawRiskBudget: unknown): SessionBudgetSettings 
       DEFAULT_RISK_BUDGET_SETTINGS.cooldownMinutesAfterLoss
     ),
     maxSizeMultiplier: sanitizeSizeMultiplier(candidate.maxSizeMultiplier),
-    tiltSensitivity: parseTiltSensitivity(candidate.tiltSensitivity)
+    tiltSensitivity: parseTiltSensitivity(candidate.tiltSensitivity),
+    sourceConstraints: parseSourceConstraints(candidate.sourceConstraints)
   };
+}
+
+function parseSourceConstraints(rawSourceConstraints: unknown): SourceConstraintCatalog {
+  if (!rawSourceConstraints || typeof rawSourceConstraints !== 'object') {
+    return DEFAULT_SOURCE_CONSTRAINTS;
+  }
+
+  const candidate = rawSourceConstraints as Record<string, unknown>;
+  const next: SourceConstraintCatalog = {};
+  const allCategories: SourceCategory[] = [
+    'telegram',
+    'discord',
+    'social',
+    'dex-link',
+    'token-address',
+    'wallet',
+    'unknown'
+  ];
+
+  for (const source of allCategories) {
+    const rawSetting = candidate[source];
+    if (!rawSetting || typeof rawSetting !== 'object') {
+      continue;
+    }
+
+    const setting = rawSetting as {
+      enabled?: unknown;
+      maxSizeMultiplier?: unknown;
+    };
+
+    if (typeof setting.enabled !== 'boolean' && typeof setting.maxSizeMultiplier !== 'number') {
+      continue;
+    }
+
+    next[source] = {
+      enabled: typeof setting.enabled === 'boolean' ? setting.enabled : false,
+      maxSizeMultiplier: sanitizeSourceConstraintMultiplier(setting.maxSizeMultiplier)
+    };
+  }
+
+  return next;
+}
+
+function sanitizeSourceConstraintMultiplier(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 1;
+  }
+
+  if (value < 1) {
+    return 1;
+  }
+
+  return value;
 }
 
 function parseTiltSensitivity(value: unknown): SessionBudgetSettings['tiltSensitivity'] {

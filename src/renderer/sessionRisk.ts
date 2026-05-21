@@ -1,4 +1,10 @@
-import type { JournalEntry, SourceQualityConfidence, SessionBudgetSettings } from '../shared/types';
+import type {
+  JournalEntry,
+  SourceQualityConfidence,
+  SourceQualityFinding,
+  SessionBudgetSettings,
+  SessionRiskPolicyLevel
+} from '../shared/types';
 
 const LOSS_KEYWORDS = /(?:loss|losses|lost|drawdown|dd|ripped|rekt|negative|drop|dump)/i;
 const GAIN_KEYWORDS = /(?:gain|gains|won|positive|profit|targeted)/i;
@@ -49,6 +55,7 @@ interface TiltSensitivityPreset {
 
 export interface SessionRiskWarningCandidate {
   text: string;
+  policyLevel: SessionRiskPolicyLevel;
   evidence: {
     source: string;
     detail: string;
@@ -81,6 +88,7 @@ export function buildSessionRiskAssessment(input: {
   question: string;
   journalEntries: JournalEntry[];
   riskBudget: SessionBudgetSettings;
+  sourceFindings?: SourceQualityFinding[];
   now?: () => Date;
 }): SessionRiskAssessment {
   const riskBudget = input.riskBudget;
@@ -136,6 +144,10 @@ export function buildSessionRiskAssessment(input: {
   });
   const nextTradeNumber = tradeCount + 1;
   const isUrgentQuestion = URGENT_KEYWORDS.test(input.question);
+  const sizeLimitPolicy = determineEffectiveSizeMultiplier({
+    budget: riskBudget,
+    sourceFindings: input.sourceFindings
+  });
 
   const warnings: SessionRiskWarningCandidate[] = [];
 
@@ -143,7 +155,7 @@ export function buildSessionRiskAssessment(input: {
     addTradeBudgetWarning(warnings, riskBudget, tradeCount, nextTradeNumber);
     addLossWarning(warnings, riskBudget, knownLossPercent, hasLossData);
     addCooldownWarning(warnings, riskBudget, cooldownMinutesLeft);
-    addSizeMultiplierWarning(warnings, riskBudget, candidateSize, medianSize, nextTradeNumber);
+    addSizeMultiplierWarning(warnings, riskBudget, candidateSize, medianSize, nextTradeNumber, sizeLimitPolicy);
     addRapidTradeWarning(warnings, riskBudget, rapidTrades, tiltProfile);
     addRepeatedContractWarning(warnings, riskBudget, repeatedContractWarningEvidence, tiltProfile);
     addTiltWarning(warnings, riskBudget, isUrgentQuestion, recentLosses, tiltProfile, candidateSize, medianSize);
@@ -180,6 +192,7 @@ function addTradeBudgetWarning(
 
   if (nextTradeNumber > budget.maxTradesPerSession) {
     warnings.push({
+      policyLevel: 'policy',
       text: `Trade budget exceeded: this would be trade #${nextTradeNumber} but max is ${budget.maxTradesPerSession} today.`,
       evidence: {
         source: 'Session risk budget',
@@ -192,6 +205,7 @@ function addTradeBudgetWarning(
 
   if (nextTradeNumber === budget.maxTradesPerSession) {
     warnings.push({
+      policyLevel: 'guardrail',
       text: `You are at the session trade limit for today: this would be trade #${nextTradeNumber} of ${budget.maxTradesPerSession}.`,
       evidence: {
         source: 'Session risk budget',
@@ -205,6 +219,7 @@ function addTradeBudgetWarning(
   const ratio = budget.maxTradesPerSession > 0 ? nextTradeNumber / budget.maxTradesPerSession : 0;
   if (ratio >= 0.8) {
     warnings.push({
+      policyLevel: 'advisory',
       text: `Session trades are near limit: next trade would be ${nextTradeNumber}/${budget.maxTradesPerSession}.`,
       evidence: {
         source: 'Session risk budget',
@@ -227,6 +242,7 @@ function addLossWarning(
 
   if (!hasLossData) {
     warnings.push({
+      policyLevel: 'advisory',
       text: 'Loss budget check is active but no structured loss outcome is available for today.',
       evidence: {
         source: 'Session risk budget',
@@ -240,6 +256,7 @@ function addLossWarning(
   const usage = knownLossPercent / budget.maxLossPerSessionPercent;
   if (usage >= 1) {
     warnings.push({
+      policyLevel: 'policy',
       text: `Session max-loss budget exceeded: ${formatPercent(knownLossPercent)} used of ${formatPercent(
         budget.maxLossPerSessionPercent
       )} target.`,
@@ -254,6 +271,7 @@ function addLossWarning(
 
   if (usage >= 0.8) {
     warnings.push({
+      policyLevel: 'guardrail',
       text: `Session loss budget nearing limit: ${formatPercent(knownLossPercent)} of ${formatPercent(
         budget.maxLossPerSessionPercent
       )} used.`,
@@ -277,6 +295,7 @@ function addCooldownWarning(
 
   if (cooldownMinutesLeft > 0) {
     warnings.push({
+      policyLevel: 'policy',
       text: `Cooldown active after recent loss: ${Math.ceil(cooldownMinutesLeft)}m remaining (window ${budget.cooldownMinutesAfterLoss}m).`,
       evidence: {
         source: 'Session risk budget',
@@ -299,6 +318,7 @@ function addRapidTradeWarning(
 
   if (recentTradeCount >= tiltProfile.rapidTradeThreshold) {
     warnings.push({
+      policyLevel: 'advisory',
       text: `High trading pace detected: ${recentTradeCount} logged trades in the last ${tiltProfile.rapidTradeWindowMinutes} minutes.`,
       evidence: {
         source: 'Tilt detector',
@@ -331,6 +351,7 @@ function addRepeatedContractWarning(
 
   const topMatch = filtered.sort((left, right) => right.matches - left.matches)[0];
   warnings.push({
+    policyLevel: 'guardrail',
     text: `Tilt-risk pattern: ${topMatch.token} appeared in ${topMatch.matches} prior entries within ${tiltProfile.repeatedContractWindowMinutes}m.`,
     evidence: {
       source: 'Tilt detector',
@@ -345,35 +366,52 @@ function addSizeMultiplierWarning(
   budget: SessionBudgetSettings,
   candidateSize: TradeSize | undefined,
   medianSize: number | undefined,
-  nextTradeNumber: number
+  nextTradeNumber: number,
+  sizeLimitPolicy: {
+    multiplier: number;
+    policyLevel: SessionRiskPolicyLevel;
+  }
 ): void {
-  if (!isPositiveNumber(budget.maxSizeMultiplier) || budget.maxSizeMultiplier <= 1) {
+  const multiplier = sizeLimitPolicy.multiplier;
+
+  if (!isPositiveNumber(multiplier)) {
     return;
   }
 
   if (!candidateSize) {
-    return;
-  }
-
-  if (medianSize === undefined) {
     warnings.push({
-      text: `Size-rule is enabled but no baseline for ${candidateSize.unit.toUpperCase()} sizes was found today.`,
+      policyLevel: 'guardrail',
+      text: 'Sizing rule requested but no exact size was found in this question.',
       evidence: {
         source: 'Session risk budget',
-        detail: `Configured multiplier: max ${budget.maxSizeMultiplier}x baseline.`,
+        detail: 'Add explicit size to evaluate policy size constraints (global and per-source).',
         confidence: 'low'
       }
     });
     return;
   }
 
-  const maxAllowable = medianSize * budget.maxSizeMultiplier;
+  if (medianSize === undefined) {
+    warnings.push({
+      policyLevel: sizeLimitPolicy.policyLevel,
+      text: `Size-rule is enabled but no baseline for ${candidateSize.unit.toUpperCase()} sizes was found today.`,
+      evidence: {
+        source: 'Session risk budget',
+        detail: `Configured multiplier cap is ${formatMultiplier(multiplier)}x baseline.`,
+        confidence: 'low'
+      }
+    });
+    return;
+  }
+
+  const maxAllowable = medianSize * multiplier;
   if (candidateSize.value > maxAllowable) {
     warnings.push({
+      policyLevel: sizeLimitPolicy.policyLevel,
       text: `Trade size may be oversized: ${candidateSize.value}${candidateSize.unit} > ${round2(maxAllowable)}${candidateSize.unit} (next trade #${nextTradeNumber}).`,
       evidence: {
         source: 'Session risk budget',
-        detail: `Median ${candidateSize.unit} size today is ${round2(medianSize)}; multiplier cap is ${formatMultiplier(budget.maxSizeMultiplier)}.`,
+        detail: `Median ${candidateSize.unit} size today is ${round2(medianSize)}; multiplier cap is ${formatMultiplier(multiplier)}.`,
         confidence: 'medium'
       }
     });
@@ -398,6 +436,7 @@ function addTiltWarning(
       const urgencyThreshold = medianSize * tiltProfile.tiltUrgentAfterLossMultiplier;
       if (candidateSize.value >= urgencyThreshold) {
         warnings.push({
+          policyLevel: 'advisory',
           text: `Urgent size request (${candidateSize.value}${candidateSize.unit}) is above urgency baseline.`
           + ` Median is ${round2(medianSize)}${candidateSize.unit}.`,
           evidence: {
@@ -410,6 +449,7 @@ function addTiltWarning(
     }
 
     warnings.push({
+      policyLevel: 'advisory',
       text: `Tilt-risk pattern: urgent language after ${recentLossCount} recent loss${recentLossCount === 1 ? '' : 'es'}.`,
       evidence: {
         source: 'Behavioral check',
@@ -422,6 +462,7 @@ function addTiltWarning(
 
   if (recentLossCount === 0 && budget.enabled && budget.maxLossPerSessionPercent > 0) {
     warnings.push({
+      policyLevel: 'advisory',
       text: 'No recent losses detected for this question context, but monitor urgency behavior.',
       evidence: {
         source: 'Behavioral check',
@@ -436,6 +477,7 @@ function addTiltWarning(
     const threshold = isFinite(urgencyBaseline) ? urgencyBaseline : Number.POSITIVE_INFINITY;
     if (candidateSize.value >= threshold) {
       warnings.push({
+        policyLevel: 'advisory',
         text: `Urgent size request (${candidateSize.value}${candidateSize.unit}) exceeds a conservative urgency-size threshold.`,
         evidence: {
           source: 'Behavioral check',
@@ -445,6 +487,55 @@ function addTiltWarning(
       });
     }
   }
+}
+
+function determineEffectiveSizeMultiplier(input: {
+  budget: SessionBudgetSettings;
+  sourceFindings?: SourceQualityFinding[];
+}): { multiplier: number; policyLevel: SessionRiskPolicyLevel } {
+  const baseMultiplier = input.budget.maxSizeMultiplier;
+  const normalizedBase = isPositiveNumber(baseMultiplier) ? baseMultiplier : 1;
+
+  if (!input.sourceFindings || input.sourceFindings.length === 0 || !isPositiveNumber(normalizedBase)) {
+    return {
+      multiplier: normalizedBase,
+      policyLevel: 'advisory'
+    };
+  }
+
+  const activeSourceMultipliers = input.sourceFindings
+    .map((finding) => {
+      const constraint = input.budget.sourceConstraints[finding.category];
+      if (!constraint?.enabled) {
+        return undefined;
+      }
+
+      return sanitizeSourceConstraintMultiplier(constraint.maxSizeMultiplier);
+    })
+    .filter((value): value is number => typeof value === 'number' && value > 0);
+
+  if (activeSourceMultipliers.length === 0) {
+    return {
+      multiplier: normalizedBase,
+      policyLevel: 'advisory'
+    };
+  }
+
+  const strictestSourceMultiplier = Math.min(...activeSourceMultipliers);
+  const effectiveMultiplier = Math.min(normalizedBase, strictestSourceMultiplier);
+
+  return {
+    multiplier: effectiveMultiplier,
+    policyLevel: effectiveMultiplier < normalizedBase ? 'policy' : 'advisory'
+  };
+}
+
+function sanitizeSourceConstraintMultiplier(value: number): number {
+  if (!isPositiveNumber(value)) {
+    return 1;
+  }
+
+  return value;
 }
 
 interface TokenMatch {

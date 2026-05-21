@@ -12,6 +12,7 @@ import type {
   HermesConnectionStatus,
   DataSharingScope,
   LocalSettings,
+  CoachMode,
   HermesRequestDiagnostic,
   SourceQualityFinding,
   SourceCategory,
@@ -42,9 +43,14 @@ import {
   type WarningFeedbackAction,
   type WarningFeedbackRecord
 } from './warningFeedback';
-import { DEFAULT_RISK_BUDGET_SETTINGS, readLocalSettings, writeLocalSettings } from './localSettings';
+import {
+  DEFAULT_RISK_BUDGET_SETTINGS,
+  DEFAULT_SOURCE_CONSTRAINTS,
+  readLocalSettings,
+  writeLocalSettings
+} from './localSettings';
 import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
-import { canBypassRemoteConsent, shouldCaptureWindowForPrivacy, type RemoteConsentBypassReason } from './requestPolicy';
+import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
 
@@ -64,6 +70,13 @@ interface WarningCandidate {
 interface WarningCard {
   text: string;
   evidences: WarningEvidenceEntry[];
+}
+
+interface PolicyCard {
+  id: string;
+  question: string;
+  warnings: string[];
+  blockers: string[];
 }
 
 declare global {
@@ -116,6 +129,15 @@ const SOURCE_CATEGORY_OPTIONS: Array<{ value: SourceCategory; label: string }> =
   { value: 'dex-link', label: 'DEX link' },
   { value: 'token-address', label: 'Token address' },
   { value: 'wallet', label: 'Wallet-related' }
+];
+const SOURCE_CONSTRAINT_CATEGORIES: SourceCategory[] = [
+  'unknown',
+  'telegram',
+  'discord',
+  'social',
+  'dex-link',
+  'token-address',
+  'wallet'
 ];
 const SOURCE_OUTCOME_OPTIONS: Array<{ value: SourceQualityOutcome; label: string }> = [
   { value: 'unknown', label: 'Unknown / not scored' },
@@ -194,7 +216,9 @@ export function App(): ReactElement {
   const [editingFeedbackAction, setEditingFeedbackAction] = useState<WarningFeedbackAction>('followed-plan');
   const [editingFeedbackNotes, setEditingFeedbackNotes] = useState('');
   const [frictionCard, setFrictionCard] = useState<FrictionCard | undefined>();
+  const [policyCard, setPolicyCard] = useState<PolicyCard | undefined>();
   const [frictionNoteText, setFrictionNoteText] = useState('');
+  const [policyNoteText, setPolicyNoteText] = useState('');
   const [journalSourceCategory, setJournalSourceCategory] = useState<SourceCategory>('unknown');
   const [journalSourceOutcome, setJournalSourceOutcome] = useState<SourceQualityOutcome>('unknown');
   const [journalSourceTokenHint, setJournalSourceTokenHint] = useState('');
@@ -228,9 +252,10 @@ export function App(): ReactElement {
       buildSessionRiskAssessment({
         question,
         journalEntries,
-        riskBudget: settings.riskBudget
+        riskBudget: settings.riskBudget,
+        sourceFindings: sourceQualityAssessment.findings
       }),
-    [journalEntries, question, settings.riskBudget]
+    [journalEntries, question, settings.riskBudget, sourceQualityAssessment.findings]
   );
   const topSourceQualityFinding = sourceQualityAssessment.findings[0];
   const topSourceQualityCategoryLabel = topSourceQualityFinding ? sourceCategoryLabel(topSourceQualityFinding.category) : '';
@@ -257,17 +282,28 @@ export function App(): ReactElement {
     [localWarningCards]
   );
   const localWarnings = useMemo(() => localWarningCards.map((warning) => warning.text), [localWarningCards]);
+  const policyBlockingWarnings = useMemo(
+    () =>
+      sessionRiskAssessment.warnings
+        .filter((warning) => warning.policyLevel === 'policy')
+        .map((warning) => warning.text),
+    [sessionRiskAssessment.warnings]
+  );
   const sessionRiskStatusClass = useMemo(() => {
+    const policyWarnings = sessionRiskAssessment.warnings.filter((warning) => warning.policyLevel === 'policy');
+    const guardrailWarnings = sessionRiskAssessment.warnings.filter((warning) => warning.policyLevel === 'guardrail');
+
     if (!sessionRiskAssessment.status.enabled) {
       return 'session-risk-status--off';
     }
 
-    if (sessionRiskAssessment.warnings.some((warning) => warning.text.includes('Session max-loss budget exceeded'))) {
+    if (policyWarnings.length > 0) {
       return 'session-risk-status--high';
     }
 
-    if (sessionRiskAssessment.warnings.some((warning) => warning.text.includes('Cooldown active')))
+    if (guardrailWarnings.length > 0) {
       return 'session-risk-status--medium';
+    }
 
     if (sessionRiskAssessment.warnings.length >= 2) {
       return 'session-risk-status--medium';
@@ -318,6 +354,38 @@ export function App(): ReactElement {
         ...current.riskBudget,
         ...updates
       }
+    }));
+  }, []);
+
+  const updateSourceConstraint = useCallback(
+    (category: SourceCategory, updates: { enabled?: boolean; maxSizeMultiplier?: number }) => {
+      setSettings((current) => {
+        const prior = current.riskBudget.sourceConstraints[category] ?? DEFAULT_SOURCE_CONSTRAINTS[category] ?? { enabled: false, maxSizeMultiplier: 1 };
+        const next = {
+          ...prior,
+          ...(typeof updates.enabled === 'boolean' ? { enabled: updates.enabled } : {}),
+          ...(typeof updates.maxSizeMultiplier === 'number' ? { maxSizeMultiplier: updates.maxSizeMultiplier } : {})
+        };
+
+        return {
+          ...current,
+          riskBudget: {
+            ...current.riskBudget,
+            sourceConstraints: {
+              ...current.riskBudget.sourceConstraints,
+              [category]: next
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateCoachMode = useCallback((mode: CoachMode) => {
+    setSettings((current) => ({
+      ...current,
+      coachMode: mode
     }));
   }, []);
 
@@ -440,7 +508,15 @@ export function App(): ReactElement {
   }, [settings.connection, settings.privacy]);
 
   const askWithSource = useCallback(
-    async (source: WindowSourceOption | undefined, remoteConsentBypassReason?: RemoteConsentBypassReason) => {
+    async (
+      source: WindowSourceOption | undefined,
+      options: {
+        skipRemoteConsent?: boolean;
+        skipPolicyCheck?: boolean;
+      } = {}
+    ) => {
+      const skipRemoteConsent = options.skipRemoteConsent ?? false;
+      const skipPolicyCheck = options.skipPolicyCheck ?? false;
       if (!bridge) {
         setError('Hermes Coach must be run from the desktop add-on to capture windows.');
         return;
@@ -454,6 +530,21 @@ export function App(): ReactElement {
         }));
         setSelectedSource(undefined);
         void loadSources('ask');
+        return;
+      }
+      setPolicyCard(undefined);
+
+      if (
+        !skipPolicyCheck &&
+        settings.coachMode === 'policy' &&
+        policyBlockingWarnings.length > 0
+      ) {
+        setPolicyCard({
+          id: createRequestContextId(),
+          question,
+          warnings: localWarnings,
+          blockers: policyBlockingWarnings
+        });
         return;
       }
 
@@ -475,7 +566,7 @@ export function App(): ReactElement {
       });
       setRequestPreview(nextPreview);
 
-      if (nextPreview.requiresRemoteConsent && !canBypassRemoteConsent(remoteConsentBypassReason)) {
+      if (nextPreview.requiresRemoteConsent && !skipRemoteConsent) {
         setPendingRemoteConsent(nextPreview);
         setError('Remote Hermes destination selected. Confirm before sending screenshot.');
         return;
@@ -639,9 +730,11 @@ export function App(): ReactElement {
       question,
       settings.connection,
       settings.privacy,
+      settings.coachMode,
       sourceQualityAssessment.findings,
       localWarnings,
       localWarningEvidence,
+      policyBlockingWarnings,
       hermesHeartbeat.status
     ]
   );
@@ -667,13 +760,34 @@ export function App(): ReactElement {
       frictionStrictness: settings.friction.strictness
     });
 
+    if (settings.coachMode === 'policy' && policyBlockingWarnings.length > 0) {
+      setPolicyCard({
+        id: createRequestContextId(),
+        question,
+        warnings: localWarnings,
+        blockers: policyBlockingWarnings
+      });
+      return;
+    }
+
     if (nextFrictionCard) {
       setFrictionCard(nextFrictionCard);
       return;
     }
 
-    await askWithSource(selectedSource);
-  }, [askWithSource, hasQuestion, localWarnings, loadSources, selectedSource, settings.friction.enabled, settings.friction.strictness]);
+    await askWithSource(selectedSource, {});
+  }, [
+    askWithSource,
+    hasQuestion,
+    localWarnings,
+    loadSources,
+    policyBlockingWarnings.length,
+    question,
+    selectedSource,
+    settings.coachMode,
+    settings.friction.enabled,
+    settings.friction.strictness
+  ]);
 
   const testConnection = useCallback(async () => {
     if (!bridge) {
@@ -923,10 +1037,10 @@ export function App(): ReactElement {
     }
   }, [editingFeedbackId]);
 
-  const persistFrictionJournalAction = useCallback(
-    (actionLabel: string, note?: string) => {
+  const persistPreTradeDecision = useCallback(
+    (actionLabel: string, note: string | undefined, source: 'friction' | 'policy') => {
       if (!selectedSource) {
-        setError('A trading window is required before saving a friction decision.');
+        setError('A trading window is required before saving this decision.');
         return;
       }
 
@@ -955,8 +1069,13 @@ export function App(): ReactElement {
       });
       setJournalEntries(nextEntries);
       setJournalSavedMessage('Saved to local journal.');
-      setFrictionCard(undefined);
-      setFrictionNoteText('');
+      if (source === 'friction') {
+        setFrictionCard(undefined);
+        setFrictionNoteText('');
+      } else {
+        setPolicyCard(undefined);
+        setPolicyNoteText('');
+      }
       resetSourceContextDraft();
     },
     [
@@ -971,6 +1090,20 @@ export function App(): ReactElement {
     ]
   );
 
+  const persistFrictionJournalAction = useCallback(
+    (actionLabel: string, note?: string) => {
+      persistPreTradeDecision(actionLabel, note, 'friction');
+    },
+    [persistPreTradeDecision]
+  );
+
+  const persistPolicyDecision = useCallback(
+    (actionLabel: string, note?: string) => {
+      persistPreTradeDecision(actionLabel, note, 'policy');
+    },
+    [persistPreTradeDecision]
+  );
+
   const proceedWithFrictionAction = useCallback(
     (actionLabel: string, selected: WindowSourceOption, shouldAsk = false) => {
       setError('');
@@ -979,7 +1112,7 @@ export function App(): ReactElement {
       setFrictionNoteText('');
 
       if (shouldAsk) {
-        void askWithSource(selected, 'friction-action');
+        void askWithSource(selected, { skipRemoteConsent: true });
         setJournalSavedMessage('');
         return;
       }
@@ -991,6 +1124,26 @@ export function App(): ReactElement {
     setFrictionCard(undefined);
     setFrictionNoteText('');
   }, []);
+
+  const clearPolicyCard = useCallback(() => {
+    setPolicyCard(undefined);
+    setPolicyNoteText('');
+  }, []);
+
+  const clearPolicyAndError = useCallback(() => {
+    setError('Trade blocked by policy without override.');
+    setPolicyCard(undefined);
+  }, []);
+
+  const proceedWithPolicyOverride = useCallback(
+    (selected: WindowSourceOption) => {
+      setError('');
+      persistPolicyDecision('Policy override', policyNoteText.trim() || undefined);
+      setPolicyNoteText('');
+      void askWithSource(selected, { skipPolicyCheck: true });
+    },
+    [askWithSource, persistPolicyDecision, policyNoteText]
+  );
 
   const statusText = useMemo(() => {
     switch (requestState) {
@@ -1142,7 +1295,7 @@ export function App(): ReactElement {
           return;
         }
 
-        void askWithSource(nextSource);
+        void askWithSource(nextSource, {});
       }
     },
     [
@@ -1523,6 +1676,21 @@ export function App(): ReactElement {
               <option value="standard">Standard</option>
               <option value="high">High</option>
             </select>
+            <label htmlFor="coach-mode">Coach mode</label>
+            <select
+              id="coach-mode"
+              value={settings.coachMode}
+              onChange={(event) =>
+                updateCoachMode(event.target.value as CoachMode)
+              }
+            >
+              <option value="advisory">Advisory (warn only)</option>
+              <option value="guardrail">Guardrail (warn + suggest)</option>
+              <option value="policy">Policy (override required)</option>
+            </select>
+            <small className="subtle-note">
+              Policy mode requires an explicit override before sending a blocked prompt to Hermes.
+            </small>
             <label className="check-row" htmlFor="risk-budget-enabled">
               <input
                 id="risk-budget-enabled"
@@ -1611,6 +1779,48 @@ export function App(): ReactElement {
               <option value="standard">Standard</option>
               <option value="high">High</option>
             </select>
+            <label>Source-specific size constraints</label>
+            {SOURCE_CONSTRAINT_CATEGORIES.map((sourceCategory) => {
+              const sourceConstraint = settings.riskBudget.sourceConstraints[sourceCategory]
+                ?? DEFAULT_SOURCE_CONSTRAINTS[sourceCategory]
+                ?? { enabled: false, maxSizeMultiplier: 1 };
+
+              return (
+                <div key={sourceCategory} className="source-constraint-row">
+                  <label className="check-row" htmlFor={`source-constraint-enabled-${sourceCategory}`}>
+                    <input
+                      id={`source-constraint-enabled-${sourceCategory}`}
+                      type="checkbox"
+                      checked={sourceConstraint.enabled}
+                      disabled={!settings.riskBudget.enabled}
+                      onChange={(event) =>
+                        updateSourceConstraint(sourceCategory, {
+                          enabled: event.target.checked
+                        })
+                      }
+                    />
+                    <span>Limit for {sourceCategoryLabel(sourceCategory)}</span>
+                  </label>
+                  <label htmlFor={`source-constraint-multiplier-${sourceCategory}`}>
+                    Max multiplier (x) from baseline
+                  </label>
+                  <input
+                    id={`source-constraint-multiplier-${sourceCategory}`}
+                    type="number"
+                    min="1"
+                    step="0.1"
+                    value={sourceConstraint.maxSizeMultiplier}
+                    disabled={!settings.riskBudget.enabled || !sourceConstraint.enabled}
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value);
+                      updateSourceConstraint(sourceCategory, {
+                        maxSizeMultiplier: Number.isFinite(nextValue) ? Math.max(1, Math.round(nextValue * 100) / 100) : 1
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })}
             <small className="subtle-note">Higher sensitivity triggers more rapid-repetition and urgency checks.</small>
             <label className="check-row" htmlFor="clipboard-watch">
               <input
@@ -1761,13 +1971,71 @@ export function App(): ReactElement {
                   setError('Select a trading window first.');
                   return;
                 }
-                void askWithSource(selectedSource, 'remote-consent-confirmed');
+                void askWithSource(selectedSource, { skipRemoteConsent: true, skipPolicyCheck: true });
               }}
             >
               I understand, send now
             </button>
             <button type="button" className="ghost" onClick={() => setPendingRemoteConsent(undefined)}>
               Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {policyCard ? (
+        <section className="message warning policy-card" aria-label="Policy mode guardrail">
+          <span className="label">Policy mode block</span>
+          <p>Blocked by policy: review these required conditions before sending to Hermes.</p>
+          {policyCard.blockers.length > 0 ? (
+            <ul className="warning-list">
+              {policyCard.blockers.map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          ) : null}
+          {policyCard.warnings.length > 0 ? (
+            <ul className="warning-list">
+              <li>Context summary:
+                <ul>
+                  {policyCard.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </li>
+            </ul>
+          ) : null}
+          <label htmlFor="policy-note">Add override note</label>
+          <textarea
+            id="policy-note"
+            className="notes"
+            value={policyNoteText}
+            onChange={(event) => setPolicyNoteText(event.target.value)}
+            placeholder="Why are you overriding this policy block?"
+          />
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedSource) {
+                  proceedWithPolicyOverride(selectedSource);
+                }
+              }}
+            >
+              Override and send
+            </button>
+            <button type="button" className="ghost" onClick={clearPolicyAndError}>
+              Block (no send)
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setPolicyCard(undefined);
+                setPolicyNoteText('');
+              }}
+            >
+              Dismiss for now
             </button>
           </div>
         </section>

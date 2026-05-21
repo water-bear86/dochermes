@@ -653,6 +653,25 @@ textarea:focus {
   margin: 4px 0;
 }
 
+.policy-card .warning-list ul {
+  margin: 4px 0 0 18px;
+  padding-left: 18px;
+}
+
+.policy-card .warning-list {
+  margin-bottom: 8px;
+}
+
+.source-constraint-row {
+  margin: 4px 0 6px;
+  border: 1px solid #313933;
+  border-radius: 8px;
+  padding: 8px;
+  background: #111512;
+  display: grid;
+  gap: 6px;
+}
+
 .warning-cards {
   margin-top: 8px;
   display: grid;
