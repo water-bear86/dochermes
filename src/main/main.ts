@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, ipcMain, type Tray } from 'electron';
 
 import { askHermes, probeHermesConnection } from './hermesClient';
-import { createCoachTray } from './tray';
+import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
 import { assertAskHermesInput, assertHermesConnection } from './inputValidation';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
@@ -19,6 +19,7 @@ let watchOCR = false;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
 const recentMonitorSignals = new Map<string, number>();
+let isWindowVisible = false;
 
 const MONITOR_POLL_MS = 1000;
 const MONITOR_SIGNAL_RETENTION_MS = 30_000;
@@ -29,17 +30,30 @@ app.setName('Hermes Coach');
 function showCoach(): void {
   if (!coachWindow || coachWindow.isDestroyed()) {
     coachWindow = createCoachWindow({
-      shouldHideOnClose: () => !isQuitting
+      shouldHideOnClose: () => !isQuitting,
+      onHide: () => {
+        isWindowVisible = false;
+        refreshTrayState();
+      }
     });
+    isWindowVisible = true;
+    refreshTrayState();
     return;
+  }
+
+  if (!coachWindow.isVisible()) {
+    isWindowVisible = true;
   }
 
   coachWindow.show();
   coachWindow.focus();
+  refreshTrayState();
 }
 
 function hideCoach(): void {
   coachWindow?.hide();
+  isWindowVisible = false;
+  refreshTrayState();
 }
 
 function promptWindowSelection(): void {
@@ -48,6 +62,37 @@ function promptWindowSelection(): void {
 
 function promptSettings(): void {
   sendRendererCommand('coach:open-settings');
+}
+
+function setArmedMode(nextArmed: boolean, announce: boolean): void {
+  isArmed = nextArmed;
+  syncMonitorMode();
+
+  if (announce) {
+    sendRendererCommand('coach:set-armed', nextArmed, false);
+  }
+}
+
+function refreshTrayState(): void {
+  if (!coachTray || !coachWindow) {
+    return;
+  }
+
+  refreshCoachTrayMenu(coachTray, {
+    showCoach,
+    hideCoach,
+    capturePrompt: promptWindowSelection,
+    openSettings: promptSettings,
+    setArmedMode: (enabled) => {
+      setArmedMode(enabled, true);
+    },
+    isArmed,
+    isVisible: isWindowVisible || coachWindow.isVisible(),
+    quit: () => {
+      isQuitting = true;
+      app.quit();
+    }
+  });
 }
 
 function sendRendererCommand(
@@ -122,9 +167,7 @@ function registerIpcHandlers(): void {
       throw new Error('Armed-mode preference must be a boolean.');
     }
 
-    isArmed = enabled;
-    syncMonitorMode();
-    sendRendererCommand('coach:set-armed', enabled, false);
+    setArmedMode(enabled, true);
   });
 
   ipcMain.handle('coach:set-watch-clipboard', (_event, enabled: unknown) => {
@@ -360,19 +403,23 @@ function maskValue(value: string): string {
 app.whenReady().then(() => {
   registerIpcHandlers();
   coachWindow = createCoachWindow({
-    shouldHideOnClose: () => !isQuitting
+    shouldHideOnClose: () => !isQuitting,
+    onHide: () => {
+      isWindowVisible = false;
+      refreshTrayState();
+    }
   });
+  isWindowVisible = false;
   coachTray = createCoachTray({
     showCoach,
     hideCoach,
     capturePrompt: promptWindowSelection,
     openSettings: promptSettings,
-    armCoach: () => {
-      sendRendererCommand('coach:set-armed', true, false);
+    setArmedMode: (enabled) => {
+      setArmedMode(enabled, true);
     },
-    disarmCoach: () => {
-      sendRendererCommand('coach:set-armed', false, false);
-    },
+    isArmed,
+    isVisible: isWindowVisible,
     quit: () => {
       isQuitting = true;
       app.quit();

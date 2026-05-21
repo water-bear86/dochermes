@@ -308,7 +308,7 @@ export async function probeHermesConnection(
       return result;
     }
 
-    if (connection.endpointMode === 'auto') {
+    if (connection.endpointMode === 'auto' && textPing.attempt.errorKind === 'incompatible') {
       const legacyConnection = {
         ...candidateConnection,
         endpointMode: 'legacy-coach'
@@ -469,7 +469,7 @@ async function probeRoute(
     }, fetchImpl);
     const parsedBody = await readResponseBody(response);
     const detail = response.ok ? summarizeBody(parsedBody) : summarizeBody(parsedBody) || response.statusText;
-    const errorKind = response.ok ? undefined : classifyResponseErrorKind(response.status, detail, response.url);
+    const errorKind = response.ok ? undefined : classifyResponseErrorKind(response.status, detail, url);
     const contentType = response.headers.get('content-type') ?? '';
     const isPingCheck = label === 'text ping' || label === 'image ping';
     const ok =
@@ -533,7 +533,7 @@ function classifyResponseErrorKind(status: number, detail: string | undefined, u
     return 'model';
   }
 
-  if (status === 404 && /\/v1\/chat\/completions/i.test(url)) {
+  if ((status === 404 || status === 405) && /\/v1\/chat\/completions/i.test(url)) {
     return 'incompatible';
   }
 

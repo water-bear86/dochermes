@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import type {
   AskHermesInput,
@@ -92,6 +92,7 @@ export function App(): ReactElement {
   const [requestPreview, setRequestPreview] = useState<HermesRequestPreview | undefined>();
   const [pendingRemoteConsent, setPendingRemoteConsent] = useState<HermesRequestPreview | undefined>();
   const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
+  const validatedPairRef = useRef<string | undefined>(undefined);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -374,6 +375,40 @@ export function App(): ReactElement {
     }
   }, [bridge, settings.connection]);
 
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+
+    if (!settings.pairedWindow) {
+      validatedPairRef.current = undefined;
+      return;
+    }
+
+    if (validatedPairRef.current === settings.pairedWindow.id) {
+      return;
+    }
+
+    const pairId = settings.pairedWindow.id;
+    validatedPairRef.current = pairId;
+
+    void (async () => {
+      try {
+        const isAvailable = await bridge.validateSelectedWindow(pairId);
+        if (!isAvailable) {
+          setSettings((current) => ({
+            ...current,
+            pairedWindow: undefined
+          }));
+          setSelectedSource(undefined);
+          setError('Saved trading window is no longer available. Select it again.');
+        }
+      } catch {
+        setError('Unable to verify saved trading window availability.');
+      }
+    })();
+  }, [bridge, settings.pairedWindow]);
+
   const copyDebugReport = useCallback(async () => {
     if (!connectionReport) {
       return;
@@ -595,13 +630,27 @@ export function App(): ReactElement {
         </button>
       </section>
 
-      <section className="control-strip" aria-label="Trading window selection">
+      <section className="control-strip control-strip--multi" aria-label="Trading window selection">
         <div>
           <span className="label">Capture target</span>
           <strong>{selectedLabel}</strong>
         </div>
         <button type="button" onClick={() => loadSources('pair')} disabled={requestState !== 'idle'}>
           Select
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => {
+            setSettings((current) => ({
+              ...current,
+              pairedWindow: undefined
+            }));
+            setSelectedSource(undefined);
+          }}
+          disabled={requestState !== 'idle' || !selectedSource}
+        >
+          Unpair
         </button>
       </section>
 
@@ -794,6 +843,9 @@ export function App(): ReactElement {
         <section className="window-picker" aria-label="Available windows">
           <div className="section-heading">
             <h2>Choose the trading window to inspect</h2>
+            <button type="button" className="ghost" onClick={() => loadSources('pair')}>
+              Refresh
+            </button>
             <button type="button" className="ghost" onClick={() => setPickerOpen(false)}>
               Close
             </button>

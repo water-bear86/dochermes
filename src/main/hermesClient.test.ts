@@ -373,6 +373,36 @@ describe('probeHermesConnection', () => {
     expect(result.effectiveConnection?.endpointMode).toBe('legacy-coach');
   });
 
+  it('does not fall back to /coach on auth errors when auto mode is selected', async () => {
+    const requests: string[] = [];
+
+    const result = await probeHermesConnection(defaultConnection(), async (url) => {
+      const nextUrl = String(url);
+      requests.push(nextUrl);
+
+      if (nextUrl.endsWith('/health') || nextUrl.endsWith('/v1/capabilities')) {
+        return jsonResponse({ ok: true });
+      }
+
+      if (nextUrl.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'hermes-agent' }] });
+      }
+
+      if (nextUrl.endsWith('/v1/chat/completions')) {
+        return textResponse('authentication failed', 401);
+      }
+
+      if (nextUrl.endsWith('/coach')) {
+        return jsonResponse({ answer: 'pong' });
+      }
+
+      return textResponse('not found', 404);
+    });
+
+    expect(result.status).toBe('auth-error');
+    expect(requests.some((request) => request.endsWith('/coach'))).toBe(false);
+  });
+
   it('supports exact custom endpoint probes', async () => {
     const requests: string[] = [];
     const result = await probeHermesConnection(

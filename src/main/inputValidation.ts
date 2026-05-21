@@ -80,7 +80,7 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
   }
 
   const baseUrl = record.baseUrl.trim();
-  const modelId = record.modelId.trim();
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : '';
 
   try {
     const parsed = new URL(baseUrl);
@@ -91,7 +91,7 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
     throw new Error('Hermes base URL must be a valid http or https URL.');
   }
 
-  if (typeof record.modelId !== 'string' || !modelId) {
+  if (!modelId) {
     throw new Error('Hermes model ID is required.');
   }
 

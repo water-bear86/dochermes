@@ -5,55 +5,23 @@ interface TrayControls {
   hideCoach: () => void;
   capturePrompt: () => void;
   openSettings: () => void;
-  armCoach: () => void;
-  disarmCoach: () => void;
+  setArmedMode: (enabled: boolean) => void;
+  isArmed: boolean;
+  isVisible: boolean;
   quit: () => void;
 }
 
 export function createCoachTray(controls: TrayControls): Tray {
   const tray = new Tray(createTrayIcon());
   tray.setToolTip('Hermes Coach');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Show Coach',
-        click: controls.showCoach
-      },
-      {
-        label: 'Hide Coach',
-        click: controls.hideCoach
-      },
-      {
-        label: 'Select Trading Window',
-        click: controls.capturePrompt
-      },
-      {
-        label: 'Settings',
-        click: controls.openSettings
-      },
-      {
-        type: 'separator'
-      },
-      {
-        label: 'Arm coach monitoring',
-        click: controls.armCoach
-      },
-      {
-        label: 'Pause coach monitoring',
-        click: controls.disarmCoach
-      },
-      {
-        type: 'separator'
-      },
-      {
-        label: 'Quit Hermes Coach',
-        click: controls.quit
-      }
-    ])
-  );
+  refreshCoachTrayMenu(tray, controls);
   tray.on('click', controls.showCoach);
 
   return tray;
+}
+
+export function refreshCoachTrayMenu(tray: Tray, controls: TrayControls): void {
+  tray.setContextMenu(Menu.buildFromTemplate(buildTrayTemplate(controls)));
 }
 
 function createTrayIcon() {
@@ -66,4 +34,38 @@ function createTrayIcon() {
   const icon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
   icon.setTemplateImage(true);
   return icon;
+}
+
+function buildTrayTemplate(controls: TrayControls): Electron.MenuItemConstructorOptions[] {
+  return [
+    {
+      label: controls.isVisible ? 'Hide Coach' : 'Show Coach',
+      click: controls.isVisible ? controls.hideCoach : controls.showCoach
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: 'Select Trading Window',
+      click: controls.capturePrompt
+    },
+    {
+      label: 'Settings',
+      click: controls.openSettings
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: controls.isArmed ? 'Pause coach monitoring' : 'Arm coach monitoring',
+      click: () => controls.setArmedMode(!controls.isArmed)
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: 'Quit Hermes Coach',
+      click: controls.quit
+    }
+  ];
 }

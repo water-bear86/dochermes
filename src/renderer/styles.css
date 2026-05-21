@@ -126,6 +126,10 @@ small {
   padding: 12px;
 }
 
+.control-strip--multi {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
 .compact-strip {
   padding: 8px 10px;
 }

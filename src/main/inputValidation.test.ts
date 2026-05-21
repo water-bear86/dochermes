@@ -47,6 +47,18 @@ describe('assertHermesConnection', () => {
       'Hermes model ID is required.'
     );
   });
+
+  it('rejects non-string model ID', () => {
+    expect(() => assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: 123 as unknown as string })).toThrow(
+      'Hermes model ID is required.'
+    );
+  });
+
+  it('rejects non-string bearer token', () => {
+    expect(() => assertHermesConnection({ ...VALID_BASE_CONNECTION, bearerToken: 123 as unknown as string })).toThrow(
+      'Hermes bearer token must be a string.'
+    );
+  });
 });
 
 describe('assertAskHermesInput', () => {
