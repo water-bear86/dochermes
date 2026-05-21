@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface CoachWindowOptions {
   shouldHideOnClose: () => boolean;
+  onHide?: () => void;
 }
 
 export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
@@ -22,7 +23,7 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -32,6 +33,7 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
     if (options.shouldHideOnClose()) {
       event.preventDefault();
       window.hide();
+      options.onHide?.();
     }
   });
 

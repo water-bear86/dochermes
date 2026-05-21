@@ -29,9 +29,9 @@ Authorization: Bearer <API_SERVER_KEY>
 Content-Type: application/json
 ```
 
-## Current mismatch to fix
+## Historical mismatch fixed by the compatibility layer
 
-The prototype currently documents/sends a custom gateway endpoint:
+The initial prototype documented/sent a custom gateway endpoint:
 
 ```text
 http://localhost:8787/coach
@@ -114,17 +114,28 @@ The existing parser already accepts basic OpenAI-style responses:
 
 That makes `/v1/chat/completions` the cleanest near-term integration target.
 
-## Suggested next code change
+## Implementation status
 
-Update `src/main/hermesClient.ts` so it converts DocHermes' current capture/question structure into the OpenAI-compatible multimodal chat format above.
+`src/main/hermesClient.ts` now converts DocHermes' capture/question structure into the OpenAI-compatible multimodal chat format above when `auto` or `openai-chat` mode is active.
 
-The settings field should eventually default to:
+The settings default to the base URL:
 
 ```text
-http://localhost:8642/v1/chat/completions
+http://localhost:8642
 ```
 
-For a Railway-hosted Hermes API server, use the public API-server domain with the same path, plus bearer auth.
+DocHermes appends `/v1/chat/completions` for the Hermes API Server adapter. For a Railway-hosted Hermes API server, use the public API-server domain as the base URL plus bearer auth.
+
+The compatibility layer also supports:
+
+- Local candidate probing for `localhost` and `127.0.0.1` on known Hermes ports.
+- `auto`, `openai-chat`, `legacy-coach`, and `custom` endpoint modes.
+- Legacy `/coach` fallback when explicitly configured or discovered during auto probing.
+- Model discovery through `/v1/models` and model-rejection diagnostics.
+- Text and screenshot/image pings for connection testing.
+- Masked debug reports that redact bearer tokens, URL userinfo, and common token query parameters.
+
+When a connection test discovers a working candidate endpoint, DocHermes records that effective connection for future `askHermes(...)` calls.
 
 ## Privacy note
 

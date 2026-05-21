@@ -21,6 +21,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -125,6 +126,28 @@ small {
   padding: 12px;
 }
 
+.control-strip--multi {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.compact-strip {
+  padding: 8px 10px;
+}
+
+.compact-strip div {
+  display: grid;
+  gap: 2px;
+}
+
+.compact-strip small {
+  display: block;
+  overflow: hidden;
+  max-width: 260px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #95a19b;
+}
+
 .control-strip strong {
   display: block;
   overflow: hidden;
@@ -226,6 +249,34 @@ small {
   margin-top: 10px;
 }
 
+.privacy-indicator {
+  border: 1px solid #374238;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 2px 0 4px;
+  background: #111514;
+}
+
+.privacy-indicator small {
+  display: block;
+  margin-top: 4px;
+}
+
+.privacy-indicator.scope-local {
+  border-color: #41684f;
+  background: #10271c;
+}
+
+.privacy-indicator.scope-hosted {
+  border-color: #5b6f90;
+  background: #121e33;
+}
+
+.privacy-indicator.scope-advanced {
+  border-color: #6f5a36;
+  background: #2a2016;
+}
+
 label {
   color: #c7c8bd;
   font-size: 12px;
@@ -233,6 +284,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid #343b38;
@@ -261,6 +313,18 @@ input {
   font-size: 12px;
 }
 
+.subtle-note {
+  margin: 0;
+  color: #90a099;
+  font-size: 11px;
+}
+
+select {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 textarea {
   min-height: 92px;
   resize: vertical;
@@ -270,8 +334,60 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: #94c973;
+}
+
+.connection-report {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #343b38;
+  border-radius: 8px;
+  padding: 10px;
+  background: #101312;
+}
+
+.connection-report.connected {
+  border-color: #4e7446;
+}
+
+.connection-report.auth-error,
+.connection-report.disconnected,
+.connection-report.incompatible {
+  border-color: #6b3838;
+}
+
+.connection-report strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.connection-report textarea {
+  min-height: 118px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.timing {
+  display: block;
+  margin-top: 8px;
+  color: #b4b7aa;
+  font-size: 11px;
+}
+
+.capability-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-row span {
+  border: 1px solid #343b38;
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #c7c8bd;
+  font-size: 11px;
 }
 
 .primary {
@@ -310,6 +426,26 @@ textarea:focus {
 .message p {
   margin-top: 6px;
   white-space: pre-wrap;
+}
+
+.payload-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.payload-row span {
+  border: 1px solid #3a433f;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #cfd4cb;
+  font-size: 11px;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
 }
 
 .notes {
@@ -354,6 +490,84 @@ textarea:focus {
 
 .memory-pattern {
   margin-top: 6px;
+}
+
+.warning {
+  border-color: #7f5b26;
+  background: #231d11;
+}
+
+.warning-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #f8e0a8;
+}
+
+.warning-list li {
+  margin: 4px 0;
+}
+
+.feedback-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.feedback-button-row button {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.warning-feedback-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.warning-feedback-item {
+  border-top: 1px solid #2d3532;
+  padding-top: 10px;
+}
+
+.warning-feedback-item p {
+  margin: 4px 0;
+  color: #f4f1e8;
+}
+
+.warning-feedback-item small {
+  display: block;
+}
+
+.feedback-edit-row {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.feedback-edit-row textarea {
+  min-height: 58px;
+}
+
+.monitor-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #e9f0e3;
+}
+
+.monitor-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.monitor-list li button {
+  padding: 2px 8px;
+  min-height: 24px;
+  font-size: 11px;
 }
 
 .memory-pattern strong {

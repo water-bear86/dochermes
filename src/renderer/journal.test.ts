@@ -40,6 +40,65 @@ describe('buildJournalEntry', () => {
       }
     });
   });
+
+  it('stores masked monitoring metadata when provided', () => {
+    const entry = buildJournalEntry(
+      {
+        question: 'Should I enter now?',
+        response: 'Wait for confirmation.',
+        notes: 'Observed a token candidate.',
+        selectedWindow: {
+          id: 'screen:0',
+          name: 'Desktop',
+          kind: 'screen',
+          thumbnailDataUrl: 'data:image/png;base64,preview'
+        },
+        screenshotCaptured: true,
+        monitoring: {
+          localWarnings: ['Immediate-entry question detected; local guardrail suggests avoiding first-tick fills.'],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0x12...abcd',
+              confidence: 'high',
+              detectedAt: '2026-05-20T01:20:00.000Z',
+              message: 'Detected token candidate'
+            }
+          ]
+        }
+      },
+      {
+        now: () => new Date('2026-05-20T01:20:00.000Z'),
+        createId: () => 'entry-2'
+      }
+    );
+
+    expect(entry).toMatchObject({
+      id: 'entry-2',
+      createdAt: '2026-05-20T01:20:00.000Z',
+      question: 'Should I enter now?',
+      response: 'Wait for confirmation.',
+      notes: 'Observed a token candidate.',
+      monitoring: {
+        localWarnings: ['Immediate-entry question detected; local guardrail suggests avoiding first-tick fills.'],
+        signals: [
+          {
+            source: 'clipboard',
+            kind: 'evm-address',
+            maskedValue: '0x12...abcd',
+            confidence: 'high',
+            detectedAt: '2026-05-20T01:20:00.000Z'
+          }
+        ]
+      },
+      selectedWindow: {
+        id: 'screen:0',
+        name: 'Desktop',
+        kind: 'screen'
+      }
+    });
+  });
 });
 
 describe('parseJournalEntries', () => {

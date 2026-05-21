@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JournalEntry } from '../shared/types';
+import type { JournalEntry, WarningFeedbackRecord } from '../shared/types';
 import { buildMemoryContext } from './memoryContext';
 
 const earlyLossEntry: JournalEntry = {
@@ -77,5 +77,32 @@ describe('buildMemoryContext', () => {
 
     expect(context.matchedPatterns).toEqual([]);
     expect(context.recentNotes).toEqual([]);
+  });
+
+  it('suppresses early-entry pattern matching for false-positive feedback', () => {
+    const feedback: WarningFeedbackRecord[] = [
+      {
+        id: 'feedback-1',
+        createdAt: '2026-05-19T20:01:00.000Z',
+        warningText: 'This resembles prior early-entry risk patterns; set a confirmation plan before acting.',
+        action: 'false-positive',
+        question: 'Should I enter immediately? ',
+        response: 'Wait for confirmation.',
+        selectedWindowName: 'Trading Window',
+        selectedWindowId: 'window:1',
+        selectedWindowKind: 'window'
+      }
+    ];
+
+    const context = buildMemoryContext([earlyLossEntry], 'Should I enter immediately?', feedback);
+
+    expect(context.matchedPatterns).toEqual([]);
+  });
+
+  it('keeps pattern matching when no false-positive feedback exists', () => {
+    const context = buildMemoryContext([earlyLossEntry], 'Should I enter immediately?');
+
+    expect(context.matchedPatterns.length).toBe(1);
+    expect(context.matchedPatterns[0].name).toBe('early-entry-risk');
   });
 });
