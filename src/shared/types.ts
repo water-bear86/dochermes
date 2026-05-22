@@ -204,7 +204,7 @@ export interface ProbeAttempt {
   status: number;
   label: string;
   detail: string;
-  errorKind?: 'timeout' | 'auth' | 'model' | 'network' | 'incompatible';
+  errorKind?: 'timeout' | 'auth' | 'model' | 'network' | 'incompatible' | 'invalid-json' | 'unexpected-shape';
 }
 
 export interface HermesConnectionReport {

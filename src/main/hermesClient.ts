@@ -24,6 +24,13 @@ interface ProbeRouteResult {
   body: unknown;
 }
 
+interface ResponseBodyRead {
+  body: unknown;
+  rawText: string;
+  contentType: string;
+  invalidJsonDetail?: string;
+}
+
 const DATA_URL_PATTERN = /^data:(image\/png);base64,(.+)$/;
 const LOCAL_CANDIDATES = [
   'http://localhost:8642',
@@ -214,6 +221,10 @@ export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fe
       throw new Error(`Hermes request timed out after ${REQUEST_TIMEOUT_MS}ms: ${suffix}`);
     }
 
+    if (input.connection.connectionKind === 'local') {
+      throw new Error(`Local Hermes server is unreachable at ${endpoint}: ${suffix}`);
+    }
+
     throw new Error(`Failed to connect to Hermes gateway: ${suffix}`);
   }
 
@@ -221,7 +232,7 @@ export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fe
     const detail = await response.text().catch(() => '');
     const normalized = detail.trim();
     const detailSuffix = normalized ? ` (${normalized})` : '';
-    const kind = classifyResponseErrorKind(response.status, normalized, response.url);
+    const kind = classifyResponseErrorKind(response.status, normalized, response.url || endpoint);
 
     if (kind === 'auth') {
       throw new Error(`Hermes rejected authentication for the configured endpoint (${response.status}).${detailSuffix}`);
@@ -234,14 +245,25 @@ export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fe
     }
 
     if (kind === 'incompatible') {
-      throw new Error(`Hermes endpoint does not support this route (${response.status}).${detailSuffix}`);
+      throw new Error(
+        `Hermes endpoint mode mismatch: the configured OpenAI-compatible route is not available (${response.status}).${detailSuffix}`
+      );
     }
 
     throw new Error(`Hermes gateway returned ${response.status}${response.statusText ? ` ${response.statusText}` : ''}.${detailSuffix}`);
   }
 
   const data = await readResponseBody(response);
-  return parseHermesResponse(data);
+  if (data.invalidJsonDetail) {
+    throw new Error(`Hermes returned invalid JSON from the configured endpoint: ${data.invalidJsonDetail}`);
+  }
+
+  try {
+    return parseHermesResponse(data.body);
+  } catch (error) {
+    const suffix = error instanceof Error ? error.message : 'Response did not match a supported Hermes or OpenAI shape.';
+    throw new Error(`Hermes returned an unexpected response shape: ${suffix}`);
+  }
 }
 
 export async function probeHermesConnection(
@@ -753,13 +775,29 @@ async function probeRoute(
       headers: buildHeaders(connection),
       body: body ? JSON.stringify(body) : undefined
     }, fetchImpl);
-    const parsedBody = await readResponseBody(response);
-    const detail = response.ok ? summarizeBody(parsedBody) : summarizeBody(parsedBody) || response.statusText;
-    const errorKind = response.ok ? undefined : classifyResponseErrorKind(response.status, detail, url);
-    const contentType = response.headers.get('content-type') ?? '';
+    const readBody = await readResponseBody(response);
+    const parsedBody = readBody.body;
     const isPingCheck = label === 'text ping' || label === 'image ping';
-    const ok =
-      response.ok && (!isPingCheck || canParseResponseText(parsedBody, contentType));
+    const invalidJsonDetail = response.ok ? readBody.invalidJsonDetail : undefined;
+    const shapeFailure =
+      response.ok && !invalidJsonDetail && isPingCheck
+        ? describeResponseShapeFailure(parsedBody, readBody.contentType)
+        : undefined;
+    const responseDetail = response.ok
+      ? summarizeBody(parsedBody)
+      : summarizeBody(parsedBody) || summarizeRawText(readBody.rawText) || response.statusText;
+    const statusErrorKind = response.ok ? undefined : classifyResponseErrorKind(response.status, responseDetail, url);
+    const errorKind = invalidJsonDetail
+      ? 'invalid-json'
+      : shapeFailure
+        ? 'unexpected-shape'
+        : statusErrorKind;
+    const detail = describeAttemptDetail({
+      status: response.status,
+      detail: invalidJsonDetail ?? shapeFailure ?? responseDetail,
+      errorKind
+    });
+    const ok = response.ok && !invalidJsonDetail && !shapeFailure;
 
     return {
       attempt: {
@@ -782,7 +820,7 @@ async function probeRoute(
         ok: false,
         status: 0,
         label,
-        detail: error instanceof Error ? error.message : 'Network error',
+        detail: describeFetchFailure(error, connection, errorKind),
         errorKind
       },
       body: undefined
@@ -851,6 +889,10 @@ function summarizeProbeConnectionStatus(attempts: ProbeAttempt[]): HermesConnect
     return 'model-error';
   }
 
+  if (attempts.some((attempt) => attempt.errorKind === 'invalid-json' || attempt.errorKind === 'unexpected-shape')) {
+    return 'disconnected';
+  }
+
   if (attempts.some((attempt) => attempt.errorKind === 'incompatible')) {
     return 'incompatible';
   }
@@ -862,26 +904,96 @@ function summarizeProbeConnectionStatus(attempts: ProbeAttempt[]): HermesConnect
   return 'disconnected';
 }
 
-async function readResponseBody(response: Response): Promise<unknown> {
+async function readResponseBody(response: Response): Promise<ResponseBodyRead> {
   const contentType = response.headers.get('content-type') ?? '';
+  const rawText = await response.text().catch(() => '');
 
-  if (contentType.includes('application/json')) {
-    return response.json().catch(() => undefined);
+  if (contentType.includes('application/json') || contentType.includes('+json')) {
+    if (!rawText.trim()) {
+      return {
+        body: undefined,
+        rawText,
+        contentType,
+        invalidJsonDetail: 'Invalid JSON response: empty response body.'
+      };
+    }
+
+    try {
+      return {
+        body: JSON.parse(rawText),
+        rawText,
+        contentType
+      };
+    } catch (error) {
+      return {
+        body: undefined,
+        rawText,
+        contentType,
+        invalidJsonDetail: describeInvalidJson(error, rawText)
+      };
+    }
   }
 
-  return response.text().catch(() => undefined);
+  return {
+    body: rawText,
+    rawText,
+    contentType
+  };
 }
 
-function canParseResponseText(body: unknown, contentType = ''): boolean {
+function describeResponseShapeFailure(body: unknown, contentType = ''): string | undefined {
   if (typeof body === 'string' && /text\/html/i.test(contentType) && looksLikeHtmlResponse(body)) {
-    return false;
+    return 'Unexpected response shape: endpoint returned HTML instead of Hermes JSON/text.';
   }
 
   try {
-    return Boolean(parseHermesResponse(body));
-  } catch {
-    return false;
+    parseHermesResponse(body);
+    return undefined;
+  } catch (error) {
+    return `Unexpected response shape: ${messageFromError(error, 'Response did not match a supported Hermes or OpenAI shape.')}`;
   }
+}
+
+function describeInvalidJson(error: unknown, rawText: string): string {
+  const preview = summarizeRawText(rawText);
+  const suffix = preview ? ` Preview: ${preview}` : '';
+  return `Invalid JSON response: ${messageFromError(error, 'Unable to parse JSON response.')}.${suffix}`;
+}
+
+function describeAttemptDetail(input: {
+  status: number;
+  detail: string;
+  errorKind: ProbeAttempt['errorKind'];
+}): string {
+  if (input.errorKind === 'incompatible') {
+    const suffix = input.detail ? ` ${input.detail}` : '';
+    return `endpoint mode mismatch: configured route is not available (${input.status}).${suffix}`;
+  }
+
+  if (input.errorKind === 'auth') {
+    const suffix = input.detail ? ` ${input.detail}` : '';
+    return `Authentication required or bearer token rejected.${suffix}`;
+  }
+
+  return input.detail;
+}
+
+function describeFetchFailure(
+  error: unknown,
+  connection: HermesConnectionSettings,
+  errorKind: ProbeAttempt['errorKind']
+): string {
+  const detail = messageFromError(error, 'Network error');
+
+  if (errorKind === 'network' && connection.connectionKind === 'local') {
+    return `Unreachable local Hermes server: ${detail}`;
+  }
+
+  return detail;
+}
+
+function messageFromError(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function looksLikeHtmlResponse(body: string): boolean {
@@ -926,13 +1038,25 @@ function summarizeBody(body: unknown): string {
   return String(body).slice(0, 120);
 }
 
+function summarizeRawText(value: string): string {
+  return value.trim().slice(0, 120);
+}
+
 function summarizeFailure(status: HermesConnectionReport['status'], attempts: ProbeAttempt[]): string {
   if (status === 'auth-error') {
-    return 'Hermes rejected the request. Check bearer auth and hosted API permissions.';
+    return 'Hermes bearer token is missing or rejected. Check bearer auth for this endpoint.';
   }
 
   if (status === 'model-error') {
     return 'Hermes rejected the configured model. Check the model ID or use model discovery.';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'invalid-json')) {
+    return 'Hermes returned invalid JSON. Check that the base URL points to the API server, not a dashboard or proxy error page.';
+  }
+
+  if (attempts.some((attempt) => attempt.errorKind === 'unexpected-shape')) {
+    return 'Hermes returned an unexpected response shape. Check the endpoint mode and gateway response schema.';
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'timeout')) {
@@ -940,6 +1064,10 @@ function summarizeFailure(status: HermesConnectionReport['status'], attempts: Pr
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'network')) {
+    if (attempts.some((attempt) => attempt.errorKind === 'network' && isLocalUrl(attempt.url))) {
+      return 'The local Hermes server was unreachable. Check that the local API server is running and the port is correct.';
+    }
+
     return 'Hermes was unreachable. Check that the endpoint URL is running and accessible.';
   }
 
@@ -948,10 +1076,19 @@ function summarizeFailure(status: HermesConnectionReport['status'], attempts: Pr
   }
 
   if (status === 'incompatible') {
-    return 'A server responded, but it did not expose Hermes chat-completions routes.';
+    return 'Hermes endpoint mode mismatch: a server responded, but it did not expose the configured chat-completions route.';
   }
 
   return 'No compatible Hermes API server responded.';
+}
+
+function isLocalUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])/i.test(url);
+  }
 }
 
 function candidateBaseUrls(connection: HermesConnectionSettings): string[] {

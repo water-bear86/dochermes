@@ -363,6 +363,53 @@ describe('probeHermesConnection', () => {
     expect(result.attempts[0]?.errorKind).toBe('timeout');
   });
 
+  it('reports unreachable local servers separately from timeouts', async () => {
+    const result = await probeHermesConnection(
+      defaultConnection(),
+      async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:8642');
+      }
+    );
+
+    expect(result.status).toBe('disconnected');
+    expect(result.summary).toContain('local Hermes server was unreachable');
+    expect(result.attempts[0]?.errorKind).toBe('network');
+    expect(result.attempts[0]?.detail).toContain('Unreachable local Hermes server');
+  });
+
+  it('reports local auth failures as missing or rejected bearer tokens', async () => {
+    const result = await probeHermesConnection(defaultConnection(), async (url) => {
+      if (String(url).endsWith('/v1/chat/completions')) {
+        return textResponse('missing bearer token', 401);
+      }
+
+      return jsonResponse({});
+    });
+
+    expect(result.status).toBe('auth-error');
+    expect(result.summary).toContain('bearer token is missing or rejected');
+    expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.errorKind).toBe('auth');
+  });
+
+  it('reports endpoint mode mismatch when the configured OpenAI route is unavailable', async () => {
+    const connection = defaultConnection({ endpointMode: 'openai-chat' });
+    const result = await probeHermesConnection(connection, async (url) => {
+      return String(url).endsWith('/v1/chat/completions') ? textResponse('not found', 404) : jsonResponse({});
+    });
+
+    expect(result.status).toBe('incompatible');
+    expect(result.summary).toContain('endpoint mode mismatch');
+    expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.errorKind).toBe('incompatible');
+    expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.detail).toContain('endpoint mode mismatch');
+
+    await expect(
+      askHermes(
+        askInput({ connection }),
+        async () => textResponse('not found', 404)
+      )
+    ).rejects.toThrowError(/endpoint mode mismatch/i);
+  });
+
   it('marks hosted auth failures and masks bearer tokens in debug reports', async () => {
     const result = await probeHermesConnection(
       defaultConnection({
@@ -395,6 +442,45 @@ describe('probeHermesConnection', () => {
         async () => jsonResponse({ error: { message: 'model missing-model not found' } }, 400)
       )
     ).rejects.toThrowError(/configured model id/i);
+  });
+
+  it('classifies local ask network failures separately from timeouts', async () => {
+    await expect(
+      askHermes(
+        askInput(),
+        async () => {
+          throw new Error('connect ECONNREFUSED 127.0.0.1:8642');
+        }
+      )
+    ).rejects.toThrowError(/local Hermes server is unreachable/i);
+
+    const timeout = new Error('Request timed out');
+    timeout.name = 'AbortError';
+
+    await expect(
+      askHermes(
+        askInput(),
+        async () => {
+          throw timeout;
+        }
+      )
+    ).rejects.toThrowError(/timed out/i);
+  });
+
+  it('classifies 2xx ask responses with invalid JSON separately from unexpected response shapes', async () => {
+    await expect(
+      askHermes(
+        askInput(),
+        async () => invalidJsonResponse('{"choices":')
+      )
+    ).rejects.toThrowError(/invalid JSON/i);
+
+    await expect(
+      askHermes(
+        askInput(),
+        async () => jsonResponse({ ok: true })
+      )
+    ).rejects.toThrowError(/unexpected response shape/i);
   });
 
   it('sends maximum privacy placeholder and drops local monitoring summary', async () => {
@@ -714,6 +800,60 @@ describe('probeHermesConnection', () => {
     expect(requests.some((request) => request.endsWith('/coach'))).toBe(false);
   });
 
+  it('does not fall back to /coach when the OpenAI route returns invalid JSON', async () => {
+    const requests: string[] = [];
+    const result = await probeHermesConnection(defaultConnection(), async (url) => {
+      const nextUrl = String(url);
+      requests.push(nextUrl);
+
+      if (!nextUrl.startsWith('http://localhost:8642')) {
+        throw new Error('connect ECONNREFUSED');
+      }
+
+      if (nextUrl.endsWith('/v1/chat/completions')) {
+        return invalidJsonResponse('{"choices":');
+      }
+
+      return jsonResponse({});
+    });
+
+    const chatAttempt = result.attempts.find((attempt) => attempt.label === 'text ping');
+
+    expect(result.status).toBe('disconnected');
+    expect(result.summary).toContain('invalid JSON');
+    expect(chatAttempt?.errorKind).toBe('invalid-json');
+    expect(chatAttempt?.detail).toContain('Invalid JSON');
+    expect(result.debugReport).toContain('[invalid-json]');
+    expect(requests.some((request) => request.endsWith('/coach'))).toBe(false);
+  });
+
+  it('does not fall back to /coach when the OpenAI route returns an unexpected shape', async () => {
+    const requests: string[] = [];
+    const result = await probeHermesConnection(defaultConnection(), async (url) => {
+      const nextUrl = String(url);
+      requests.push(nextUrl);
+
+      if (!nextUrl.startsWith('http://localhost:8642')) {
+        throw new Error('connect ECONNREFUSED');
+      }
+
+      if (nextUrl.endsWith('/v1/chat/completions')) {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({});
+    });
+
+    const chatAttempt = result.attempts.find((attempt) => attempt.label === 'text ping');
+
+    expect(result.status).toBe('disconnected');
+    expect(result.summary).toContain('unexpected response shape');
+    expect(chatAttempt?.errorKind).toBe('unexpected-shape');
+    expect(chatAttempt?.detail).toContain('Unexpected response shape');
+    expect(result.debugReport).toContain('[unexpected-shape]');
+    expect(requests.some((request) => request.endsWith('/coach'))).toBe(false);
+  });
+
   it('supports exact custom endpoint probes', async () => {
     const requests: string[] = [];
     const result = await probeHermesConnection(
@@ -853,7 +993,8 @@ describe('probeHermesConnection', () => {
       throw new Error('fetch failed');
     });
 
-    expect(result.summary).toContain('Hermes was unreachable.');
+    expect(result.summary).toContain('local Hermes server was unreachable');
+    expect(result.summary).not.toContain('dashboard');
   });
 });
 
@@ -897,6 +1038,15 @@ function textResponse(body: string, status = 200): Response {
     status,
     headers: {
       'content-type': 'text/plain'
+    }
+  });
+}
+
+function invalidJsonResponse(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      'content-type': 'application/json'
     }
   });
 }
