@@ -929,6 +929,11 @@ textarea:focus {
   font-size: 11px;
 }
 
+.monitor-list-meta {
+  color: #9db2cf;
+  font-size: 11px;
+}
+
 .memory-pattern strong {
   display: block;
   color: #f6e4a9;

@@ -3076,8 +3076,10 @@ export function App(): ReactElement {
             {monitorSignals.map((signal) => (
               <li key={`${signal.detectedAt}-${signal.value}-${signal.kind}`}>
                 <div>
-                  <strong>{signal.source}</strong>
-                  {signal.message ? `: ${signal.message}` : `: ${signal.maskedValue} (${signal.kind})`}
+                  <strong>{signal.source}</strong>/{signal.kind} · <span className="monitor-list-meta">{signal.confidence}-confidence</span>
+                  <div>
+                    {signal.message ? signal.message : signal.maskedValue}
+                  </div>
                 </div>
                 {signal.source === 'clipboard' ? (
                   <button type="button" className="ghost" onClick={() => appendSignalToQuestion(signal)}>
