@@ -5,17 +5,20 @@ import type { WarningFeedbackAction, WindowSourceOption } from '../shared/types'
 import {
   appendWarningFeedback,
   buildWarningFeedback,
+  clearWarningFeedbackEntries,
   deleteWarningFeedback,
   parseWarningFeedbackEntries,
   readWarningFeedbackEntries,
   serializeWarningFeedbackEntries,
   updateWarningFeedback,
+  WARNING_FEEDBACK_KEY,
   WARNING_FEEDBACK_LIMIT
 } from './warningFeedback';
 
 type LocalStorageLike = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
 };
 
 const createMemoryStorage = (): LocalStorageLike => {
@@ -24,6 +27,9 @@ const createMemoryStorage = (): LocalStorageLike => {
     getItem: (key) => data.get(key) ?? null,
     setItem: (key, value) => {
       data.set(key, value);
+    },
+    removeItem: (key) => {
+      data.delete(key);
     }
   };
 };
@@ -195,5 +201,28 @@ describe('warning feedback persistence helpers', () => {
     });
     const read = readWarningFeedbackEntries(storage);
     expect(read).toHaveLength(1);
+  });
+
+  it('clears all local warning feedback entries', () => {
+    const storage = createMemoryStorage();
+    storage.setItem(
+      WARNING_FEEDBACK_KEY,
+      serializeWarningFeedbackEntries([
+        {
+          id: 'entry-1',
+          createdAt: '2026-05-20T00:00:00.000Z',
+          warningText: 'Immediate-entry risk warning',
+          action: 'skipped',
+          question: 'Should I enter now?',
+          response: 'Wait.',
+          selectedWindowName: 'Main Terminal',
+          selectedWindowId: 'window:1',
+          selectedWindowKind: 'window'
+        }
+      ])
+    );
+
+    expect(clearWarningFeedbackEntries(storage)).toEqual([]);
+    expect(storage.getItem(WARNING_FEEDBACK_KEY)).toBeNull();
   });
 });

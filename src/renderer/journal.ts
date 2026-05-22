@@ -83,6 +83,11 @@ export function appendJournalEntry(
   return entries;
 }
 
+export function clearJournalEntries(storage: Pick<Storage, 'removeItem'>): JournalEntry[] {
+  storage.removeItem(JOURNAL_KEY);
+  return [];
+}
+
 function isJournalEntry(value: unknown): value is JournalEntry {
   if (!value || typeof value !== 'object') {
     return false;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildJournalEntry, parseJournalEntries, serializeJournalEntries } from './journal';
+import { buildJournalEntry, clearJournalEntries, JOURNAL_KEY, parseJournalEntries, serializeJournalEntries } from './journal';
 
 describe('buildJournalEntry', () => {
   it('captures question, response, notes, and screenshot metadata without storing image bytes', () => {
@@ -191,3 +191,46 @@ describe('serializeJournalEntries', () => {
     expect(JSON.parse(serialized)[0].id).toBe('new');
   });
 });
+
+describe('clearJournalEntries', () => {
+  it('removes local journal entries from storage and returns an empty list', () => {
+    const storage = new MapBackedStorage();
+    storage.setItem(JOURNAL_KEY, serializeJournalEntries([
+      {
+        id: 'entry-1',
+        createdAt: '2026-05-18T21:00:00.000Z',
+        question: 'Should I buy?',
+        response: 'Wait.',
+        notes: 'Good save.',
+        selectedWindow: {
+          id: 'window:1',
+          name: 'Trading Window',
+          kind: 'window'
+        },
+        screenshot: {
+          captured: false,
+          imageStored: false
+        }
+      }
+    ]));
+
+    expect(clearJournalEntries(storage)).toEqual([]);
+    expect(storage.getItem(JOURNAL_KEY)).toBeNull();
+  });
+});
+
+class MapBackedStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+}

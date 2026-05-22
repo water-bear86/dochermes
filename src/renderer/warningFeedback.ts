@@ -116,6 +116,11 @@ export function deleteWarningFeedback(
   return nextEntries;
 }
 
+export function clearWarningFeedbackEntries(storage: Pick<Storage, 'removeItem'>): WarningFeedbackRecord[] {
+  storage.removeItem(WARNING_FEEDBACK_KEY);
+  return [];
+}
+
 function isWarningFeedbackRecord(value: unknown): value is WarningFeedbackRecord {
   if (!value || typeof value !== 'object') {
     return false;

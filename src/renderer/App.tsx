@@ -15,9 +15,10 @@ import type {
   MonitoringStatus,
   WindowSourceOption
 } from '../shared/types';
-import { appendJournalEntry, buildJournalEntry, readJournalEntries } from './journal';
+import { appendJournalEntry, buildJournalEntry, clearJournalEntries, readJournalEntries } from './journal';
 import {
   appendWarningFeedback,
+  clearWarningFeedbackEntries,
   deleteWarningFeedback,
   readWarningFeedbackEntries,
   updateWarningFeedback,
@@ -699,6 +700,22 @@ export function App(): ReactElement {
 
   const clearMonitorSignals = useCallback(() => {
     setMonitorSignals([]);
+  }, []);
+
+  const clearLocalMemory = useCallback(() => {
+    setJournalEntries(clearJournalEntries(localStorage));
+    setWarningFeedbackEntries(clearWarningFeedbackEntries(localStorage));
+    setLastRequestMonitoringMetadata(undefined);
+    setLastRequestContext(undefined);
+    setFeedbackNoteWarning(undefined);
+    setFeedbackNoteText('');
+    setEditingFeedbackId(undefined);
+    setEditingFeedbackAction('followed-plan');
+    setEditingFeedbackNotes('');
+    setFrictionCard(undefined);
+    setFrictionNoteText('');
+    setJournalSavedMessage('Local memory cleared.');
+    setError('');
   }, []);
 
   const runHermesHeartbeat = useCallback(async () => {
@@ -1476,6 +1493,20 @@ export function App(): ReactElement {
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {(journalEntries.length > 0 || warningFeedbackEntries.length > 0) ? (
+        <section className="message" aria-label="Local memory controls">
+          <div className="section-heading compact">
+            <span className="label">Local memory</span>
+            <button type="button" className="ghost" onClick={clearLocalMemory}>
+              Clear local memory
+            </button>
+          </div>
+          <p>
+            {journalEntries.length} journal notes · {warningFeedbackEntries.length} warning feedback records saved locally.
+          </p>
         </section>
       ) : null}
 
