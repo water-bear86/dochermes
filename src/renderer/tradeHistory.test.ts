@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JournalEntry } from '../shared/types';
-import { buildTradeHistorySummary } from './tradeHistory';
+import { buildTradeHistorySummary, parseTradeSize } from './tradeHistory';
 
 const entries: JournalEntry[] = [
   {
@@ -88,5 +88,13 @@ describe('buildTradeHistorySummary', () => {
     const stacked = buildTradeHistorySummary(entriesWithFreshLosses, new Date('2026-05-21T12:00:00.000Z'));
 
     expect(stacked.recentLossStreak).toBe(1);
+  });
+});
+
+describe('parseTradeSize', () => {
+  it('parses unit quantities from natural language prompts', () => {
+    expect(parseTradeSize('Buy 0.5 SOL now at market')).toEqual({ value: 0.5, unit: 'sol' });
+    expect(parseTradeSize('size=1.75 usdc.e please do it')).toEqual({ value: 1.75, unit: 'usdc' });
+    expect(parseTradeSize('No size mentioned here')).toBeUndefined();
   });
 });
