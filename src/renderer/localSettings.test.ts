@@ -52,6 +52,7 @@ describe('parseLocalSettings', () => {
           armed: true,
           watchClipboard: true,
           watchOCR: true,
+          ocrContextMode: 'order-panel',
           voice: {
             enabled: true,
             hotkey: 'alt-space',
@@ -100,6 +101,7 @@ describe('parseLocalSettings', () => {
       armed: true,
       watchClipboard: true,
       watchOCR: true,
+      ocrContextMode: 'order-panel',
       voice: {
         enabled: true,
         hotkey: 'alt-space',
@@ -149,6 +151,7 @@ describe('parseLocalSettings', () => {
       armed: false,
       watchClipboard: false,
       watchOCR: false,
+      ocrContextMode: 'full-window',
       voice: DEFAULT_VOICE_SETTINGS
     });
   });
@@ -188,6 +191,7 @@ describe('parseLocalSettings', () => {
       armed: false,
       watchClipboard: false,
       watchOCR: false,
+      ocrContextMode: 'full-window',
       voice: DEFAULT_VOICE_SETTINGS
     });
 
@@ -225,6 +229,7 @@ describe('parseLocalSettings', () => {
       armed: false,
       watchClipboard: false,
       watchOCR: false,
+      ocrContextMode: 'full-window',
       voice: DEFAULT_VOICE_SETTINGS
     });
   });
@@ -264,6 +269,7 @@ describe('parseLocalSettings', () => {
           armed: 'yes',
           watchClipboard: 'no',
           watchOCR: null,
+          ocrContextMode: 'bogus',
           pairedWindow: {
             id: '',
             name: 'bad',
@@ -311,6 +317,7 @@ describe('parseLocalSettings', () => {
         armed: false,
         watchClipboard: false,
         watchOCR: false,
+        ocrContextMode: 'full-window',
         voice: DEFAULT_VOICE_SETTINGS,
         personalRules: [
           {
@@ -391,6 +398,7 @@ describe('serializeLocalSettings', () => {
           armed: false,
           watchClipboard: false,
           watchOCR: false,
+          ocrContextMode: 'chart-order-panel',
           voice: DEFAULT_VOICE_SETTINGS,
           pairedWindow: {
             id: 'window:1',
@@ -435,6 +443,7 @@ describe('serializeLocalSettings', () => {
       armed: false,
       watchClipboard: false,
       watchOCR: false,
+      ocrContextMode: 'chart-order-panel',
       voice: DEFAULT_VOICE_SETTINGS,
       pairedWindow: {
         id: 'window:1',

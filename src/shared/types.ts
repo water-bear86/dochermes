@@ -25,6 +25,7 @@ export type CoachMode = 'advisory' | 'guardrail' | 'policy';
 export type SessionRiskPolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type PersonalRulePolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type VoiceHotkey = 'space' | 'alt-space' | 'ctrl-space' | 'cmd-space';
+export type OcrContextMode = 'full-window' | 'order-panel' | 'chart-order-panel';
 
 export interface VoiceSettings {
   enabled: boolean;
@@ -73,7 +74,7 @@ export type ClipboardCandidateKind =
   | 'unknown';
 
 export interface MonitoringSignal {
-  source: 'clipboard' | 'ocr-placeholder';
+  source: 'clipboard' | 'ocr-placeholder' | 'ocr';
   kind: ClipboardCandidateKind;
   value: string;
   maskedValue: string;
@@ -198,7 +199,7 @@ export interface HermesConnectionReport {
 }
 
 export interface JournalMonitoringSignal {
-  source: 'clipboard' | 'ocr-placeholder';
+  source: 'clipboard' | 'ocr-placeholder' | 'ocr';
   kind: ClipboardCandidateKind;
   maskedValue: string;
   confidence: 'high' | 'medium' | 'low';
@@ -300,6 +301,8 @@ export interface CoachBridgeApi {
   validateSelectedWindow: (sourceId: string) => Promise<boolean>;
   setWatchClipboard: (enabled: boolean) => Promise<void>;
   setWatchOCR: (enabled: boolean) => Promise<void>;
+  setMonitorSource: (sourceId?: string) => Promise<void>;
+  setOcrContextMode: (mode: OcrContextMode) => Promise<void>;
   setVoiceSettings: (settings: VoiceSettings) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
@@ -328,6 +331,7 @@ export interface LocalSettings {
   armed: boolean;
   watchClipboard: boolean;
   watchOCR: boolean;
+  ocrContextMode: OcrContextMode;
   voice: VoiceSettings;
   pairedWindow?: WindowSourceRef;
 }

@@ -20,6 +20,9 @@ const api: CoachBridgeApi & {
   captureWindowSource: (sourceId: string) => ipcRenderer.invoke('window-sources:capture', sourceId) as Promise<string>,
   setWatchClipboard: (enabled: boolean) => ipcRenderer.invoke('coach:set-watch-clipboard', enabled) as Promise<void>,
   setWatchOCR: (enabled: boolean) => ipcRenderer.invoke('coach:set-watch-ocr', enabled) as Promise<void>,
+  setMonitorSource: (sourceId?: string) => ipcRenderer.invoke('coach:set-monitor-source', sourceId) as Promise<void>,
+  setOcrContextMode: (mode: Parameters<CoachBridgeApi['setOcrContextMode']>[0]) =>
+    ipcRenderer.invoke('coach:set-ocr-context-mode', mode) as Promise<void>,
   setVoiceSettings: (settings: Parameters<CoachBridgeApi['setVoiceSettings']>[0]) =>
     ipcRenderer.invoke('coach:set-voice-settings', settings) as Promise<void>,
   askHermes: (input: AskHermesInput) => ipcRenderer.invoke('hermes:ask', input) as Promise<string>,

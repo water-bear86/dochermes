@@ -856,6 +856,12 @@ export function App(): ReactElement {
     void bridge?.setWatchOCR(settings.watchOCR).catch((nextError: unknown) => {
       setError(readError(nextError));
     });
+    void bridge?.setMonitorSource(settings.pairedWindow?.id).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
+    void bridge?.setOcrContextMode(settings.ocrContextMode).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
     void bridge?.setVoiceSettings(settings.voice).catch((nextError: unknown) => {
       setError(readError(nextError));
     });
@@ -2610,6 +2616,27 @@ export function App(): ReactElement {
               />
               <span>Use OCR snapshots for local pre-checks</span>
             </label>
+            <label htmlFor="ocr-context-mode">OCR analysis region</label>
+            <select
+              id="ocr-context-mode"
+              value={settings.ocrContextMode}
+              onChange={(event) => {
+                const nextMode = event.target.value;
+                if (nextMode !== 'full-window' && nextMode !== 'order-panel' && nextMode !== 'chart-order-panel') {
+                  return;
+                }
+
+                setSettings((current) => ({
+                  ...current,
+                  ocrContextMode: nextMode
+                }));
+              }}
+              disabled={!settings.watchOCR}
+            >
+              <option value="full-window">Full selected window</option>
+              <option value="order-panel">Order panel focus</option>
+              <option value="chart-order-panel">Chart + order panel</option>
+            </select>
             <p className="subtle-note" role="note">
               {settings.watchOCR
                 ? settings.armed

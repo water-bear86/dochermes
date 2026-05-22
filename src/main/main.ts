@@ -1,14 +1,16 @@
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, type Tray } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, type Tray } from 'electron';
 
 import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
 import { assertAskHermesInput, assertHermesConnection, assertVoiceSettings } from './inputValidation';
 import { extractClipboardSignalsFromText } from './monitoringSignals';
+import { closeOcrWorker, runOcrOnImageDataUrl, type OcrRegion } from './ocr';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
 import type {
   MonitoringSignal,
   MonitoringStatus,
+  OcrContextMode,
   VoiceSettings
 } from '../shared/types';
 
@@ -18,6 +20,7 @@ let isQuitting = false;
 let isArmed = false;
 let watchClipboard = false;
 let watchOCR = false;
+let ocrContextMode: OcrContextMode = 'full-window';
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: false,
   hotkey: 'space',
@@ -27,6 +30,9 @@ let activeVoiceSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;
 let activeVoiceShortcut: string | null = null;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
+let lastOCRImageDataUrl = '';
+let monitorSourceId: string | undefined;
+const ocrRegionProfiles = new Map<string, OcrRegion[]>();
 const recentMonitorSignals = new Map<string, number>();
 let isWindowVisible = false;
 
@@ -240,6 +246,37 @@ function registerIpcHandlers(): void {
     sendMonitorStatus(watchOCR);
   });
 
+  ipcMain.handle('coach:set-ocr-context-mode', (_event, mode: unknown) => {
+    if (mode !== 'full-window' && mode !== 'order-panel' && mode !== 'chart-order-panel') {
+      throw new Error('OCR context mode is invalid.');
+    }
+
+    ocrContextMode = mode;
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+    if (watchOCR) {
+      sendMonitorStatus(true, {
+        message: `OCR monitoring mode updated: ${formatOcrContextMode(ocrContextMode)}.`
+      });
+    }
+  });
+
+  ipcMain.handle('coach:set-monitor-source', (_event, sourceId: unknown) => {
+    if (typeof sourceId !== 'undefined' && typeof sourceId !== 'string') {
+      throw new Error('Monitor source id must be a string.');
+    }
+
+    monitorSourceId = typeof sourceId === 'string' && sourceId.trim() ? sourceId.trim() : undefined;
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+    if (watchOCR) {
+      sendMonitorStatus(true);
+    }
+    if (!monitorSourceId) {
+      sendMonitorStatus(false, { status: 'not-configured', message: 'OCR monitoring requires a selected capture target.' });
+    }
+  });
+
   ipcMain.handle('coach:set-voice-settings', (_event, settings: unknown) => {
     setVoiceSettings(settings);
   });
@@ -249,19 +286,21 @@ function sendMonitorSignal(signal: MonitoringSignal): void {
   sendRendererCommand('coach:monitor-signal', signal, false);
 }
 
-function sendMonitorStatus(enabled: boolean): void {
-  const status: MonitoringStatus = enabled
-    ? {
-        source: 'ocr',
-        status: 'active',
-        message:
-          'OCR monitoring is enabled. Local OCR extraction is not yet connected in this build; currently using placeholder mode.'
-    }
-    : {
-        source: 'ocr',
-        status: 'inactive',
-        message: 'OCR monitoring currently inactive.'
-      };
+function sendMonitorStatus(
+  enabled: boolean,
+  options: { status?: MonitoringStatus['status']; message?: string } = {}
+): void {
+  const status: MonitoringStatus = {
+    source: 'ocr',
+    status: options.status ?? (enabled ? 'active' : 'inactive'),
+    message:
+      options.message ??
+      (enabled
+        ? monitorSourceId
+          ? 'OCR monitoring is enabled. Local OCR extraction is running on the selected window.'
+          : 'OCR monitoring is enabled but no monitoring source is selected.'
+        : 'OCR monitoring currently inactive.')
+  };
 
   sendRendererCommand('coach:monitor-status', status, false);
 }
@@ -312,7 +351,7 @@ function pruneMonitorSignalState(now: number): void {
   }
 }
 
-function captureMonitoringSignals(): void {
+async function captureMonitoringSignals(): Promise<void> {
   if (!isArmed) {
     clearMonitorTimer();
     return;
@@ -326,8 +365,176 @@ function captureMonitoringSignals(): void {
   }
 
   if (watchOCR) {
-    sendMonitorStatus(true);
+    await captureOcrSignals(now);
   }
+}
+
+async function captureOcrSignals(now: number): Promise<void> {
+  if (!monitorSourceId) {
+    sendMonitorStatus(false, {
+      status: 'not-configured',
+      message: 'OCR monitoring is enabled, but no capture target is selected for monitoring.'
+    });
+
+    return;
+  }
+
+  try {
+    const imageDataUrl = await captureWindowSource(monitorSourceId);
+    if (imageDataUrl === lastOCRImageDataUrl) {
+      return;
+    }
+
+    const preprocessedImageDataUrl = preprocessOcrImageDataUrl(imageDataUrl);
+    const profileKey = `${monitorSourceId}:${ocrContextMode}`;
+    let ocrRegions = ocrRegionProfiles.get(profileKey);
+    if (!ocrRegions || ocrRegions.length === 0) {
+      ocrRegions = deriveOcrRegions(preprocessedImageDataUrl, ocrContextMode);
+      ocrRegionProfiles.set(profileKey, ocrRegions);
+    }
+
+    const ocrResult = await runOcrOnImageDataUrl(preprocessedImageDataUrl, now, ocrRegions);
+    if (ocrResult.confidence === 'low') {
+      const recalibratedRegions = deriveOcrRegions(preprocessedImageDataUrl, ocrContextMode);
+      ocrRegionProfiles.set(profileKey, recalibratedRegions);
+    }
+    lastOCRImageDataUrl = imageDataUrl;
+    const nextSignals = ocrResult.signals.filter((signal) => shouldPublishSignal(signal));
+
+    for (const signal of nextSignals) {
+      sendMonitorSignal(signal);
+    }
+
+    sendMonitorStatus(true, {
+      message: `OCR monitoring active (${formatOcrContextMode(ocrContextMode)}, ${ocrResult.confidence}-confidence, ${ocrResult.text.length} chars, ${nextSignals.length} signal(s)).`
+    });
+  } catch (error) {
+    sendMonitorStatus(false, {
+      status: 'inactive',
+      message: `OCR monitoring error: ${error instanceof Error ? error.message : 'unknown OCR failure.'}`
+    });
+  }
+}
+
+function formatOcrContextMode(mode: OcrContextMode): string {
+  if (mode === 'order-panel') {
+    return 'order-panel';
+  }
+
+  if (mode === 'chart-order-panel') {
+    return 'chart+order';
+  }
+
+  return 'full-window';
+}
+
+function deriveOcrRegions(imageDataUrl: string, mode: OcrContextMode): OcrRegion[] {
+  const image = nativeImage.createFromDataURL(imageDataUrl);
+  const size = image.getSize();
+  const width = size.width;
+  const height = size.height;
+
+  if (width < 20 || height < 20) {
+    return [{ id: 'full-window', label: 'Full window' }];
+  }
+
+  const orderRegion = buildRegion('order-panel', 'Order panel', {
+    left: Math.round(width * 0.58),
+    top: Math.round(height * 0.03),
+    width: Math.round(width * 0.39),
+    height: Math.round(height * 0.94)
+  }, width, height);
+
+  const chartRegion = buildRegion('chart-zone', 'Chart and pair zone', {
+    left: Math.round(width * 0.03),
+    top: Math.round(height * 0.03),
+    width: Math.round(width * 0.54),
+    height: Math.round(height * 0.58)
+  }, width, height);
+
+  if (mode === 'order-panel') {
+    return orderRegion ? [orderRegion] : [{ id: 'full-window', label: 'Full window' }];
+  }
+
+  if (mode === 'chart-order-panel') {
+    const regions = [orderRegion, chartRegion].filter((entry): entry is OcrRegion => Boolean(entry));
+    return regions.length > 0 ? regions : [{ id: 'full-window', label: 'Full window' }];
+  }
+
+  return [{ id: 'full-window', label: 'Full window' }];
+}
+
+function preprocessOcrImageDataUrl(imageDataUrl: string): string {
+  const source = nativeImage.createFromDataURL(imageDataUrl);
+  const size = source.getSize();
+  if (size.width <= 0 || size.height <= 0) {
+    return imageDataUrl;
+  }
+
+  const scaleFactor = Math.min(1.6, Math.max(1, 1300 / Math.max(size.width, size.height)));
+  const resized = scaleFactor > 1
+    ? source.resize({
+        width: Math.max(10, Math.round(size.width * scaleFactor)),
+        height: Math.max(10, Math.round(size.height * scaleFactor))
+      })
+    : source;
+
+  const nextSize = resized.getSize();
+  const bitmap = Buffer.from(resized.toBitmap());
+  for (let index = 0; index < bitmap.length; index += 4) {
+    const blue = bitmap[index];
+    const green = bitmap[index + 1];
+    const red = bitmap[index + 2];
+    const grayscale = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    const contrasted = ((grayscale - 128) * 1.28) + 128;
+    const thresholded = contrasted > 122 ? 255 : 0;
+
+    bitmap[index] = thresholded;
+    bitmap[index + 1] = thresholded;
+    bitmap[index + 2] = thresholded;
+  }
+
+  const processed = nativeImage.createFromBitmap(bitmap, {
+    width: nextSize.width,
+    height: nextSize.height
+  });
+
+  return processed.toDataURL();
+}
+
+function buildRegion(
+  id: string,
+  label: string,
+  input: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  },
+  maxWidth: number,
+  maxHeight: number
+): OcrRegion | undefined {
+  const left = Math.max(0, Math.min(input.left, maxWidth - 1));
+  const top = Math.max(0, Math.min(input.top, maxHeight - 1));
+  const maxAllowedWidth = Math.max(1, maxWidth - left);
+  const maxAllowedHeight = Math.max(1, maxHeight - top);
+  const width = Math.min(Math.max(10, input.width), maxAllowedWidth);
+  const height = Math.min(Math.max(10, input.height), maxAllowedHeight);
+
+  if (width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return {
+    id,
+    label,
+    rectangle: {
+      left,
+      top,
+      width,
+      height
+    }
+  };
 }
 
 function readClipboardSignals(now: number): MonitoringSignal[] {
@@ -408,4 +615,5 @@ app.on('will-quit', () => {
   clearMonitorTimer();
   coachTray?.destroy();
   globalShortcut.unregisterAll();
+  void closeOcrWorker();
 });

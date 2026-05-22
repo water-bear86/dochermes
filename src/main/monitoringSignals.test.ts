@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { MonitoringSignal } from '../shared/types';
-import { extractClipboardSignalsFromText } from './monitoringSignals';
+import { extractClipboardSignalsFromText, extractOCRSignalsFromText, extractMonitoringSignalsFromText } from './monitoringSignals';
 
 const NOW = 1_700_000_000_000;
 
@@ -42,5 +42,25 @@ describe('clipboard signal extraction', () => {
     const sizeSignals = signals.filter((signal) => signal.kind === 'order-size' && signal.value === '10');
     expect(pairSignals).toHaveLength(1);
     expect(sizeSignals).toHaveLength(1);
+  });
+
+  it('extracts OCR source signals with explicit source tag', () => {
+    const signals = extractOCRSignalsFromText('Buy 0.5 SOL / leverage 15x', NOW);
+    expect(signals.some((signal) => signal.source === 'ocr')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'order-direction')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'leverage')).toBe(true);
+  });
+
+  it('supports direct source override parsing', () => {
+    const clipboardSignals = extractMonitoringSignalsFromText('size: 2 SOL', NOW, 'clipboard');
+    const ocrSignals = extractMonitoringSignalsFromText('size: 2 SOL', NOW, 'ocr');
+
+    expect(clipboardSignals.every((signal) => signal.source === 'clipboard')).toBe(true);
+    expect(ocrSignals.every((signal) => signal.source === 'ocr')).toBe(true);
+  });
+
+  it('adds uncertain wording for low-confidence OCR hints', () => {
+    const signals = extractOCRSignalsFromText('size: 1.25 SOL', NOW, 'low');
+    expect(signals[0]?.message).toContain('OCR hint (low confidence):');
   });
 });

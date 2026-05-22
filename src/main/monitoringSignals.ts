@@ -1,5 +1,7 @@
 import type { MonitoringSignal } from '../shared/types';
 
+type SignalSource = MonitoringSignal['source'];
+
 const EVM_HASH_RE = /0x[a-fA-F0-9]{64}\b/g;
 const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDRESS_RE = /\b[1-9A-HJ-NP-Za-km-z]{40,88}\b/g;
@@ -30,7 +32,12 @@ const KNOWN_CHAINS = new Set<string>([
   'sui'
 ]);
 
-export function extractClipboardSignalsFromText(text: string, now: number): MonitoringSignal[] {
+export function extractMonitoringSignalsFromText(
+  text: string,
+  now: number,
+  signalSource: SignalSource,
+  defaultConfidence: MonitoringSignal['confidence'] = 'medium'
+): MonitoringSignal[] {
   const normalized = text.trim();
   if (!normalized) {
     return [];
@@ -39,15 +46,15 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
   const signals = new Map<string, Omit<MonitoringSignal, 'detectedAt'>>();
 
   for (const rawMatch of normalized.matchAll(EVM_HASH_RE)) {
-    addSignal(rawMatch[0], 'evm-tx-hash', 'high');
+    addSignal(rawMatch[0], 'evm-tx-hash', defaultConfidence === 'high' ? 'high' : 'medium');
   }
 
   for (const rawMatch of normalized.matchAll(EVM_ADDRESS_RE)) {
-    addSignal(rawMatch[0], 'evm-address', 'medium');
+    addSignal(rawMatch[0], 'evm-address', defaultConfidence);
   }
 
   for (const rawMatch of normalized.matchAll(SOL_ADDRESS_RE)) {
-    addSignal(rawMatch[0], 'sol-address', 'medium');
+    addSignal(rawMatch[0], 'sol-address', defaultConfidence);
   }
 
   for (const rawMatch of normalized.matchAll(URL_RE)) {
@@ -60,7 +67,7 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
     const kind: MonitoringSignal['kind'] =
       /dextools|dexscreener|birdeye|solscan|etherscan|solana|solana\.fm|raydium|meteora/.test(sanitizedUrl) ? 'dex-url' : 'wallet-address';
     const message = kind === 'dex-url' ? 'Detected trading-context URL' : 'Detected external address-like URL';
-    addSignal(sanitizedUrl, kind, kind === 'dex-url' ? 'medium' : 'low', message);
+    addSignal(sanitizedUrl, kind, kind === 'dex-url' ? 'medium' : defaultConfidence, message);
   }
 
   const orderPairRe = new RegExp(ORDER_PAIR_RE, 'gi');
@@ -75,7 +82,7 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
   for (const rawMatch of normalized.matchAll(rawPairRe)) {
     const pair = normalizePair(rawMatch[1], rawMatch[2]);
     if (pair) {
-      addSignal(pair, 'pair', 'medium', `Detected uppercase pair context ${pair}`);
+      addSignal(pair, 'pair', defaultConfidence, `Detected uppercase pair context ${pair}`);
     }
   }
 
@@ -87,13 +94,13 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
     }
 
     const normalizedQuantity = `${quantity}${unit ? ` ${unit}` : ''}`.trim();
-    addSignal(normalizedQuantity, 'order-size', 'medium', `Detected order-size signal: ${normalizedQuantity}`);
+    addSignal(normalizedQuantity, 'order-size', defaultConfidence, `Detected order-size signal: ${normalizedQuantity}`);
   }
 
   for (const rawMatch of normalized.matchAll(LEVERAGE_RE)) {
     const leverage = rawMatch[1];
     if (leverage) {
-      addSignal(`${leverage}x`, 'leverage', 'medium', `Detected leverage: ${leverage}x`);
+      addSignal(`${leverage}x`, 'leverage', defaultConfidence, `Detected leverage: ${leverage}x`);
     }
   }
 
@@ -105,21 +112,21 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
 
     const chain = canonicalChain(rawChain);
     if (chain) {
-      addSignal(chain, 'chain', 'medium', `Detected chain context: ${chain}`);
+      addSignal(chain, 'chain', defaultConfidence, `Detected chain context: ${chain}`);
     }
   }
 
   for (const rawMatch of normalized.matchAll(ORDER_TYPE_RE)) {
     const normalizedType = canonicalOrderType(rawMatch[1]);
     if (normalizedType) {
-      addSignal(normalizedType, 'order-type', 'low', `Detected order type ${normalizedType}`);
+      addSignal(normalizedType, 'order-type', defaultConfidence, `Detected order type ${normalizedType}`);
     }
   }
 
   for (const rawMatch of normalized.matchAll(ORDER_DIR_RE)) {
     const normalizedDirection = rawMatch[1]?.toLowerCase();
     if (normalizedDirection) {
-      addSignal(normalizedDirection, 'order-direction', 'low', `Detected order direction ${normalizedDirection}`);
+      addSignal(normalizedDirection, 'order-direction', defaultConfidence, `Detected order direction ${normalizedDirection}`);
     }
   }
 
@@ -146,7 +153,7 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
     }
 
     signals.set(key, {
-      source: 'clipboard',
+      source: signalSource,
       kind,
       value: trimmedValue,
       maskedValue: maskValue(trimmedValue),
@@ -154,6 +161,28 @@ export function extractClipboardSignalsFromText(text: string, now: number): Moni
       message
     });
   }
+}
+
+export function extractClipboardSignalsFromText(text: string, now: number): MonitoringSignal[] {
+  return extractMonitoringSignalsFromText(text, now, 'clipboard');
+}
+
+export function extractOCRSignalsFromText(text: string, now: number, defaultConfidence: MonitoringSignal['confidence'] = 'medium'): MonitoringSignal[] {
+  const prefix =
+    defaultConfidence === 'high'
+      ? ''
+      : defaultConfidence === 'medium'
+        ? 'OCR hint (medium confidence): '
+        : 'OCR hint (low confidence): ';
+
+  return extractMonitoringSignalsFromText(text, now, 'ocr', defaultConfidence).map((signal) => ({
+    ...signal,
+    ...(prefix
+      ? {
+          message: `${prefix}${signal.message ?? signal.maskedValue}`
+        }
+      : {})
+  }));
 }
 
 function canonicalOrderType(type: string): string | undefined {

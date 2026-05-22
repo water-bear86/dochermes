@@ -196,7 +196,7 @@ function isMonitoringSignal(value: unknown): value is JournalMonitoringMetadata[
   const record = value as JournalMonitoringMetadata['signals'][number];
 
   return (
-    (record.source === 'clipboard' || record.source === 'ocr-placeholder') &&
+    (record.source === 'clipboard' || record.source === 'ocr-placeholder' || record.source === 'ocr') &&
     typeof record.maskedValue === 'string' &&
     (record.kind === 'evm-address' ||
       record.kind === 'evm-tx-hash' ||

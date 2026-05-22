@@ -11,6 +11,7 @@ import type {
   SourceCategory,
   VoiceSettings,
   VoiceHotkey,
+  OcrContextMode,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -80,6 +81,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   armed: false,
   watchClipboard: false,
   watchOCR: false,
+  ocrContextMode: 'full-window',
   voice: DEFAULT_VOICE_SETTINGS
 };
 
@@ -109,6 +111,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       watchClipboard:
         typeof parsed.watchClipboard === 'boolean' ? parsed.watchClipboard : DEFAULT_LOCAL_SETTINGS.watchClipboard,
       watchOCR: typeof parsed.watchOCR === 'boolean' ? parsed.watchOCR : DEFAULT_LOCAL_SETTINGS.watchOCR,
+      ocrContextMode: parseOcrContextMode(parsed.ocrContextMode),
       voice: parseVoiceSettings(parsed.voice),
       ...(pairedWindow ? { pairedWindow } : {})
     };
@@ -129,6 +132,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
       armed: settings.armed,
       watchClipboard: settings.watchClipboard,
       watchOCR: settings.watchOCR,
+      ocrContextMode: settings.ocrContextMode,
       voice: settings.voice,
     pairedWindow: settings.pairedWindow
   });
@@ -482,4 +486,10 @@ function parseVoiceHotkey(value: unknown): VoiceHotkey {
   return value === 'space' || value === 'alt-space' || value === 'ctrl-space' || value === 'cmd-space'
     ? value
     : DEFAULT_VOICE_SETTINGS.hotkey;
+}
+
+function parseOcrContextMode(value: unknown): OcrContextMode {
+  return value === 'full-window' || value === 'order-panel' || value === 'chart-order-panel'
+    ? value
+    : DEFAULT_LOCAL_SETTINGS.ocrContextMode;
 }
