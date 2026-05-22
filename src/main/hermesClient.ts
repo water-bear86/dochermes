@@ -1,3 +1,4 @@
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import type {
   AskHermesInput,
   BuildHermesPayloadInput,
@@ -41,9 +42,6 @@ const DEFAULT_PRIVACY_PRESET: PrivacySettings = {
     redactAmounts: false
   }
 };
-
-const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
 
 const SYSTEM_PROMPT =
   'You are DocHermes, a risk coach for trading workflows. You do not place trades, route orders, access wallets, or provide execution commands. Analyze the selected trading-window screenshot and the user question. Focus on risk, confirmation, invalidation, position sizing discipline, and emotional overtrading.';
@@ -457,7 +455,7 @@ function buildPrivacyAwarePayloadInput(input: AskHermesInput): BuildHermesPayloa
     screenshotDataUrl:
       privacy.preset === 'maximum' ? MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL : input.screenshotDataUrl,
     selectedWindow: maybeSanitizeSelectedWindow(input.selectedWindow, privacy.preset),
-    memoryContext: applyMemoryContextRedaction(input.memoryContext, privacy.redaction),
+    memoryContext: privacy.preset === 'maximum' ? undefined : applyMemoryContextRedaction(input.memoryContext, privacy.redaction),
     monitoringContext: applyMonitoringContext(
       maybeRestrictMonitoringContext(input.monitoringContext, privacy.preset),
       privacy.redaction

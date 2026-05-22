@@ -218,4 +218,28 @@ describe('assertAskHermesInput', () => {
       })
     ).toThrow('Screenshot payload is too large. Close the source window or resize capture target.');
   });
+
+  it('rejects malformed memory context instead of passing it to the main process', () => {
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        memoryContext: {
+          matchedPatterns: 'bad',
+          recentNotes: []
+        }
+      } as unknown as AskHermesInput)
+    ).toThrow('Memory context is invalid.');
+  });
+
+  it('rejects malformed monitoring context instead of passing it to the main process', () => {
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        monitoringContext: {
+          localWarnings: ['Slow down.'],
+          signals: [{ source: 'clipboard', kind: 'evm-address', maskedValue: 42, confidence: 'high', detectedAt: 'now' }]
+        }
+      } as unknown as AskHermesInput)
+    ).toThrow('Monitoring context is invalid.');
+  });
 });

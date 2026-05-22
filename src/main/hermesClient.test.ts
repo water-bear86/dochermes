@@ -351,8 +351,23 @@ describe('probeHermesConnection', () => {
           }
         },
         memoryContext: {
-          matchedPatterns: [],
-          recentNotes: []
+          matchedPatterns: [
+            {
+              name: 'private-pattern',
+              evidenceCount: 1,
+              summary: 'Do not leak this private prior note.',
+              recommendation: 'Keep it local.'
+            }
+          ],
+          recentNotes: [
+            {
+              createdAt: '2026-05-21T12:00:00.000Z',
+              question: 'Prior private question',
+              response: 'Prior private response',
+              notes: 'Prior private notes',
+              selectedWindowName: 'Private Trading Terminal'
+            }
+          ]
         },
         monitoringContext: {
           localWarnings: ['Potential duplicate signal'],
@@ -382,6 +397,9 @@ describe('probeHermesConnection', () => {
 
     expect(imageUrl).toBe(MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL);
     expect(promptText).not.toContain('Monitoring summary');
+    expect(promptText).not.toContain('Compact personal memory context');
+    expect(promptText).not.toContain('Private Trading Terminal');
+    expect(promptText).not.toContain('Prior private question');
     expect(promptText).toContain('Selected window: Local context selected (window)');
   });
 

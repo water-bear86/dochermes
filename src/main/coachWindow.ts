@@ -29,7 +29,8 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
     }
   });
 
-  const isAllowedNavigation = createAllowedNavigationChecker(process.env.ELECTRON_RENDERER_URL);
+  const packagedRendererFile = join(__dirname, '../renderer/index.html');
+  const isAllowedNavigation = createAllowedNavigationChecker(process.env.ELECTRON_RENDERER_URL, packagedRendererFile);
 
   window.setAlwaysOnTop(true);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -50,7 +51,7 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'));
+    void window.loadFile(packagedRendererFile);
   }
 
   window.once('ready-to-show', () => {

@@ -18,10 +18,11 @@ describe('createAllowedNavigationChecker', () => {
     expect(isAllowedNavigation('file:///tmp/index.html')).toBe(false);
   });
 
-  it('allows only file URLs for packaged renderer navigation', () => {
-    const isAllowedNavigation = createAllowedNavigationChecker();
+  it('allows only the packaged renderer file when provided', () => {
+    const isAllowedNavigation = createAllowedNavigationChecker(undefined, '/opt/dochermes/out/renderer/index.html');
 
     expect(isAllowedNavigation('file:///opt/dochermes/out/renderer/index.html')).toBe(true);
+    expect(isAllowedNavigation('file:///tmp/attacker.html')).toBe(false);
     expect(isAllowedNavigation('https://example.com/phish')).toBe(false);
     expect(isAllowedNavigation('not a url')).toBe(false);
   });

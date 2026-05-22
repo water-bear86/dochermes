@@ -5,7 +5,10 @@ import type {
   HermesEndpointMode,
   PrivacyPreset,
   PrivacyRedactionSettings,
-  PrivacySettings
+  PrivacySettings,
+  MemoryContext,
+  MonitoringContextPayload,
+  JournalMonitoringSignal
 } from '../shared/types';
 
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
@@ -70,10 +73,15 @@ export function assertAskHermesInput(input: unknown): AskHermesInput {
     throw new Error('Selected window kind is invalid.');
   }
 
+  const memoryContext = parseMemoryContext(record.memoryContext);
+  const monitoringContext = parseMonitoringContext(record.monitoringContext);
+
   return {
     ...record,
     connection,
-    privacy
+    privacy,
+    memoryContext,
+    monitoringContext
   };
 }
 
@@ -176,6 +184,100 @@ function parsePrivacyRedaction(rawValue: unknown): PrivacyRedactionSettings {
         ? candidate.redactAmounts
         : DEFAULT_PRIVACY_SETTINGS.redaction.redactAmounts
   };
+}
+
+function parseMemoryContext(value: unknown): MemoryContext | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== 'object') {
+    throw new Error('Memory context is invalid.');
+  }
+
+  const candidate = value as Partial<MemoryContext>;
+  if (!Array.isArray(candidate.matchedPatterns) || !Array.isArray(candidate.recentNotes)) {
+    throw new Error('Memory context is invalid.');
+  }
+
+  for (const pattern of candidate.matchedPatterns) {
+    if (!pattern || typeof pattern !== 'object') {
+      throw new Error('Memory context is invalid.');
+    }
+    const record = pattern as MemoryContext['matchedPatterns'][number];
+    if (
+      typeof record.name !== 'string' ||
+      typeof record.evidenceCount !== 'number' ||
+      typeof record.summary !== 'string' ||
+      typeof record.recommendation !== 'string'
+    ) {
+      throw new Error('Memory context is invalid.');
+    }
+  }
+
+  for (const note of candidate.recentNotes) {
+    if (!note || typeof note !== 'object') {
+      throw new Error('Memory context is invalid.');
+    }
+    const record = note as MemoryContext['recentNotes'][number];
+    if (
+      typeof record.createdAt !== 'string' ||
+      typeof record.question !== 'string' ||
+      typeof record.response !== 'string' ||
+      typeof record.notes !== 'string' ||
+      typeof record.selectedWindowName !== 'string'
+    ) {
+      throw new Error('Memory context is invalid.');
+    }
+  }
+
+  return value as MemoryContext;
+}
+
+function parseMonitoringContext(value: unknown): MonitoringContextPayload | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== 'object') {
+    throw new Error('Monitoring context is invalid.');
+  }
+
+  const candidate = value as Partial<MonitoringContextPayload>;
+  if (!Array.isArray(candidate.localWarnings) || !Array.isArray(candidate.signals)) {
+    throw new Error('Monitoring context is invalid.');
+  }
+
+  if (!candidate.localWarnings.every((warning) => typeof warning === 'string')) {
+    throw new Error('Monitoring context is invalid.');
+  }
+
+  if (!candidate.signals.every(isJournalMonitoringSignal)) {
+    throw new Error('Monitoring context is invalid.');
+  }
+
+  return value as MonitoringContextPayload;
+}
+
+function isJournalMonitoringSignal(value: unknown): value is JournalMonitoringSignal {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const signal = value as JournalMonitoringSignal;
+  return (
+    (signal.source === 'clipboard' || signal.source === 'ocr-placeholder') &&
+    (signal.kind === 'evm-address' ||
+      signal.kind === 'evm-tx-hash' ||
+      signal.kind === 'sol-address' ||
+      signal.kind === 'dex-url' ||
+      signal.kind === 'wallet-address' ||
+      signal.kind === 'unknown') &&
+    typeof signal.maskedValue === 'string' &&
+    (signal.confidence === 'high' || signal.confidence === 'medium' || signal.confidence === 'low') &&
+    typeof signal.detectedAt === 'string' &&
+    (signal.message === undefined || typeof signal.message === 'string')
+  );
 }
 
 export function estimateBase64Bytes(dataUrl: string): number {

@@ -26,6 +26,8 @@ import {
 } from './warningFeedback';
 import { readLocalSettings, writeLocalSettings } from './localSettings';
 import { buildMemoryContext } from './memoryContext';
+import { canBypassRemoteConsent, shouldCaptureWindowForPrivacy, type RemoteConsentBypassReason } from './requestPolicy';
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 
 declare global {
   interface Window {
@@ -277,7 +279,7 @@ export function App(): ReactElement {
   }, [settings.connection, settings.privacy]);
 
   const askWithSource = useCallback(
-    async (source: WindowSourceOption | undefined, skipRemoteConsent = false) => {
+    async (source: WindowSourceOption | undefined, remoteConsentBypassReason?: RemoteConsentBypassReason) => {
       if (!bridge) {
         setError('Hermes Coach must be run from the desktop add-on to capture windows.');
         return;
@@ -306,7 +308,7 @@ export function App(): ReactElement {
       });
       setRequestPreview(nextPreview);
 
-      if (nextPreview.requiresRemoteConsent && !skipRemoteConsent) {
+      if (nextPreview.requiresRemoteConsent && !canBypassRemoteConsent(remoteConsentBypassReason)) {
         setPendingRemoteConsent(nextPreview);
         setError('Remote Hermes destination selected. Confirm before sending screenshot.');
         return;
@@ -331,9 +333,12 @@ export function App(): ReactElement {
         }
 
         const captureStart = performance.now();
-        const capture = await bridge.captureWindowSource(source.id);
-        const captureMs = Math.round(performance.now() - captureStart);
-        setScreenshotDataUrl(capture);
+        const shouldCaptureWindow = shouldCaptureWindowForPrivacy(settings.privacy);
+        const capture = shouldCaptureWindow
+          ? await bridge.captureWindowSource(source.id)
+          : MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL;
+        const captureMs = shouldCaptureWindow ? Math.round(performance.now() - captureStart) : 0;
+        setScreenshotDataUrl(shouldCaptureWindow ? capture : undefined);
         setRequestState('asking');
 
         const hermesStart = performance.now();
@@ -630,7 +635,7 @@ export function App(): ReactElement {
       setFrictionNoteText('');
 
       if (shouldAsk) {
-        void askWithSource(selected, true);
+        void askWithSource(selected, 'friction-action');
         setJournalSavedMessage('');
         return;
       }
@@ -1194,7 +1199,7 @@ export function App(): ReactElement {
                   setError('Select a trading window first.');
                   return;
                 }
-                void askWithSource(selectedSource, true);
+                void askWithSource(selectedSource, 'remote-consent-confirmed');
               }}
             >
               I understand, send now
