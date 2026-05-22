@@ -112,7 +112,12 @@ function parseLossPercent(text: string): number | undefined {
   return undefined;
 }
 
-function parseTradeSize(text: string): { value: number; unit: string } | undefined {
+export interface ParsedTradeSize {
+  value: number;
+  unit: string;
+}
+
+export function parseTradeSize(text: string): ParsedTradeSize | undefined {
   const normalized = text.toLowerCase();
   const matches = [...normalized.matchAll(TRADE_SIZE_PATTERN)];
   if (matches.length === 0) {

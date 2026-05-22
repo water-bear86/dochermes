@@ -69,6 +69,7 @@ import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
+import { parseTradeSize } from './tradeHistory';
 import {
   buildPersonalRuleContext,
   evaluatePersonalRules,
@@ -424,14 +425,14 @@ export function App(): ReactElement {
     () =>
       buildLocalWarningCards({
         ruleWarnings: [
-          ...localRuleWarnings(memoryContext.matchedPatterns.length > 0, question),
+          ...localRuleWarnings(memoryContext.matchedPatterns.length > 0, question, memoryContext),
           ...sessionRiskAssessment.warnings.map(toLocalWarningCandidate),
           ...personalRulesWarningSummary.warnings.map(toLocalWarningCandidate)
         ],
         sourceQualityWarnings: sourceQualityAssessment.warningFindings
       }),
     [
-      memoryContext.matchedPatterns,
+      memoryContext,
       personalRulesWarningSummary.warnings,
       question,
       sessionRiskAssessment.warnings,
@@ -1015,7 +1016,7 @@ export function App(): ReactElement {
       });
       const requestLocalWarningCards = buildLocalWarningCards({
         ruleWarnings: [
-          ...localRuleWarnings(requestMemoryContext.matchedPatterns.length > 0, questionText),
+          ...localRuleWarnings(requestMemoryContext.matchedPatterns.length > 0, questionText, requestMemoryContext),
           ...requestSessionRiskAssessment.warnings.map(toLocalWarningCandidate),
           ...requestPersonalRules.warnings.map(toLocalWarningCandidate)
         ],
@@ -3680,7 +3681,11 @@ function buildMonitoringMetadata(
   };
 }
 
-function localRuleWarnings(hasMemoryMatch: boolean, question: string): WarningCandidate[] {
+function localRuleWarnings(
+  hasMemoryMatch: boolean,
+  question: string,
+  memoryContext?: MemoryContext
+): WarningCandidate[] {
   const normalized = question.toLowerCase().trim();
   const warningCandidates: WarningCandidate[] = [];
 
@@ -3708,6 +3713,38 @@ function localRuleWarnings(hasMemoryMatch: boolean, question: string): WarningCa
         detail: 'Immediate-entry wording detected in the user question.',
         confidence: 'low',
         provenance: 'Question text'
+      }
+    });
+  }
+
+  const tradeSize = parseTradeSize(normalized);
+  const tradeHistorySummary = memoryContext?.tradeHistorySummary;
+  const matchingSizeSignal = tradeHistorySummary?.sizeSignals.find((signal) => signal.unit === tradeSize?.unit);
+  if (tradeSize && matchingSizeSignal && matchingSizeSignal.sampleCount > 1) {
+    const normalizedMax = matchingSizeSignal.maxSize > 0 ? matchingSizeSignal.maxSize : matchingSizeSignal.medianSize;
+    if (tradeSize.value >= normalizedMax * 1.5) {
+      warningCandidates.push({
+        text: `Proposed size ${tradeSize.value.toFixed(2)} ${tradeSize.unit.toUpperCase()} exceeds your recent size envelope.`,
+        evidence: {
+          source: 'Trade-history summary',
+          detail: `Your recent ${tradeSize.unit.toUpperCase()} median is ${matchingSizeSignal.medianSize.toFixed(2)} with max ${matchingSizeSignal.maxSize.toFixed(
+            2
+          )} across ${matchingSizeSignal.sampleCount} logged trades.`,
+          confidence: 'medium',
+          provenance: 'Local history'
+        }
+      });
+    }
+  }
+
+  if ((tradeHistorySummary?.recentLossStreak ?? 0) >= 3) {
+    warningCandidates.push({
+      text: 'Recent loss streak warning: recent logged outcomes show repeated losses, use confirmation before new entries.',
+      evidence: {
+        source: 'Trade-history summary',
+        detail: `Your latest logged trades include ${tradeHistorySummary?.recentLossStreak} losses in a row.`,
+        confidence: 'low',
+        provenance: 'Local history'
       }
     });
   }
