@@ -64,6 +64,12 @@ export type ClipboardCandidateKind =
   | 'sol-address'
   | 'dex-url'
   | 'wallet-address'
+  | 'pair'
+  | 'chain'
+  | 'order-direction'
+  | 'order-size'
+  | 'leverage'
+  | 'order-type'
   | 'unknown';
 
 export interface MonitoringSignal {

@@ -4,6 +4,7 @@ import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
 import { assertAskHermesInput, assertHermesConnection, assertVoiceSettings } from './inputValidation';
+import { extractClipboardSignalsFromText } from './monitoringSignals';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
 import type {
   MonitoringSignal,
@@ -344,7 +345,7 @@ function readClipboardSignals(now: number): MonitoringSignal[] {
   }
 
   lastClipboardText = text;
-  const rawSignals = extractClipboardSignals(text, now);
+  const rawSignals = extractClipboardSignalsFromText(text, now);
   const nextSignals = rawSignals.filter((signal) => shouldPublishSignal(signal));
   if (nextSignals.length === 0) {
     return [];
@@ -367,92 +368,6 @@ function shouldPublishSignal(signal: MonitoringSignal): boolean {
   return true;
 }
 
-function extractClipboardSignals(text: string, now: number): MonitoringSignal[] {
-  const normalized = text.trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const signals = new Map<string, MonitoringSignal>();
-  for (const rawMatch of normalized.matchAll(/0x[a-fA-F0-9]{64}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'evm-tx-hash', 'high'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/0x[a-fA-F0-9]{40}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'evm-address', 'medium'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/\b[1-9A-HJ-NP-Za-km-z]{40,88}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'sol-address', 'medium'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/https?:\/\/[^\s]+/g)) {
-    const rawUrl = rawMatch[0];
-    const sanitizedUrl = sanitizeUrlCandidate(rawUrl);
-    if (!sanitizedUrl) {
-      continue;
-    }
-
-    const kind: MonitoringSignal['kind'] =
-      /dextools|dexscreener|birdeye|solscan|etherscan|solana|solana\.fm|raydium|meteora/.test(sanitizedUrl)
-        ? 'dex-url'
-        : 'wallet-address';
-    const message = kind === 'dex-url' ? 'Detected trading-context URL' : undefined;
-    addSignal(signals, {
-      source: 'clipboard',
-      kind,
-      value: sanitizedUrl,
-      maskedValue: sanitizeUrlCandidate(sanitizedUrl),
-      confidence: kind === 'dex-url' ? 'medium' : 'low',
-      message
-    });
-  }
-
-  return [...signals.values()].map((value) => ({
-    ...value,
-    detectedAt: new Date(now).toISOString()
-  }));
-
-  function addSignal(
-    target: Map<string, Omit<MonitoringSignal, 'detectedAt'>>,
-    signal: Omit<MonitoringSignal, 'detectedAt'>
-  ): void {
-    if (target.has(signal.value.toLowerCase())) {
-      return;
-    }
-
-    target.set(signal.value.toLowerCase(), signal);
-  }
-
-  function normalizeMatch(value: string, kind: MonitoringSignal['kind'], confidence: MonitoringSignal['confidence']): Omit<MonitoringSignal, 'detectedAt'> {
-    return {
-      source: 'clipboard',
-      kind,
-      value,
-      maskedValue: maskValue(value),
-      confidence
-    };
-  }
-}
-
-function sanitizeUrlCandidate(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname;
-    return `${host}${pathname}`.slice(0, 120);
-  } catch {
-    return rawUrl.slice(0, 120);
-  }
-}
-
-function maskValue(value: string): string {
-  if (value.length <= 12) {
-    return value;
-  }
-
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
-}
 
 app.whenReady().then(() => {
   registerIpcHandlers();
