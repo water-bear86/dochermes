@@ -116,6 +116,7 @@ describe('buildMemoryContext', () => {
     const context = buildMemoryContext([earlyLossEntry], 'Should I enter immediately?', [], [postmortemSummary]);
 
     expect(context.postmortemSummaries).toEqual([postmortemSummary]);
+    expect(context.tradeHistorySummary?.totalTrades).toBe(1);
   });
 
   it('suppresses early-entry pattern matching for false-positive feedback', () => {

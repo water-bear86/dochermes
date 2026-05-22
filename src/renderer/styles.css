@@ -941,6 +941,19 @@ textarea:focus {
   margin-top: 6px;
 }
 
+.trade-history {
+  border-color: #556b8a;
+  background: #1a2130;
+}
+
+.trade-history-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #d4e1f0;
+  display: grid;
+  gap: 6px;
+}
+
 footer {
   margin-top: auto;
   padding-bottom: 2px;

@@ -1,6 +1,7 @@
 import type { JournalEntry, MemoryContext, MemoryPattern, MemoryPostmortemSummary, WarningFeedbackRecord } from '../shared/types';
 import { buildTradeBehaviorStats } from '../shared/tradeStats';
 import { normalizeTradeRecord, type TradeRecord } from '../shared/tradeRecord';
+import { buildTradeHistorySummary } from './tradeHistory';
 
 const RECENT_NOTE_LIMIT = 6;
 const POSTMORTEM_SUMMARY_CONTEXT_LIMIT = 4;
@@ -50,10 +51,13 @@ export function buildMemoryContext(
       notableRisks: summary.notableRisks
     }));
 
+  const tradeHistorySummary = buildTradeHistorySummary(entries);
+
   return {
     matchedPatterns: matchPatterns(entries, currentQuestion, falsePositiveSuppressedQuestions),
     tradeBehaviorStats: buildJournalTradeBehaviorStats(entries),
     recentNotes,
+    ...(tradeHistorySummary.totalTrades > 0 ? { tradeHistorySummary } : {}),
     ...(postmortemSummaryContext.length > 0 ? { postmortemSummaries: postmortemSummaryContext } : {})
   };
 }

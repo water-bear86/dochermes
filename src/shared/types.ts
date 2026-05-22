@@ -370,6 +370,21 @@ export interface MemoryPostmortemSummary {
   notableRisks: string[];
 }
 
+export interface TradeHistorySignal {
+  unit: string;
+  medianSize: number;
+  maxSize: number;
+  sampleCount: number;
+}
+
+export interface TradeHistorySummary {
+  totalTrades: number;
+  tradesLastHour: number;
+  tradesLastDay: number;
+  recentLossStreak: number;
+  sizeSignals: TradeHistorySignal[];
+}
+
 export interface MemoryContext {
   matchedPatterns: MemoryPattern[];
   tradeBehaviorStats?: TradeBehaviorStats;
@@ -380,6 +395,7 @@ export interface MemoryContext {
     notes: string;
     selectedWindowName: string;
   }>;
+  tradeHistorySummary?: TradeHistorySummary;
   postmortemSummaries?: MemoryPostmortemSummary[];
   personalRules?: PersonalRuleContext;
 }

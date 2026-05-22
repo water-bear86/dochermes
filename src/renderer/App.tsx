@@ -3116,6 +3116,28 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
+      {memoryContext.tradeHistorySummary ? (
+        <section className="message trade-history" aria-label="Trade history summary">
+          <span className="label">Trade history summary</span>
+          <ul className="trade-history-list">
+            <li>
+              {memoryContext.tradeHistorySummary.totalTrades} recent trades tracked · {memoryContext.tradeHistorySummary.recentLossStreak} recent loss
+              {memoryContext.tradeHistorySummary.recentLossStreak === 1 ? '' : 'es'} (latest hour/day:
+              {memoryContext.tradeHistorySummary.tradesLastHour}/{memoryContext.tradeHistorySummary.tradesLastDay})
+            </li>
+            {memoryContext.tradeHistorySummary.sizeSignals.length > 0 ? (
+              memoryContext.tradeHistorySummary.sizeSignals.map((signal) => (
+                <li key={signal.unit}>
+                  {signal.unit.toUpperCase()} median: {signal.medianSize.toFixed(2)} / max: {signal.maxSize.toFixed(2)} (n={signal.sampleCount})
+                </li>
+              ))
+            ) : (
+              <li>No parseable trade-size signal in recent notes.</li>
+            )}
+          </ul>
+        </section>
+      ) : null}
+
       {warningFeedbackEntries.length > 0 ? (
         <section className="message" aria-label="Warning feedback log">
           <span className="label">Warning feedback</span>
@@ -3501,7 +3523,8 @@ function buildHermesRequestPreview(input: {
   if (
     memoryContext.matchedPatterns.length > 0 ||
     memoryContext.recentNotes.length > 0 ||
-    (memoryContext.postmortemSummaries?.length ?? 0) > 0
+    (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
+    memoryContext.tradeHistorySummary !== undefined
   ) {
     payloadClasses.push('Compact memory context');
   }
