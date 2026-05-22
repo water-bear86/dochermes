@@ -26,9 +26,11 @@ The current prototype provides:
 - Successful connection tests apply the discovered effective adapter/base URL to future asks.
 - Local settings for panel always-on-top, armed/pause, and live monitoring toggles.
 - Local OCR monitoring with selectable analysis region (`full-window`, `order-panel`, `chart-order-panel`) and manual recalibration.
+- User-assisted OCR region overlay editor (drag-to-place on preview + normalized region controls).
 - Local data-sharing controls for memory context (use local history for risk checks, send compact summary, raw records disabled by default).
 - Read-only observed wallet address list with explicit private-key/seed warning.
 - Read-only CSV trade-history import into normalized local memory summaries.
+- Read-only wallet history sync loop for observed addresses (background refresh + manual sync, no signing/trading permissions).
 - Paired-window preference that persists across restarts so you can resume from the same trading window.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - Compact personal-memory context built from local journal entries.
@@ -43,6 +45,8 @@ The journal intentionally stores screenshot metadata instead of image bytes. Tha
 When the coach is armed, clipboard changes are scanned for token/candidate patterns and surfaced as live monitoring signals.
 
 If OCR watch is enabled, selected-window captures are preprocessed locally (resize + grayscale/contrast + threshold), then parsed for order context signals.
+
+If observed wallet addresses are configured, DocHermes can run a read-only wallet-history sync in the background without blocking pre-trade checks. Wallet sync results are normalized into the same local trade-memory model used by journal and CSV imports. Unsupported address/provider formats are surfaced explicitly and are not treated as fatal.
 
 When a new question resembles prior notes, the renderer sends a compact `memoryContext` object with the Hermes request. This is intentionally summarized before transmission so the app does not dump the full local journal into every prompt.
 

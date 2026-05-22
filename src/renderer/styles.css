@@ -464,14 +464,58 @@ textarea:focus {
   padding: 12px;
 }
 
+.preview-media {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
 .preview img {
   display: block;
-  width: 100%;
-  max-height: 190px;
+  max-width: 100%;
+  max-height: 250px;
   border: 1px solid #303633;
   border-radius: 8px;
-  object-fit: contain;
   background: #0b0d0e;
+}
+
+.ocr-overlay-stage {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  cursor: crosshair;
+}
+
+.ocr-overlay-stage.is-dragging {
+  cursor: crosshair;
+}
+
+.ocr-region-box {
+  position: absolute;
+  border: 1px solid #89d7ff;
+  border-radius: 6px;
+  background: rgba(43, 122, 173, 0.18);
+  color: #ecf7ff;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.ocr-region-box.is-active {
+  border-color: #b9ff96;
+  background: rgba(74, 138, 55, 0.25);
+}
+
+.ocr-region-box span {
+  padding: 3px 5px;
+  background: rgba(8, 15, 20, 0.56);
+  border-bottom-right-radius: 6px;
+  pointer-events: none;
 }
 
 .message {
@@ -931,6 +975,15 @@ textarea:focus {
 
 .monitor-list-meta {
   color: #9db2cf;
+  font-size: 11px;
+}
+
+.wallet-sync-status-list {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  color: #c2cfc2;
   font-size: 11px;
 }
 

@@ -1,7 +1,11 @@
 import type { JournalEntry, TradeHistorySummary, TradeRecord } from '../shared/types';
 
 export const IMPORTED_TRADE_RECORDS_KEY = 'hermes.imported.trade.records.v1';
+export const WALLET_TRADE_RECORDS_KEY = 'hermes.wallet.trade.records.v1';
 export const IMPORTED_TRADE_RECORD_LIMIT = 500;
+export const WALLET_SYNC_RECORD_LIMIT = 500;
+export const SOLANA_LAMPORTS_PER_SOL = 1_000_000_000;
+export const DEFAULT_WALLET_RPC_URL = 'https://api.mainnet-beta.solana.com';
 
 const TRADE_SIZE_PATTERN =
   /(?:\b(?:size|alloc|allocating|risk|position|amount|qty)?\s*[:=]?\s*)(\d+(?:\.\d+)?)\s*(sol|usdc|usdt|usdc\.e|usdt\.e|eth|weth|btc|wbtc|bnb|arb|usd|usde|sui)\b/gi;
@@ -17,6 +21,20 @@ interface ParsedTradeEntry {
     unit: string;
   };
   lossPercent?: number;
+}
+
+export interface WalletSyncProviderStatus {
+  address: string;
+  chain: 'solana' | 'evm' | 'unknown';
+  status: 'synced' | 'unsupported' | 'error';
+  records: number;
+  detail?: string;
+}
+
+export interface WalletSyncResult {
+  fetchedAt: string;
+  records: TradeRecord[];
+  statuses: WalletSyncProviderStatus[];
 }
 
 export function buildTradeHistorySummary(
@@ -77,9 +95,13 @@ export function buildTradeHistorySummary(
     return Number.isFinite(startedAt) && nowMs - startedAt <= LAST_DAY_MS;
   }).length;
 
+  const importedTrades = importedRecords.filter((entry) => entry.source === 'csv').length;
+  const walletTrades = importedRecords.filter((entry) => entry.source === 'wallet').length;
+
   return {
     totalTrades: parsedEntries.length,
-    importedTrades: importedRecords.length,
+    importedTrades,
+    walletTrades,
     tradesLastHour,
     tradesLastDay,
     recentLossStreak,
@@ -180,6 +202,334 @@ export function replaceImportedTradeRecordsFromCsv(
   return writeImportedTradeRecords(storage, parsed);
 }
 
+export function readWalletTradeRecords(storage: Pick<Storage, 'getItem'>): TradeRecord[] {
+  const raw = storage.getItem(WALLET_TRADE_RECORDS_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter(isTradeRecord)
+      .filter((entry) => entry.source === 'wallet')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, WALLET_SYNC_RECORD_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+export function writeWalletTradeRecords(storage: Pick<Storage, 'setItem'>, records: TradeRecord[]): TradeRecord[] {
+  const normalized = records
+    .filter(isTradeRecord)
+    .filter((entry) => entry.source === 'wallet')
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, WALLET_SYNC_RECORD_LIMIT);
+
+  storage.setItem(WALLET_TRADE_RECORDS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+export async function syncWalletTradeRecords(options: {
+  addresses: string[];
+  fetchImpl?: typeof fetch;
+  rpcUrl?: string;
+  limitPerAddress?: number;
+  now?: Date;
+}): Promise<WalletSyncResult> {
+  const {
+    addresses,
+    fetchImpl = fetch,
+    rpcUrl = DEFAULT_WALLET_RPC_URL,
+    limitPerAddress = 8,
+    now = new Date()
+  } = options;
+  const normalizedAddresses = [...new Set(addresses.map((entry) => entry.trim()).filter(Boolean))].slice(0, 12);
+  const statuses: WalletSyncProviderStatus[] = [];
+  const records: TradeRecord[] = [];
+
+  for (const address of normalizedAddresses) {
+    if (isLikelySolanaAddress(address)) {
+      try {
+        const nextRecords = await fetchSolanaWalletTradeRecords({
+          address,
+          fetchImpl,
+          rpcUrl,
+          limit: limitPerAddress
+        });
+        records.push(...nextRecords);
+        statuses.push({
+          address,
+          chain: 'solana',
+          status: 'synced',
+          records: nextRecords.length
+        });
+      } catch (error) {
+        statuses.push({
+          address,
+          chain: 'solana',
+          status: 'error',
+          records: 0,
+          detail: error instanceof Error ? error.message : 'Unknown Solana sync error.'
+        });
+      }
+      continue;
+    }
+
+    if (isLikelyEvmAddress(address)) {
+      statuses.push({
+        address,
+        chain: 'evm',
+        status: 'unsupported',
+        records: 0,
+        detail: 'EVM wallet history provider is not configured in this MVP.'
+      });
+      continue;
+    }
+
+    statuses.push({
+      address,
+      chain: 'unknown',
+      status: 'unsupported',
+      records: 0,
+      detail: 'Address format is not recognized as Solana or EVM.'
+    });
+  }
+
+  const uniqueById = new Map<string, TradeRecord>();
+  for (const record of records) {
+    uniqueById.set(record.id, record);
+  }
+
+  const normalizedRecords = [...uniqueById.values()]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, WALLET_SYNC_RECORD_LIMIT);
+
+  return {
+    fetchedAt: now.toISOString(),
+    records: normalizedRecords,
+    statuses
+  };
+}
+
+async function fetchSolanaWalletTradeRecords(options: {
+  address: string;
+  fetchImpl: typeof fetch;
+  rpcUrl: string;
+  limit: number;
+}): Promise<TradeRecord[]> {
+  const { address, fetchImpl, rpcUrl, limit } = options;
+  const signaturesResponse = await requestSolanaRpc<{
+    signature: string;
+    blockTime?: number;
+  }[]>({
+    fetchImpl,
+    rpcUrl,
+    method: 'getSignaturesForAddress',
+    params: [address, { limit: clampInteger(limit, 1, 20) }]
+  });
+
+  const signatures = Array.isArray(signaturesResponse) ? signaturesResponse.slice(0, limit) : [];
+  if (signatures.length === 0) {
+    return [];
+  }
+
+  const records: TradeRecord[] = [];
+  for (const signatureEntry of signatures) {
+    const signature = signatureEntry.signature?.trim();
+    if (!signature) {
+      continue;
+    }
+
+    const transaction = await requestSolanaRpc<SolanaTransactionPayload | null>({
+      fetchImpl,
+      rpcUrl,
+      method: 'getTransaction',
+      params: [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]
+    });
+    const record = buildSolanaWalletTradeRecord(address, signature, signatureEntry.blockTime, transaction);
+    if (record) {
+      records.push(record);
+    }
+  }
+
+  return records;
+}
+
+interface SolanaTransactionPayload {
+  blockTime?: number | null;
+  meta?: {
+    preBalances?: number[];
+    postBalances?: number[];
+    preTokenBalances?: SolanaTokenBalance[];
+    postTokenBalances?: SolanaTokenBalance[];
+  } | null;
+  transaction?: {
+    message?: {
+      accountKeys?: Array<string | { pubkey?: string | null }>;
+    } | null;
+  } | null;
+}
+
+interface SolanaTokenBalance {
+  owner?: string;
+  mint?: string;
+  uiTokenAmount?: {
+    amount?: string;
+    decimals?: number;
+  };
+}
+
+function buildSolanaWalletTradeRecord(
+  address: string,
+  signature: string,
+  signatureBlockTime: number | undefined,
+  payload: SolanaTransactionPayload | null
+): TradeRecord | undefined {
+  if (!payload || !payload.meta || !payload.transaction?.message?.accountKeys) {
+    return undefined;
+  }
+
+  const accountKeys = payload.transaction.message.accountKeys
+    .map((entry) => (typeof entry === 'string' ? entry : entry?.pubkey ?? ''))
+    .filter(Boolean);
+  const accountIndex = accountKeys.findIndex((entry) => entry === address);
+  if (accountIndex === -1) {
+    return undefined;
+  }
+
+  const preBalances = payload.meta.preBalances ?? [];
+  const postBalances = payload.meta.postBalances ?? [];
+  const preLamports = preBalances[accountIndex];
+  const postLamports = postBalances[accountIndex];
+  if (!Number.isFinite(preLamports) || !Number.isFinite(postLamports)) {
+    return undefined;
+  }
+
+  const deltaLamports = (postLamports as number) - (preLamports as number);
+  const absSol = Math.abs(deltaLamports / SOLANA_LAMPORTS_PER_SOL);
+  if (absSol < 0.0001) {
+    return undefined;
+  }
+
+  const createdAt = normalizeTimestamp(
+    Number.isFinite(payload.blockTime) && payload.blockTime
+      ? new Date((payload.blockTime as number) * 1000).toISOString()
+      : Number.isFinite(signatureBlockTime)
+        ? new Date((signatureBlockTime as number) * 1000).toISOString()
+        : new Date().toISOString()
+  );
+  if (!createdAt) {
+    return undefined;
+  }
+
+  const tokenHint = deriveWalletTokenHint(address, payload.meta.preTokenBalances, payload.meta.postTokenBalances);
+
+  return {
+    id: `wallet-solana-${address}-${signature}`,
+    createdAt,
+    source: 'wallet',
+    size: {
+      value: Number(absSol.toFixed(6)),
+      unit: 'sol'
+    },
+    ...(tokenHint ? { tokenHint } : {})
+  };
+}
+
+function deriveWalletTokenHint(
+  owner: string,
+  preTokenBalances: SolanaTokenBalance[] = [],
+  postTokenBalances: SolanaTokenBalance[] = []
+): string | undefined {
+  const changeByMint = new Map<string, number>();
+  const accumulate = (balances: SolanaTokenBalance[], multiplier: -1 | 1): void => {
+    for (const balance of balances) {
+      if (balance.owner !== owner) {
+        continue;
+      }
+
+      const mint = balance.mint?.trim();
+      if (!mint) {
+        continue;
+      }
+
+      const rawAmount = balance.uiTokenAmount?.amount ?? '0';
+      const decimals = Number(balance.uiTokenAmount?.decimals ?? 0);
+      const numericAmount = Number(rawAmount);
+      if (!Number.isFinite(numericAmount)) {
+        continue;
+      }
+
+      const normalizedAmount = numericAmount / Math.pow(10, Number.isFinite(decimals) ? decimals : 0);
+      const current = changeByMint.get(mint) ?? 0;
+      changeByMint.set(mint, current + normalizedAmount * multiplier);
+    }
+  };
+
+  accumulate(preTokenBalances, -1);
+  accumulate(postTokenBalances, 1);
+
+  let selectedMint: string | undefined;
+  let selectedMagnitude = 0;
+  for (const [mint, change] of changeByMint.entries()) {
+    const magnitude = Math.abs(change);
+    if (magnitude > selectedMagnitude) {
+      selectedMagnitude = magnitude;
+      selectedMint = mint;
+    }
+  }
+
+  return selectedMint;
+}
+
+async function requestSolanaRpc<T>(options: {
+  fetchImpl: typeof fetch;
+  rpcUrl: string;
+  method: string;
+  params: unknown[];
+}): Promise<T> {
+  const { fetchImpl, rpcUrl, method, params } = options;
+  const response = await fetchImpl(rpcUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: `dochermes-${method}`,
+      method,
+      params
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Solana RPC ${method} request failed with status ${response.status}.`);
+  }
+
+  const body = await response.json() as {
+    result?: T;
+    error?: {
+      message?: string;
+    };
+  };
+
+  if (body.error) {
+    throw new Error(body.error.message ?? `Solana RPC ${method} returned an error.`);
+  }
+
+  if (typeof body.result === 'undefined') {
+    throw new Error(`Solana RPC ${method} did not return a result.`);
+  }
+
+  return body.result;
+}
+
 function parseJournalTradeEntry(entry: JournalEntry): ParsedTradeEntry {
   return {
     createdAt: entry.createdAt,
@@ -256,6 +606,22 @@ function normalizeUnit(rawUnit: string): string {
   }
 
   return unit;
+}
+
+function isLikelyEvmAddress(value: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function isLikelySolanaAddress(value: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
 function splitCsvLine(line: string): string[] {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_LOCAL_SETTINGS,
+  DEFAULT_OCR_REGION_PROFILE,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_VOICE_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
@@ -59,6 +60,21 @@ describe('parseLocalSettings', () => {
           watchClipboard: true,
           watchOCR: true,
           ocrContextMode: 'order-panel',
+          ocrRegionProfile: {
+            overlayEnabled: false,
+            orderPanel: {
+              left: 0.61,
+              top: 0.05,
+              width: 0.34,
+              height: 0.88
+            },
+            chartZone: {
+              left: 0.05,
+              top: 0.05,
+              width: 0.5,
+              height: 0.6
+            }
+          },
           voice: {
             enabled: true,
             hotkey: 'alt-space',
@@ -114,6 +130,21 @@ describe('parseLocalSettings', () => {
       watchClipboard: true,
       watchOCR: true,
       ocrContextMode: 'order-panel',
+      ocrRegionProfile: {
+        overlayEnabled: false,
+        orderPanel: {
+          left: 0.61,
+          top: 0.05,
+          width: 0.34,
+          height: 0.88
+        },
+        chartZone: {
+          left: 0.05,
+          top: 0.05,
+          width: 0.5,
+          height: 0.6
+        }
+      },
       voice: {
         enabled: true,
         hotkey: 'alt-space',
@@ -165,6 +196,7 @@ describe('parseLocalSettings', () => {
       watchClipboard: false,
       watchOCR: false,
       ocrContextMode: 'full-window',
+      ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
       voice: DEFAULT_VOICE_SETTINGS
     });
   });
@@ -206,6 +238,7 @@ describe('parseLocalSettings', () => {
       watchClipboard: false,
       watchOCR: false,
       ocrContextMode: 'full-window',
+      ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
       voice: DEFAULT_VOICE_SETTINGS
     });
 
@@ -245,6 +278,7 @@ describe('parseLocalSettings', () => {
       watchClipboard: false,
       watchOCR: false,
       ocrContextMode: 'full-window',
+      ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
       voice: DEFAULT_VOICE_SETTINGS
     });
   });
@@ -334,6 +368,7 @@ describe('parseLocalSettings', () => {
         watchClipboard: false,
         watchOCR: false,
         ocrContextMode: 'full-window',
+        ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
         voice: DEFAULT_VOICE_SETTINGS,
         personalRules: [
           {
@@ -421,6 +456,7 @@ describe('serializeLocalSettings', () => {
           watchClipboard: false,
           watchOCR: false,
           ocrContextMode: 'chart-order-panel',
+          ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
           voice: DEFAULT_VOICE_SETTINGS,
           pairedWindow: {
             id: 'window:1',
@@ -466,6 +502,7 @@ describe('serializeLocalSettings', () => {
       watchClipboard: false,
       watchOCR: false,
       ocrContextMode: 'chart-order-panel',
+      ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
       dataSharing: {
         useLocalTradeHistoryForRiskChecks: true,
         sendCompactTradeSummaryToHermes: true,

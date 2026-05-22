@@ -3,7 +3,13 @@ import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, ty
 import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
-import { assertAskHermesInput, assertHermesConnection, assertVoiceSettings } from './inputValidation';
+import {
+  assertAskHermesInput,
+  assertHermesConnection,
+  assertOcrRegionProfileSettings,
+  assertVoiceSettings,
+  DEFAULT_OCR_REGION_PROFILE
+} from './inputValidation';
 import { extractClipboardSignalsFromText } from './monitoringSignals';
 import { closeOcrWorker, runOcrOnImageDataUrl, type OcrRegion } from './ocr';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
@@ -11,6 +17,7 @@ import type {
   MonitoringSignal,
   MonitoringStatus,
   OcrContextMode,
+  OcrRegionProfileSettings,
   VoiceSettings
 } from '../shared/types';
 
@@ -28,6 +35,7 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
 };
 let activeVoiceSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;
 let activeVoiceShortcut: string | null = null;
+let activeOcrRegionProfile: OcrRegionProfileSettings = DEFAULT_OCR_REGION_PROFILE;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
 let lastOCRImageDataUrl = '';
@@ -272,6 +280,18 @@ function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('coach:set-ocr-region-profile', (_event, profile: unknown) => {
+    activeOcrRegionProfile = assertOcrRegionProfileSettings(profile);
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+
+    if (watchOCR) {
+      sendMonitorStatus(true, {
+        message: `OCR region profile updated (${formatOcrContextMode(ocrContextMode)}).`
+      });
+    }
+  });
+
   ipcMain.handle('coach:recalibrate-ocr', () => {
     ocrRegionProfiles.clear();
     lastOCRImageDataUrl = '';
@@ -457,12 +477,7 @@ function deriveDefaultNormalizedOcrProfile(mode: OcrContextMode): NormalizedOcrR
       {
         id: 'order-panel',
         label: 'Order panel',
-        rectangle: {
-          left: 0.58,
-          top: 0.03,
-          width: 0.39,
-          height: 0.94
-        }
+        rectangle: activeOcrRegionProfile.orderPanel
       }
     ];
   }
@@ -472,22 +487,12 @@ function deriveDefaultNormalizedOcrProfile(mode: OcrContextMode): NormalizedOcrR
       {
         id: 'order-panel',
         label: 'Order panel',
-        rectangle: {
-          left: 0.58,
-          top: 0.03,
-          width: 0.39,
-          height: 0.94
-        }
+        rectangle: activeOcrRegionProfile.orderPanel
       },
       {
         id: 'chart-zone',
         label: 'Chart and pair zone',
-        rectangle: {
-          left: 0.03,
-          top: 0.03,
-          width: 0.54,
-          height: 0.58
-        }
+        rectangle: activeOcrRegionProfile.chartZone
       }
     ];
   }

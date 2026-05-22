@@ -27,6 +27,19 @@ export type PersonalRulePolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type VoiceHotkey = 'space' | 'alt-space' | 'ctrl-space' | 'cmd-space';
 export type OcrContextMode = 'full-window' | 'order-panel' | 'chart-order-panel';
 
+export interface OcrNormalizedRegionRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface OcrRegionProfileSettings {
+  overlayEnabled: boolean;
+  orderPanel: OcrNormalizedRegionRect;
+  chartZone: OcrNormalizedRegionRect;
+}
+
 export interface VoiceSettings {
   enabled: boolean;
   hotkey: VoiceHotkey;
@@ -313,6 +326,7 @@ export interface CoachBridgeApi {
   setMonitorSource: (sourceId?: string) => Promise<void>;
   setOcrContextMode: (mode: OcrContextMode) => Promise<void>;
   recalibrateOCR: () => Promise<void>;
+  setOcrRegionProfile: (profile: OcrRegionProfileSettings) => Promise<void>;
   setVoiceSettings: (settings: VoiceSettings) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
@@ -343,6 +357,7 @@ export interface LocalSettings {
   watchClipboard: boolean;
   watchOCR: boolean;
   ocrContextMode: OcrContextMode;
+  ocrRegionProfile: OcrRegionProfileSettings;
   voice: VoiceSettings;
   pairedWindow?: WindowSourceRef;
 }
@@ -413,6 +428,7 @@ export interface TradeRecord {
 export interface TradeHistorySummary {
   totalTrades: number;
   importedTrades: number;
+  walletTrades: number;
   tradesLastHour: number;
   tradesLastDay: number;
   recentLossStreak: number;

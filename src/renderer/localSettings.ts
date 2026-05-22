@@ -13,6 +13,7 @@ import type {
   VoiceSettings,
   VoiceHotkey,
   OcrContextMode,
+  OcrRegionProfileSettings,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -47,6 +48,22 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: false,
   hotkey: 'space',
   speakReplies: false
+};
+
+export const DEFAULT_OCR_REGION_PROFILE: OcrRegionProfileSettings = {
+  overlayEnabled: true,
+  orderPanel: {
+    left: 0.58,
+    top: 0.03,
+    width: 0.39,
+    height: 0.94
+  },
+  chartZone: {
+    left: 0.03,
+    top: 0.03,
+    width: 0.54,
+    height: 0.58
+  }
 };
 
 const DEFAULT_COACH_MODE: CoachMode = 'advisory';
@@ -89,6 +106,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   watchClipboard: false,
   watchOCR: false,
   ocrContextMode: 'full-window',
+  ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
   voice: DEFAULT_VOICE_SETTINGS
 };
 
@@ -120,6 +138,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
         typeof parsed.watchClipboard === 'boolean' ? parsed.watchClipboard : DEFAULT_LOCAL_SETTINGS.watchClipboard,
       watchOCR: typeof parsed.watchOCR === 'boolean' ? parsed.watchOCR : DEFAULT_LOCAL_SETTINGS.watchOCR,
       ocrContextMode: parseOcrContextMode(parsed.ocrContextMode),
+      ocrRegionProfile: parseOcrRegionProfile(parsed.ocrRegionProfile),
       voice: parseVoiceSettings(parsed.voice),
       ...(pairedWindow ? { pairedWindow } : {})
     };
@@ -142,6 +161,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
       watchClipboard: settings.watchClipboard,
       watchOCR: settings.watchOCR,
       ocrContextMode: settings.ocrContextMode,
+      ocrRegionProfile: settings.ocrRegionProfile,
       voice: settings.voice,
     pairedWindow: settings.pairedWindow
   });
@@ -527,4 +547,59 @@ function parseOcrContextMode(value: unknown): OcrContextMode {
   return value === 'full-window' || value === 'order-panel' || value === 'chart-order-panel'
     ? value
     : DEFAULT_LOCAL_SETTINGS.ocrContextMode;
+}
+
+function parseOcrRegionProfile(value: unknown): OcrRegionProfileSettings {
+  if (!value || typeof value !== 'object') {
+    return DEFAULT_OCR_REGION_PROFILE;
+  }
+
+  const candidate = value as Partial<OcrRegionProfileSettings>;
+
+  return {
+    overlayEnabled:
+      typeof candidate.overlayEnabled === 'boolean'
+        ? candidate.overlayEnabled
+        : DEFAULT_OCR_REGION_PROFILE.overlayEnabled,
+    orderPanel: parseNormalizedRect(candidate.orderPanel, DEFAULT_OCR_REGION_PROFILE.orderPanel),
+    chartZone: parseNormalizedRect(candidate.chartZone, DEFAULT_OCR_REGION_PROFILE.chartZone)
+  };
+}
+
+function parseNormalizedRect(
+  value: unknown,
+  fallback: OcrRegionProfileSettings['orderPanel']
+): OcrRegionProfileSettings['orderPanel'] {
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const candidate = value as Partial<OcrRegionProfileSettings['orderPanel']>;
+  const left = clampNormalizedNumber(candidate.left, fallback.left, 0, 1);
+  const top = clampNormalizedNumber(candidate.top, fallback.top, 0, 1);
+  const width = clampNormalizedNumber(candidate.width, fallback.width, 0.02, 1);
+  const height = clampNormalizedNumber(candidate.height, fallback.height, 0.02, 1);
+
+  return {
+    left: Math.min(left, 1 - 0.02),
+    top: Math.min(top, 1 - 0.02),
+    width: Math.min(width, 1 - Math.min(left, 1 - 0.02)),
+    height: Math.min(height, 1 - Math.min(top, 1 - 0.02))
+  };
+}
+
+function clampNormalizedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  if (value < min) {
+    return min;
+  }
+
+  if (value > max) {
+    return max;
+  }
+
+  return value;
 }

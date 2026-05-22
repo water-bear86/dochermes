@@ -4,7 +4,9 @@ import type { AskHermesInput } from '../shared/types';
 import {
   assertAskHermesInput,
   assertHermesConnection,
+  assertOcrRegionProfileSettings,
   assertVoiceSettings,
+  DEFAULT_OCR_REGION_PROFILE,
   MAX_SCREENSHOT_BYTES,
   estimateBase64Bytes
 } from './inputValidation';
@@ -274,5 +276,49 @@ describe('assertVoiceSettings', () => {
       hotkey: 'cmd-space',
       speakReplies: true
     });
+  });
+});
+
+describe('assertOcrRegionProfileSettings', () => {
+  it('accepts a valid normalized OCR profile', () => {
+    expect(
+      assertOcrRegionProfileSettings({
+        overlayEnabled: true,
+        orderPanel: {
+          left: 0.58,
+          top: 0.03,
+          width: 0.39,
+          height: 0.94
+        },
+        chartZone: {
+          left: 0.03,
+          top: 0.03,
+          width: 0.54,
+          height: 0.58
+        }
+      })
+    ).toEqual(DEFAULT_OCR_REGION_PROFILE);
+  });
+
+  it('rejects malformed or out-of-bounds profiles', () => {
+    expect(() => assertOcrRegionProfileSettings(undefined)).toThrow('OCR region profile payload is required.');
+
+    expect(() =>
+      assertOcrRegionProfileSettings({
+        overlayEnabled: true,
+        orderPanel: {
+          left: 0.9,
+          top: 0.1,
+          width: 0.2,
+          height: 0.5
+        },
+        chartZone: {
+          left: 0.03,
+          top: 0.03,
+          width: 0.54,
+          height: 0.58
+        }
+      })
+    ).toThrow('OCR region profile orderPanel exceeds horizontal bounds.');
   });
 });

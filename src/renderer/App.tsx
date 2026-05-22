@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 
 import type {
   AskHermesInput,
@@ -20,6 +20,7 @@ import type {
   SourceQualityConfidence,
   MonitoringSignal,
   MonitoringStatus,
+  OcrRegionProfileSettings,
   WarningEvidenceSummary,
   WindowSourceOption
 } from '../shared/types';
@@ -60,6 +61,7 @@ import {
   type WarningFeedbackRecord
 } from './warningFeedback';
 import {
+  DEFAULT_OCR_REGION_PROFILE,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
   readLocalSettings,
@@ -69,7 +71,16 @@ import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
-import { parseTradeSize, readImportedTradeRecords, replaceImportedTradeRecordsFromCsv, writeImportedTradeRecords } from './tradeHistory';
+import {
+  parseTradeSize,
+  readImportedTradeRecords,
+  readWalletTradeRecords,
+  replaceImportedTradeRecordsFromCsv,
+  syncWalletTradeRecords,
+  writeImportedTradeRecords,
+  writeWalletTradeRecords,
+  type WalletSyncProviderStatus
+} from './tradeHistory';
 import {
   buildPersonalRuleContext,
   evaluatePersonalRules,
@@ -137,6 +148,20 @@ interface PolicyCard {
   warnings: string[];
   blockers: string[];
 }
+
+interface WalletSyncState {
+  status: 'idle' | 'syncing' | 'ready' | 'error';
+  lastSyncedAt?: string;
+  detail?: string;
+  providerStatuses: WalletSyncProviderStatus[];
+}
+
+type OcrRegionKey = 'orderPanel' | 'chartZone';
+type DraggingOcrRegionState = {
+  key: OcrRegionKey;
+  startLeft: number;
+  startTop: number;
+};
 
 declare global {
   interface Window {
@@ -219,6 +244,9 @@ const POSTMORTEM_OUTCOME_TAG_OPTIONS: Array<{ value: PostmortemOutcomeTag; label
   { value: 'note-for-next-time', label: formatPostmortemTagLabel('note-for-next-time') }
 ];
 const POSTMORTEM_SUMMARY_PREVIEW_LIMIT = 3;
+const WALLET_SYNC_INTERVAL_MS = 180_000;
+const OCR_REGION_MIN_SIZE = 0.02;
+const OCR_REGION_STEP = 0.01;
 const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
 
@@ -233,10 +261,17 @@ export function App(): ReactElement {
     settings.pairedWindow ? { ...settings.pairedWindow, thumbnailDataUrl: '' } : undefined
   );
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | undefined>();
+  const [activeOcrRegionKey, setActiveOcrRegionKey] = useState<OcrRegionKey>('orderPanel');
+  const [draggingOcrRegion, setDraggingOcrRegion] = useState<DraggingOcrRegionState | undefined>();
   const [response, setResponse] = useState('');
   const [journalNotes, setJournalNotes] = useState('');
   const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
   const [importedTradeRecords, setImportedTradeRecords] = useState(() => readImportedTradeRecords(localStorage));
+  const [walletTradeRecords, setWalletTradeRecords] = useState(() => readWalletTradeRecords(localStorage));
+  const [walletSyncState, setWalletSyncState] = useState<WalletSyncState>({
+    status: 'idle',
+    providerStatuses: []
+  });
   const [tradeCsvInput, setTradeCsvInput] = useState('');
   const [tradeCsvMessage, setTradeCsvMessage] = useState('');
   const [journalSavedMessage, setJournalSavedMessage] = useState('');
@@ -327,7 +362,9 @@ export function App(): ReactElement {
   const validatedPairRef = useRef<string | undefined>(undefined);
   const heartbeatInFlightRef = useRef(false);
   const sourceContextAutoFillRequestId = useRef<string | undefined>(undefined);
+  const walletSyncInFlight = useRef(false);
   const questionRef = useRef('');
+  const previewImageRef = useRef<HTMLImageElement | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionResult | null>(null);
   const askWithSourceRef = useRef<(
     source: WindowSourceOption | undefined,
@@ -350,6 +387,10 @@ export function App(): ReactElement {
     () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? importedTradeRecords : []),
     [importedTradeRecords, settings.dataSharing.useLocalTradeHistoryForRiskChecks]
   );
+  const walletTradeRecordsForRiskChecks = useMemo(
+    () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? walletTradeRecords : []),
+    [settings.dataSharing.useLocalTradeHistoryForRiskChecks, walletTradeRecords]
+  );
   const memoryContext = useMemo(
     () =>
       buildMemoryContext(
@@ -357,9 +398,16 @@ export function App(): ReactElement {
         question,
         warningFeedbackEntries,
         postmortemSummaries,
-        importedTradeRecordsForRiskChecks
+        importedTradeRecordsForRiskChecks.concat(walletTradeRecordsForRiskChecks)
       ),
-    [historyEntriesForRiskChecks, importedTradeRecordsForRiskChecks, question, postmortemSummaries, warningFeedbackEntries]
+    [
+      historyEntriesForRiskChecks,
+      importedTradeRecordsForRiskChecks,
+      postmortemSummaries,
+      question,
+      walletTradeRecordsForRiskChecks,
+      warningFeedbackEntries
+    ]
   );
   const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
@@ -528,6 +576,11 @@ export function App(): ReactElement {
     ? `${sessionRiskAssessment.status.knownLossPercent.toFixed(2)}% of ${sessionRiskAssessment.status.maxLossPerSessionPercent}%`
     : 'No structured loss data today';
   const sessionRiskTradeText = `${sessionRiskAssessment.status.tradeCount}/${sessionRiskAssessment.status.maxTradesPerSession}`;
+  const ocrOverlayRegions = useMemo(
+    () => buildOcrOverlayRegions(settings.ocrContextMode, settings.ocrRegionProfile, activeOcrRegionKey),
+    [activeOcrRegionKey, settings.ocrContextMode, settings.ocrRegionProfile]
+  );
+  const activeOcrRegionRect = settings.ocrRegionProfile[activeOcrRegionKey];
 
   useEffect(() => {
     questionRef.current = question;
@@ -868,6 +921,110 @@ export function App(): ReactElement {
     }));
   }, []);
 
+  const updateOcrRegionRect = useCallback(
+    (key: OcrRegionKey, updates: Partial<OcrRegionProfileSettings['orderPanel']>) => {
+      setSettings((current) => {
+        const prior = current.ocrRegionProfile[key];
+        const nextRect = sanitizeNormalizedRegionRect({
+          left: updates.left ?? prior.left,
+          top: updates.top ?? prior.top,
+          width: updates.width ?? prior.width,
+          height: updates.height ?? prior.height
+        });
+
+        return {
+          ...current,
+          ocrRegionProfile: {
+            ...current.ocrRegionProfile,
+            [key]: nextRect
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const resetOcrRegionProfileDefaults = useCallback(() => {
+    setSettings((current) => ({
+      ...current,
+      ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE
+    }));
+    setActiveOcrRegionKey('orderPanel');
+  }, []);
+
+  const beginOcrOverlayDrag = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!settings.ocrRegionProfile.overlayEnabled || !screenshotDataUrl) {
+        return;
+      }
+
+      const image = previewImageRef.current;
+      if (!image) {
+        return;
+      }
+
+      const normalized = toNormalizedPointerPosition(image, event.clientX, event.clientY);
+      if (!normalized) {
+        return;
+      }
+
+      updateOcrRegionRect(activeOcrRegionKey, {
+        left: normalized.left,
+        top: normalized.top,
+        width: OCR_REGION_MIN_SIZE,
+        height: OCR_REGION_MIN_SIZE
+      });
+      setDraggingOcrRegion({
+        key: activeOcrRegionKey,
+        startLeft: normalized.left,
+        startTop: normalized.top
+      });
+    },
+    [activeOcrRegionKey, screenshotDataUrl, settings.ocrRegionProfile.overlayEnabled, updateOcrRegionRect]
+  );
+
+  useEffect(() => {
+    if (!draggingOcrRegion) {
+      return undefined;
+    }
+
+    const onPointerMove = (event: PointerEvent): void => {
+      const image = previewImageRef.current;
+      if (!image) {
+        return;
+      }
+
+      const normalized = toNormalizedPointerPosition(image, event.clientX, event.clientY);
+      if (!normalized) {
+        return;
+      }
+
+      const nextLeft = Math.min(draggingOcrRegion.startLeft, normalized.left);
+      const nextTop = Math.min(draggingOcrRegion.startTop, normalized.top);
+      const nextWidth = Math.max(Math.abs(normalized.left - draggingOcrRegion.startLeft), OCR_REGION_MIN_SIZE);
+      const nextHeight = Math.max(Math.abs(normalized.top - draggingOcrRegion.startTop), OCR_REGION_MIN_SIZE);
+
+      updateOcrRegionRect(draggingOcrRegion.key, {
+        left: nextLeft,
+        top: nextTop,
+        width: nextWidth,
+        height: nextHeight
+      });
+    };
+
+    const onPointerUp = (): void => {
+      setDraggingOcrRegion(undefined);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [draggingOcrRegion, updateOcrRegionRect]);
+
   useEffect(() => {
     writeLocalSettings(localStorage, settings);
     void bridge?.setAlwaysOnTop(settings.keepAlwaysOnTop).catch((nextError: unknown) => {
@@ -886,6 +1043,9 @@ export function App(): ReactElement {
       setError(readError(nextError));
     });
     void bridge?.setOcrContextMode(settings.ocrContextMode).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
+    void bridge?.setOcrRegionProfile(settings.ocrRegionProfile).catch((nextError: unknown) => {
       setError(readError(nextError));
     });
     void bridge?.setVoiceSettings(settings.voice).catch((nextError: unknown) => {
@@ -1028,12 +1188,15 @@ export function App(): ReactElement {
       const requestImportedTradeRecords = settings.dataSharing.useLocalTradeHistoryForRiskChecks
         ? importedTradeRecords
         : [];
+      const requestWalletTradeRecords = settings.dataSharing.useLocalTradeHistoryForRiskChecks
+        ? walletTradeRecords
+        : [];
       const requestMemoryContext = buildMemoryContext(
         requestHistoryEntries,
         questionText,
         warningFeedbackEntries,
         postmortemSummaries,
-        requestImportedTradeRecords
+        requestImportedTradeRecords.concat(requestWalletTradeRecords)
       );
       const requestSourceQuality = buildSourceQualityAssessment({
         question: questionText,
@@ -1282,11 +1445,13 @@ export function App(): ReactElement {
       loadSources,
       journalEntries,
       importedTradeRecords,
+      walletTradeRecords,
       monitorSignals,
       warningFeedbackEntries,
       settings.connection,
       settings.coachMode,
       settings.dataSharing,
+      settings.personalRules,
       settings.privacy,
       settings.riskBudget,
       settings.voice.speakReplies,
@@ -1804,6 +1969,99 @@ export function App(): ReactElement {
     setImportedTradeRecords(nextRecords);
     setTradeCsvMessage('Cleared imported trade-history records.');
   }, []);
+
+  const syncObservedWalletHistory = useCallback(
+    async (source: 'manual' | 'background' = 'background') => {
+      const observedAddresses = settings.dataSharing.observedWalletAddresses
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .slice(0, 12);
+
+      if (observedAddresses.length === 0) {
+        setWalletSyncState({
+          status: 'idle',
+          detail: 'Add at least one public wallet address to enable sync.',
+          providerStatuses: []
+        });
+        const nextRecords = writeWalletTradeRecords(localStorage, []);
+        setWalletTradeRecords(nextRecords);
+        return;
+      }
+
+      if (walletSyncInFlight.current) {
+        return;
+      }
+
+      walletSyncInFlight.current = true;
+      setWalletSyncState((current) => ({
+        ...current,
+        status: 'syncing',
+        detail: source === 'manual' ? 'Syncing wallet history...' : 'Refreshing wallet history...'
+      }));
+
+      try {
+        const result = await syncWalletTradeRecords({
+          addresses: observedAddresses
+        });
+        const nextRecords = writeWalletTradeRecords(localStorage, result.records);
+        setWalletTradeRecords(nextRecords);
+
+        const errors = result.statuses.filter((entry) => entry.status === 'error').length;
+        const unsupported = result.statuses.filter((entry) => entry.status === 'unsupported').length;
+        const status: WalletSyncState['status'] = errors > 0 ? 'error' : 'ready';
+        const detailParts = [
+          `${nextRecords.length} local wallet trade record${nextRecords.length === 1 ? '' : 's'}`
+        ];
+
+        if (unsupported > 0) {
+          detailParts.push(`${unsupported} unsupported address format${unsupported === 1 ? '' : 's'}`);
+        }
+        if (errors > 0) {
+          detailParts.push(`${errors} sync error${errors === 1 ? '' : 's'}`);
+        }
+
+        setWalletSyncState({
+          status,
+          lastSyncedAt: result.fetchedAt,
+          detail: detailParts.join(' · '),
+          providerStatuses: result.statuses
+        });
+      } catch (nextError) {
+        setWalletSyncState((current) => ({
+          ...current,
+          status: 'error',
+          detail: readError(nextError)
+        }));
+      } finally {
+        walletSyncInFlight.current = false;
+      }
+    },
+    [settings.dataSharing.observedWalletAddresses]
+  );
+
+  useEffect(() => {
+    if (!settings.dataSharing.useLocalTradeHistoryForRiskChecks) {
+      return undefined;
+    }
+
+    const hasWalletsConfigured = settings.dataSharing.observedWalletAddresses.some((entry) => entry.trim().length > 0);
+    if (!hasWalletsConfigured) {
+      return undefined;
+    }
+
+    void syncObservedWalletHistory('background');
+    const interval = window.setInterval(() => {
+      void syncObservedWalletHistory('background');
+    }, WALLET_SYNC_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [
+    settings.dataSharing.observedWalletAddresses,
+    settings.dataSharing.useLocalTradeHistoryForRiskChecks,
+    syncObservedWalletHistory
+  ]);
 
   const persistPreTradeDecision = useCallback(
     (actionLabel: string, note: string | undefined, source: 'friction' | 'policy') => {
@@ -2451,6 +2709,31 @@ export function App(): ReactElement {
               Never enter seed phrases or private keys. DocHermes only supports read-only public addresses and never requests signing,
               trading, approvals, or withdrawals.
             </small>
+            <div className="button-row">
+              <button
+                type="button"
+                onClick={() => {
+                  void syncObservedWalletHistory('manual');
+                }}
+                disabled={walletSyncState.status === 'syncing'}
+              >
+                {walletSyncState.status === 'syncing' ? 'Syncing wallet history...' : 'Sync wallet history'}
+              </button>
+            </div>
+            <small className="subtle-note">
+              {walletSyncState.detail ?? 'Background sync runs every few minutes when local risk checks are enabled.'}
+              {walletSyncState.lastSyncedAt ? ` · Last synced ${new Date(walletSyncState.lastSyncedAt).toLocaleString()}` : ''}
+            </small>
+            {walletSyncState.providerStatuses.length > 0 ? (
+              <ul className="wallet-sync-status-list">
+                {walletSyncState.providerStatuses.map((status) => (
+                  <li key={`${status.address}-${status.chain}`}>
+                    {status.address} · {status.chain} · {status.status}
+                    {status.detail ? ` · ${status.detail}` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
             <label htmlFor="trade-csv-import">Trade history CSV import (read-only)</label>
             <textarea
@@ -2471,6 +2754,9 @@ export function App(): ReactElement {
             <small className="subtle-note">
               Imported records: {importedTradeRecords.length}
               {tradeCsvMessage ? ` · ${tradeCsvMessage}` : ''}
+            </small>
+            <small className="subtle-note">
+              Wallet records (read-only): {walletTradeRecords.length}
             </small>
 
             <label htmlFor="gateway">Hermes base URL</label>
@@ -2871,6 +3157,104 @@ export function App(): ReactElement {
               <option value="order-panel">Order panel focus</option>
               <option value="chart-order-panel">Chart + order panel</option>
             </select>
+            <label className="check-row" htmlFor="ocr-overlay-enabled">
+              <input
+                id="ocr-overlay-enabled"
+                type="checkbox"
+                checked={settings.ocrRegionProfile.overlayEnabled}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    ocrRegionProfile: {
+                      ...current.ocrRegionProfile,
+                      overlayEnabled: event.target.checked
+                    }
+                  }))
+                }
+              />
+              <span>Show OCR region overlay on capture preview</span>
+            </label>
+            <label htmlFor="ocr-region-target">OCR region to edit</label>
+            <select
+              id="ocr-region-target"
+              value={activeOcrRegionKey}
+              onChange={(event) =>
+                setActiveOcrRegionKey(event.target.value === 'chartZone' ? 'chartZone' : 'orderPanel')
+              }
+            >
+              <option value="orderPanel">Order panel</option>
+              <option value="chartZone">Chart zone</option>
+            </select>
+            <label htmlFor="ocr-region-left">Region left (0-1)</label>
+            <input
+              id="ocr-region-left"
+              type="number"
+              min="0"
+              max="1"
+              step={OCR_REGION_STEP}
+              value={activeOcrRegionRect.left}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed)) {
+                  return;
+                }
+                updateOcrRegionRect(activeOcrRegionKey, { left: parsed });
+              }}
+            />
+            <label htmlFor="ocr-region-top">Region top (0-1)</label>
+            <input
+              id="ocr-region-top"
+              type="number"
+              min="0"
+              max="1"
+              step={OCR_REGION_STEP}
+              value={activeOcrRegionRect.top}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed)) {
+                  return;
+                }
+                updateOcrRegionRect(activeOcrRegionKey, { top: parsed });
+              }}
+            />
+            <label htmlFor="ocr-region-width">Region width (0-1)</label>
+            <input
+              id="ocr-region-width"
+              type="number"
+              min={OCR_REGION_MIN_SIZE}
+              max="1"
+              step={OCR_REGION_STEP}
+              value={activeOcrRegionRect.width}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed)) {
+                  return;
+                }
+                updateOcrRegionRect(activeOcrRegionKey, { width: parsed });
+              }}
+            />
+            <label htmlFor="ocr-region-height">Region height (0-1)</label>
+            <input
+              id="ocr-region-height"
+              type="number"
+              min={OCR_REGION_MIN_SIZE}
+              max="1"
+              step={OCR_REGION_STEP}
+              value={activeOcrRegionRect.height}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed)) {
+                  return;
+                }
+                updateOcrRegionRect(activeOcrRegionKey, { height: parsed });
+              }}
+            />
+            <small className="subtle-note">
+              Enable overlay, then drag on the latest capture to place the selected region.
+            </small>
+            <button type="button" className="ghost" onClick={resetOcrRegionProfileDefaults}>
+              Reset OCR region defaults
+            </button>
             <p className="subtle-note" role="note">
               {settings.watchOCR
                 ? settings.armed
@@ -3422,6 +3806,9 @@ export function App(): ReactElement {
               {memoryContext.tradeHistorySummary.importedTrades > 0
                 ? ` · imported records: ${memoryContext.tradeHistorySummary.importedTrades}`
                 : ''}
+              {memoryContext.tradeHistorySummary.walletTrades > 0
+                ? ` · wallet records: ${memoryContext.tradeHistorySummary.walletTrades}`
+                : ''}
             </li>
             {memoryContext.tradeHistorySummary.sizeSignals.length > 0 ? (
               memoryContext.tradeHistorySummary.sizeSignals.map((signal) => (
@@ -3737,7 +4124,44 @@ export function App(): ReactElement {
             <h2>Latest capture</h2>
             <span>{selectedSource?.name}</span>
           </div>
-          <img src={screenshotDataUrl} alt="Latest selected trading window capture" />
+          <div className="preview-media">
+            <img
+              ref={previewImageRef}
+              src={screenshotDataUrl}
+              alt="Latest selected trading window capture"
+            />
+            {settings.ocrRegionProfile.overlayEnabled && ocrOverlayRegions.length > 0 ? (
+              <div
+                className={`ocr-overlay-stage ${draggingOcrRegion ? 'is-dragging' : ''}`}
+                onPointerDown={beginOcrOverlayDrag}
+              >
+                {ocrOverlayRegions.map((region) => (
+                  <button
+                    type="button"
+                    key={region.key}
+                    className={`ocr-region-box ${region.isActive ? 'is-active' : ''}`}
+                    style={{
+                      left: `${region.rectangle.left * 100}%`,
+                      top: `${region.rectangle.top * 100}%`,
+                      width: `${region.rectangle.width * 100}%`,
+                      height: `${region.rectangle.height * 100}%`
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      setActiveOcrRegionKey(region.key);
+                    }}
+                  >
+                    <span>{region.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {settings.ocrRegionProfile.overlayEnabled && ocrOverlayRegions.length > 0 ? (
+            <small className="subtle-note">
+              Drag over the capture to set the selected OCR region.
+            </small>
+          ) : null}
         </section>
       ) : null}
 
@@ -3840,7 +4264,7 @@ export function App(): ReactElement {
       ) : null}
 
       <footer>
-        Platform agnostic. No wallet access. No order routing.
+        Platform agnostic. Read-only wallet context only. No signing. No order routing.
       </footer>
     </main>
   );
@@ -3861,6 +4285,91 @@ function readError(error: unknown): string {
 function createRequestContextId(): string {
   const random = Math.random().toString(16).slice(2, 10);
   return `req-${Date.now()}-${random}`;
+}
+
+function buildOcrOverlayRegions(
+  mode: LocalSettings['ocrContextMode'],
+  profile: OcrRegionProfileSettings,
+  activeKey: OcrRegionKey
+): Array<{
+  key: OcrRegionKey;
+  label: string;
+  rectangle: OcrRegionProfileSettings['orderPanel'];
+  isActive: boolean;
+}> {
+  if (mode === 'full-window') {
+    return [];
+  }
+
+  const regions: Array<{
+    key: OcrRegionKey;
+    label: string;
+    rectangle: OcrRegionProfileSettings['orderPanel'];
+  }> = [{ key: 'orderPanel', label: 'Order panel', rectangle: profile.orderPanel }];
+
+  if (mode === 'chart-order-panel') {
+    regions.push({ key: 'chartZone', label: 'Chart zone', rectangle: profile.chartZone });
+  }
+
+  return regions.map((region) => ({
+    ...region,
+    isActive: activeKey === region.key
+  }));
+}
+
+function sanitizeNormalizedRegionRect(
+  rectangle: OcrRegionProfileSettings['orderPanel']
+): OcrRegionProfileSettings['orderPanel'] {
+  const left = clampNumber(rectangle.left, 0, 1 - OCR_REGION_MIN_SIZE);
+  const top = clampNumber(rectangle.top, 0, 1 - OCR_REGION_MIN_SIZE);
+  const width = clampNumber(rectangle.width, OCR_REGION_MIN_SIZE, 1 - left);
+  const height = clampNumber(rectangle.height, OCR_REGION_MIN_SIZE, 1 - top);
+
+  return {
+    left: roundNormalized(left),
+    top: roundNormalized(top),
+    width: roundNormalized(width),
+    height: roundNormalized(height)
+  };
+}
+
+function toNormalizedPointerPosition(
+  image: HTMLImageElement,
+  clientX: number,
+  clientY: number
+): { left: number; top: number } | undefined {
+  const bounds = image.getBoundingClientRect();
+  if (bounds.width <= 0 || bounds.height <= 0) {
+    return undefined;
+  }
+
+  const left = clampNumber((clientX - bounds.left) / bounds.width, 0, 1);
+  const top = clampNumber((clientY - bounds.top) / bounds.height, 0, 1);
+
+  return {
+    left: roundNormalized(left),
+    top: roundNormalized(top)
+  };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  if (value < min) {
+    return min;
+  }
+
+  if (value > max) {
+    return max;
+  }
+
+  return value;
+}
+
+function roundNormalized(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 
 type DataSharingProfile = {
