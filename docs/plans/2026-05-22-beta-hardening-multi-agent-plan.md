@@ -15,12 +15,15 @@
 1. **One branch only:** all beta hardening happens on `main`.
 2. **Two active workers only:** this Telegram Hermes thread coordinates/reviews; local Codex implements. Do not start a separate local Hermes reviewer session.
 3. **No blind parallel edits:** before either agent edits files, it claims a lane in this plan or in chat.
-4. **Codex implementation lanes:** Codex should touch only the files named in its current prompt unless it discovers a necessary adjacent change and says so in its final summary.
-5. **Hermes review lane:** Hermes should avoid editing Codex-owned files while Codex is actively running, except for explicit review fixes after Codex stops.
-6. **Commit often:** one commit per completed hardening lane.
-7. **Validation gate after every lane:** run at minimum `npm run typecheck && npm test -- --run`; run `npm run build` before handoff or beta tags.
-8. **Privacy boundary:** never add wallet control, order routing, signing, private key handling, or trade execution.
-9. **Compatibility boundary:** avoid hardcoding Hermes-specific one-off endpoints. Prefer OpenAI-compatible `/v1/chat/completions`, capability discovery, or configurable endpoint modes.
+4. **Approval before coding:** the user explicitly approves each lane by sending the Codex start command for that lane. Do not ask Codex to implement future lanes speculatively.
+5. **Codex implementation lanes:** Codex should touch only the files named in its current prompt unless it discovers a necessary adjacent change and says so in its final summary.
+6. **Hermes review lane:** Hermes should avoid editing Codex-owned files while Codex is actively running, except for explicit review fixes after Codex stops.
+7. **Commit often:** one commit per completed hardening lane.
+8. **Validation gate after every lane:** run at minimum `npm run typecheck && npm test -- --run`; run `npm run build` before handoff or beta tags.
+9. **Post-apply hardening gate:** hardening checks happen after Codex changes are present, not just before Codex starts. Baseline checks are for comparison only.
+10. **This is a human-run workflow, not YAML automation:** do not treat this Markdown as a native Hermes runner. Execute the shell commands manually or via an explicit script.
+11. **Privacy boundary:** never add wallet control, order routing, signing, private key handling, or trade execution.
+12. **Compatibility boundary:** avoid hardcoding Hermes-specific one-off endpoints. Prefer OpenAI-compatible `/v1/chat/completions`, capability discovery, or configurable endpoint modes.
 
 ---
 
@@ -42,9 +45,9 @@ npm test -- --run
 
 Expected: clean `main`, dependencies installed, typecheck/tests passing.
 
-### 2. Start local Hermes API server / gateway
+### 2. Optional runtime-only local Hermes API server / gateway
 
-Use this if your local Hermes is providing the app-facing OpenAI-compatible API server.
+Use this only when manually testing DocHermes against a local Hermes API. This is **not** a third agent and is not required for Codex to work on code/docs lanes.
 
 ```bash
 hermes gateway run
@@ -60,12 +63,12 @@ hermes gateway status
 
 Expected: API server adapter is available at the configured local port, usually `http://127.0.0.1:8642/v1/chat/completions` if enabled.
 
-### 3. Tell this Hermes chat that Codex is about to run
+### 3. Ask this Hermes chat to unlock one Codex lane
 
-Send this Telegram message before starting Codex:
+Send this Telegram message before starting Codex. This message is the approval gate for that one lane:
 
 ```text
-Starting local Codex on DocHermes Lane 1. You are the reviewer/coordinator. Do not edit Codex-owned files while it is running. After Codex stops, review its commit, run validation, and tell me whether to unlock Lane 2.
+Approve Codex to start DocHermes Lane 1 only. You are the reviewer/coordinator. Do not edit Codex-owned files while it is running. After Codex stops, review its commit, run validation, and tell me whether to unlock Lane 2.
 ```
 
 ### 4. Start local Codex implementation session
@@ -78,6 +81,27 @@ codex exec --full-auto "Read docs/plans/2026-05-22-beta-hardening-multi-agent-pl
 ```
 
 Expected: Codex implements Lane 1, creates one commit, reports files touched and validation results, then exits.
+
+### 5. Post-Codex review gate in this chat
+
+After Codex exits, send this Telegram message here:
+
+```text
+Codex finished DocHermes Lane 1. Please review the latest commit/diff, run post-apply validation, and tell me whether to keep it, fix it, revert it, or unlock Lane 2.
+```
+
+Hermes then runs:
+
+```bash
+git status --short --branch
+git show --stat --oneline HEAD
+git diff HEAD~1..HEAD --stat
+npm run typecheck
+npm test -- --run
+npm run build
+```
+
+Expected: Hermes reports changed files, validation results, privacy/advisory-boundary risks, and the next recommended Codex command.
 
 ---
 
