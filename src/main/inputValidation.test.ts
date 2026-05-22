@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AskHermesInput } from '../shared/types';
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 
 import {
   assertAskHermesInput,
@@ -193,6 +194,8 @@ describe('assertAskHermesInput', () => {
   it('normalizes provided privacy presets', () => {
     const input = assertAskHermesInput({
       ...baseInput,
+      screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+      selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
       privacy: {
         preset: 'maximum',
         redaction: {
@@ -213,6 +216,104 @@ describe('assertAskHermesInput', () => {
         redactAmounts: true
       }
     });
+  });
+
+  it('accepts maximum privacy requests only when schema-required image and window fields are placeholders', () => {
+    const input = assertAskHermesInput({
+      ...baseInput,
+      screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+      selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
+      memoryContext: undefined,
+      monitoringContext: undefined,
+      privacy: {
+        preset: 'maximum',
+        redaction: {
+          redactAddresses: false,
+          redactBalances: false,
+          redactUsernames: false,
+          redactAmounts: false
+        }
+      }
+    });
+
+    expect(input.screenshotDataUrl).toBe(MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL);
+    expect(input.selectedWindow).toEqual(MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER);
+    expect(input.memoryContext).toBeUndefined();
+    expect(input.monitoringContext).toBeUndefined();
+  });
+
+  it('rejects maximum privacy requests with real screenshot data', () => {
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        }
+      })
+    ).toThrow('Maximum privacy requests must use the placeholder screenshot.');
+  });
+
+  it('rejects maximum privacy requests with real selected-window metadata', () => {
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        }
+      })
+    ).toThrow('Maximum privacy requests must use placeholder window metadata.');
+  });
+
+  it('rejects maximum privacy requests with memory or monitoring context', () => {
+    const privacy = {
+      preset: 'maximum' as const,
+      redaction: {
+        redactAddresses: false,
+        redactBalances: false,
+        redactUsernames: false,
+        redactAmounts: false
+      }
+    };
+
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+        selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
+        memoryContext: {
+          matchedPatterns: [],
+          recentNotes: []
+        },
+        privacy
+      })
+    ).toThrow('Maximum privacy requests must not include memory context.');
+
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+        selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
+        monitoringContext: {
+          localWarnings: [],
+          signals: []
+        },
+        privacy
+      })
+    ).toThrow('Maximum privacy requests must not include monitoring context.');
   });
 
   it('rejects oversized screenshots at boundary', () => {

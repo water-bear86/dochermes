@@ -11,6 +11,7 @@ import {
   MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL
 } from './hermesClient';
 import type { HermesConnectionSettings, JournalMonitoringSignal } from '../shared/types';
+import { MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 
 describe('resolveHermesEndpoint', () => {
   it('uses OpenAI-compatible chat completions for the default Hermes API server', () => {
@@ -546,7 +547,38 @@ describe('probeHermesConnection', () => {
     expect(promptText).not.toContain('Compact personal memory context');
     expect(promptText).not.toContain('Private Trading Terminal');
     expect(promptText).not.toContain('Prior private question');
-    expect(promptText).toContain('Selected window: Local context selected (window)');
+    expect(promptText).toContain(
+      `Selected window: ${MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.name} (${MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.kind})`
+    );
+  });
+
+  it('uses placeholder window metadata for maximum privacy legacy payloads', async () => {
+    let capturedRequestBody: Record<string, unknown> | undefined;
+
+    await askHermes(
+      askInput({
+        connection: defaultConnection({ endpointMode: 'legacy-coach' }),
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        }
+      }),
+      async (_url, init) => {
+        capturedRequestBody = JSON.parse(String(init?.body));
+        return jsonResponse({ answer: 'ack' });
+      }
+    );
+
+    expect(capturedRequestBody?.selectedWindow).toEqual({
+      id: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.id,
+      name: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.name,
+      kind: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.kind
+    });
   });
 
   it('redacts configured entities from question, memory, and monitoring payloads', async () => {

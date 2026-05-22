@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 
 import type {
-  AskHermesInput,
   MemoryContext,
   JournalMonitoringMetadata,
   CoachBridgeApi,
@@ -68,8 +67,7 @@ import {
   writeLocalSettings
 } from './localSettings';
 import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
-import { shouldCaptureWindowForPrivacy } from './requestPolicy';
-import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
+import { buildPrivacyAwareAskHermesInput, shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { buildSessionRiskAssessment } from './sessionRisk';
 import {
   parseTradeSize,
@@ -1277,7 +1275,11 @@ export function App(): ReactElement {
 
       if (nextPreview.requiresRemoteConsent && !skipRemoteConsent) {
         setPendingRemoteConsent(nextPreview);
-        setError('Remote Hermes destination selected. Confirm before sending screenshot.');
+        setError(
+          settings.privacy.preset === 'maximum'
+            ? 'Remote Hermes destination selected. Confirm before sending the placeholder-only maximum privacy request.'
+            : 'Remote Hermes destination selected. Confirm before sending screenshot.'
+        );
         return;
       }
 
@@ -1318,14 +1320,14 @@ export function App(): ReactElement {
         const shouldCaptureWindow = shouldCaptureWindowForPrivacy(settings.privacy);
         const capture = shouldCaptureWindow
           ? await bridge.captureWindowSource(source.id)
-          : MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL;
+          : '';
         captureMs = shouldCaptureWindow ? Math.round(performance.now() - captureStart) : 0;
         setScreenshotDataUrl(shouldCaptureWindow ? capture : undefined);
 
         setRequestState('asking');
         stage = 'request-build';
         const requestBuildStart = performance.now();
-        const request: AskHermesInput = {
+        const request = buildPrivacyAwareAskHermesInput({
           connection: settings.connection,
           question: questionText,
           screenshotDataUrl: capture,
@@ -1336,7 +1338,7 @@ export function App(): ReactElement {
           },
           monitoringContext: monitoringSnapshot,
           privacy: settings.privacy
-        };
+        });
         requestBuildMs = Math.round(performance.now() - requestBuildStart);
 
         stage = 'hermes';
@@ -2539,7 +2541,7 @@ export function App(): ReactElement {
                 }));
               }}
             >
-              <option value="maximum">Maximum (no screenshot, local summaries only)</option>
+              <option value="maximum">Maximum (placeholder only; no title, memory, or monitoring)</option>
               <option value="balanced">Balanced (window + summaries)</option>
               <option value="full">Full context (full window)</option>
             </select>
@@ -2632,7 +2634,11 @@ export function App(): ReactElement {
               <span>Redact amounts and token values</span>
             </label>
 
-            {isMaximumPrivacy ? <small className="subtle-note">Maximum privacy forces all redaction options on.</small> : null}
+            {isMaximumPrivacy ? (
+              <small className="subtle-note">
+                Maximum privacy sends placeholder screenshot/window metadata and withholds memory and monitoring from Hermes.
+              </small>
+            ) : null}
 
             <label className="check-row" htmlFor="use-local-history">
               <input
@@ -3502,7 +3508,7 @@ export function App(): ReactElement {
           </div>
           {requestPreview.localOnlyClasses.length > 0 ? (
             <p>
-              Local-only context: {requestPreview.localOnlyClasses.join(' · ')}
+              Withheld from Hermes: {requestPreview.localOnlyClasses.join(' · ')}
             </p>
           ) : null}
         </section>
@@ -4392,28 +4398,34 @@ function buildHermesRequestPreview(input: {
     (monitoringContext?.warningEvidence?.length ?? 0) > 0 ||
     (monitoringContext?.signals?.length ?? 0) > 0 ||
     (monitoringContext?.sourceQuality?.length ?? 0) > 0;
-  const payloadClasses = ['Question text', 'Selected window metadata'];
+  const hasMemoryContext =
+    memoryContext.matchedPatterns.length > 0 ||
+    memoryContext.recentNotes.length > 0 ||
+    (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
+    memoryContext.tradeHistorySummary !== undefined ||
+    (memoryContext.personalRules?.matchedRules.length ?? 0) > 0;
+  const payloadClasses = ['Question text'];
   const localOnlyClasses: string[] = [];
 
   if (privacy.preset === 'maximum') {
-    payloadClasses.push('Screenshot placeholder (maximum privacy)');
+    payloadClasses.push('Placeholder screenshot', 'Placeholder window metadata');
+    localOnlyClasses.push('Real screenshot', 'Window title');
     if (hasMonitoringContext) {
-      localOnlyClasses.push('Monitoring summary (local-only)');
+      localOnlyClasses.push('Monitoring summary');
     }
   } else {
-    payloadClasses.push('Screenshot image');
+    payloadClasses.push('Selected window metadata', 'Screenshot image');
     if (hasMonitoringContext) {
       payloadClasses.push('Monitoring summary');
     }
   }
 
-  if (
-    memoryContext.matchedPatterns.length > 0 ||
-    memoryContext.recentNotes.length > 0 ||
-    (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
-    memoryContext.tradeHistorySummary !== undefined
-  ) {
-    payloadClasses.push('Compact memory context');
+  if (hasMemoryContext) {
+    if (privacy.preset === 'maximum') {
+      localOnlyClasses.push('Compact memory context');
+    } else {
+      payloadClasses.push('Compact memory context');
+    }
   }
 
   const isTextRedactionEnabled =

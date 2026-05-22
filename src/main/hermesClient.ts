@@ -1,4 +1,4 @@
-import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 import type {
   AskHermesInput,
   BuildHermesPayloadInput,
@@ -556,11 +556,7 @@ function maybeSanitizeSelectedWindow(
     return selectedWindow;
   }
 
-  return {
-    ...selectedWindow,
-    id: selectedWindow.id || 'local-window',
-    name: 'Local context selected'
-  };
+  return MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER;
 }
 
 function maybeRestrictMonitoringContext(

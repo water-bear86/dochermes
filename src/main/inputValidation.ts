@@ -13,6 +13,7 @@ import type {
   OcrRegionProfileSettings,
   VoiceSettings
 } from '../shared/types';
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
 const PNG_DATA_URL_RE = /^data:image\/png;base64,([A-Za-z0-9+/=]*)$/;
@@ -91,6 +92,10 @@ export function assertAskHermesInput(input: unknown): AskHermesInput {
     throw new Error('Selected window kind is invalid.');
   }
 
+  if (privacy.preset === 'maximum') {
+    assertMaximumPrivacyRequest(record);
+  }
+
   const memoryContext = parseMemoryContext(record.memoryContext);
   const monitoringContext = parseMonitoringContext(record.monitoringContext);
 
@@ -148,6 +153,29 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
     modelId,
     bearerToken: record.bearerToken.trim()
   };
+}
+
+function assertMaximumPrivacyRequest(record: AskHermesInput): void {
+  if (record.screenshotDataUrl !== MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL) {
+    throw new Error('Maximum privacy requests must use the placeholder screenshot.');
+  }
+
+  if (
+    record.selectedWindow.id !== MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.id ||
+    record.selectedWindow.name !== MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.name ||
+    record.selectedWindow.kind !== MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.kind ||
+    record.selectedWindow.thumbnailDataUrl !== MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER.thumbnailDataUrl
+  ) {
+    throw new Error('Maximum privacy requests must use placeholder window metadata.');
+  }
+
+  if (record.memoryContext !== undefined) {
+    throw new Error('Maximum privacy requests must not include memory context.');
+  }
+
+  if (record.monitoringContext !== undefined) {
+    throw new Error('Maximum privacy requests must not include monitoring context.');
+  }
 }
 
 export function assertVoiceSettings(input: unknown): { enabled: boolean; hotkey: VoiceHotkey; speakReplies: boolean } {
