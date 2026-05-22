@@ -72,10 +72,25 @@ describe('buildMemoryContext', () => {
     ]);
   });
 
+  it('adds compact trade behavior stats derived from local journal evidence', () => {
+    const context = buildMemoryContext([earlyLossEntry, confirmationEntry], 'Review this setup');
+
+    expect(context.tradeBehaviorStats).toMatchObject({
+      tradeCount: 2,
+      recentLossStreak: 0,
+      commonMistakeTags: [
+        { tag: 'confirmation-plan', count: 2 },
+        { tag: 'early-entry', count: 1 },
+        { tag: 'oversized', count: 1 }
+      ]
+    });
+  });
+
   it('does not invent patterns when journal evidence is absent', () => {
     const context = buildMemoryContext([], 'Should I enter immediately?');
 
     expect(context.matchedPatterns).toEqual([]);
+    expect(context.tradeBehaviorStats).toBeUndefined();
     expect(context.recentNotes).toEqual([]);
   });
 
