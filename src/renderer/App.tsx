@@ -247,6 +247,14 @@ export function App(): ReactElement {
   const [editingPostmortemEventId, setEditingPostmortemEventId] = useState<string | undefined>();
   const [editingPostmortemOutcome, setEditingPostmortemOutcome] = useState<PostmortemOutcomeTag>('good-skip');
   const [editingPostmortemNotes, setEditingPostmortemNotes] = useState('');
+  const [editingPostmortemMistakeTags, setEditingPostmortemMistakeTags] = useState('');
+  const [editingPostmortemSetupQuality, setEditingPostmortemSetupQuality] = useState(3);
+  const [editingPostmortemSourceQuality, setEditingPostmortemSourceQuality] = useState(3);
+  const [editingPostmortemSizingQuality, setEditingPostmortemSizingQuality] = useState(3);
+  const [editingPostmortemEntryTimingQuality, setEditingPostmortemEntryTimingQuality] = useState(3);
+  const [editingPostmortemInvalidationQuality, setEditingPostmortemInvalidationQuality] = useState(3);
+  const [editingPostmortemMaxLossPercent, setEditingPostmortemMaxLossPercent] = useState('');
+  const [editingPostmortemLessonLearned, setEditingPostmortemLessonLearned] = useState('');
   const [postmortemSummaryMessage, setPostmortemSummaryMessage] = useState('');
   const [connectionReport, setConnectionReport] = useState<HermesConnectionReport | undefined>();
   const [testingConnection, setTestingConnection] = useState(false);
@@ -1580,6 +1588,14 @@ export function App(): ReactElement {
       setEditingPostmortemEventId(event.id);
       setEditingPostmortemOutcome(nextOutcome?.tag ?? 'followed-plan');
       setEditingPostmortemNotes(nextOutcome?.notes ?? '');
+      setEditingPostmortemMistakeTags(nextOutcome?.mistakeTags?.join(', ') ?? '');
+      setEditingPostmortemSetupQuality(nextOutcome?.setupQuality ?? 3);
+      setEditingPostmortemSourceQuality(nextOutcome?.sourceQuality ?? 3);
+      setEditingPostmortemSizingQuality(nextOutcome?.sizingQuality ?? 3);
+      setEditingPostmortemEntryTimingQuality(nextOutcome?.entryTimingQuality ?? 3);
+      setEditingPostmortemInvalidationQuality(nextOutcome?.invalidationQuality ?? 3);
+      setEditingPostmortemMaxLossPercent(nextOutcome?.maxLossPercent !== undefined ? String(nextOutcome.maxLossPercent) : '');
+      setEditingPostmortemLessonLearned(nextOutcome?.lessonLearned ?? '');
     },
     [postmortemOutcomeForEvent]
   );
@@ -1599,28 +1615,80 @@ export function App(): ReactElement {
 
     const existingOutcome = postmortemOutcomeForEvent(editingPostmortemEventId);
     const notes = editingPostmortemNotes.trim();
+    const mistakeTags = editingPostmortemMistakeTags
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const maxLossPercent = Number(editingPostmortemMaxLossPercent);
+    const lessonLearned = editingPostmortemLessonLearned.trim();
 
     const nextOutcomeRecords = existingOutcome
       ? updatePostmortemOutcomeRecord(localStorage, existingOutcome.id, {
           tag: editingPostmortemOutcome,
-          notes
+          notes,
+          mistakeTags,
+          setupQuality: editingPostmortemSetupQuality,
+          sourceQuality: editingPostmortemSourceQuality,
+          sizingQuality: editingPostmortemSizingQuality,
+          entryTimingQuality: editingPostmortemEntryTimingQuality,
+          invalidationQuality: editingPostmortemInvalidationQuality,
+          ...(Number.isFinite(maxLossPercent) ? { maxLossPercent } : {}),
+          ...(lessonLearned ? { lessonLearned } : {})
         })
       : appendPostmortemOutcomeRecord(localStorage, {
           eventId: timelineEvent.id,
           tag: editingPostmortemOutcome,
           ...(notes ? { notes } : {}),
+          ...(mistakeTags.length > 0 ? { mistakeTags } : {}),
+          setupQuality: editingPostmortemSetupQuality,
+          sourceQuality: editingPostmortemSourceQuality,
+          sizingQuality: editingPostmortemSizingQuality,
+          entryTimingQuality: editingPostmortemEntryTimingQuality,
+          invalidationQuality: editingPostmortemInvalidationQuality,
+          ...(Number.isFinite(maxLossPercent) ? { maxLossPercent } : {}),
+          ...(lessonLearned ? { lessonLearned } : {}),
           ...(timelineEvent.requestId ? { requestId: timelineEvent.requestId } : {})
         });
 
     setPostmortemOutcomeRecords(nextOutcomeRecords);
     setEditingPostmortemEventId(undefined);
     setEditingPostmortemNotes('');
+    setEditingPostmortemMistakeTags('');
+    setEditingPostmortemSetupQuality(3);
+    setEditingPostmortemSourceQuality(3);
+    setEditingPostmortemSizingQuality(3);
+    setEditingPostmortemEntryTimingQuality(3);
+    setEditingPostmortemInvalidationQuality(3);
+    setEditingPostmortemMaxLossPercent('');
+    setEditingPostmortemLessonLearned('');
     setEditingPostmortemOutcome('followed-plan');
-  }, [editingPostmortemEventId, editingPostmortemNotes, editingPostmortemOutcome, postmortemOutcomeForEvent, postmortemSession]);
+  }, [
+    editingPostmortemEntryTimingQuality,
+    editingPostmortemEventId,
+    editingPostmortemInvalidationQuality,
+    editingPostmortemLessonLearned,
+    editingPostmortemMaxLossPercent,
+    editingPostmortemMistakeTags,
+    editingPostmortemNotes,
+    editingPostmortemOutcome,
+    editingPostmortemSetupQuality,
+    editingPostmortemSizingQuality,
+    editingPostmortemSourceQuality,
+    postmortemOutcomeForEvent,
+    postmortemSession
+  ]);
 
   const clearPostmortemEditing = useCallback(() => {
     setEditingPostmortemEventId(undefined);
     setEditingPostmortemNotes('');
+    setEditingPostmortemMistakeTags('');
+    setEditingPostmortemSetupQuality(3);
+    setEditingPostmortemSourceQuality(3);
+    setEditingPostmortemSizingQuality(3);
+    setEditingPostmortemEntryTimingQuality(3);
+    setEditingPostmortemInvalidationQuality(3);
+    setEditingPostmortemMaxLossPercent('');
+    setEditingPostmortemLessonLearned('');
     setEditingPostmortemOutcome('followed-plan');
   }, []);
 
@@ -1656,11 +1724,27 @@ export function App(): ReactElement {
     if (outcome) {
       setEditingPostmortemOutcome(outcome.tag);
       setEditingPostmortemNotes(outcome.notes ?? '');
+      setEditingPostmortemMistakeTags(outcome.mistakeTags?.join(', ') ?? '');
+      setEditingPostmortemSetupQuality(outcome.setupQuality ?? 3);
+      setEditingPostmortemSourceQuality(outcome.sourceQuality ?? 3);
+      setEditingPostmortemSizingQuality(outcome.sizingQuality ?? 3);
+      setEditingPostmortemEntryTimingQuality(outcome.entryTimingQuality ?? 3);
+      setEditingPostmortemInvalidationQuality(outcome.invalidationQuality ?? 3);
+      setEditingPostmortemMaxLossPercent(outcome.maxLossPercent !== undefined ? String(outcome.maxLossPercent) : '');
+      setEditingPostmortemLessonLearned(outcome.lessonLearned ?? '');
       return;
     }
 
     setEditingPostmortemOutcome('followed-plan');
     setEditingPostmortemNotes('');
+    setEditingPostmortemMistakeTags('');
+    setEditingPostmortemSetupQuality(3);
+    setEditingPostmortemSourceQuality(3);
+    setEditingPostmortemSizingQuality(3);
+    setEditingPostmortemEntryTimingQuality(3);
+    setEditingPostmortemInvalidationQuality(3);
+    setEditingPostmortemMaxLossPercent('');
+    setEditingPostmortemLessonLearned('');
   }, [editingPostmortemEventId, clearPostmortemEditing, postmortemOutcomeForEvent, postmortemSession]);
 
   const savePostmortemSummary = useCallback(() => {
@@ -3427,6 +3511,10 @@ export function App(): ReactElement {
                     <small className="postmortem-outcome-chip">
                       Outcome: {formatPostmortemTagLabel(eventOutcome.tag)}
                       {eventOutcome.notes ? ` · ${eventOutcome.notes}` : ''}
+                      {eventOutcome.mistakeTags && eventOutcome.mistakeTags.length > 0
+                        ? ` · tags: ${eventOutcome.mistakeTags.join(', ')}`
+                        : ''}
+                      {eventOutcome.lessonLearned ? ` · lesson: ${eventOutcome.lessonLearned}` : ''}
                     </small>
                   ) : null}
 
@@ -3450,6 +3538,84 @@ export function App(): ReactElement {
                         value={editingPostmortemNotes}
                         className="notes"
                         onChange={(newEvent) => setEditingPostmortemNotes(newEvent.target.value)}
+                      />
+                      <label htmlFor={`postmortem-mistake-tags-${event.id}`}>Mistake tags (comma separated)</label>
+                      <input
+                        id={`postmortem-mistake-tags-${event.id}`}
+                        value={editingPostmortemMistakeTags}
+                        onChange={(newEvent) => setEditingPostmortemMistakeTags(newEvent.target.value)}
+                        placeholder="fomo, late-entry, oversize"
+                      />
+                      <label htmlFor={`postmortem-setup-quality-${event.id}`}>Setup quality (1-5)</label>
+                      <input
+                        id={`postmortem-setup-quality-${event.id}`}
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={editingPostmortemSetupQuality}
+                        onChange={(newEvent) => setEditingPostmortemSetupQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
+                      />
+                      <label htmlFor={`postmortem-source-quality-${event.id}`}>Source quality (1-5)</label>
+                      <input
+                        id={`postmortem-source-quality-${event.id}`}
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={editingPostmortemSourceQuality}
+                        onChange={(newEvent) => setEditingPostmortemSourceQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
+                      />
+                      <label htmlFor={`postmortem-sizing-quality-${event.id}`}>Sizing quality (1-5)</label>
+                      <input
+                        id={`postmortem-sizing-quality-${event.id}`}
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={editingPostmortemSizingQuality}
+                        onChange={(newEvent) => setEditingPostmortemSizingQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
+                      />
+                      <label htmlFor={`postmortem-entry-timing-quality-${event.id}`}>Entry timing quality (1-5)</label>
+                      <input
+                        id={`postmortem-entry-timing-quality-${event.id}`}
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={editingPostmortemEntryTimingQuality}
+                        onChange={(newEvent) =>
+                          setEditingPostmortemEntryTimingQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))
+                        }
+                      />
+                      <label htmlFor={`postmortem-invalidation-quality-${event.id}`}>Invalidation quality (1-5)</label>
+                      <input
+                        id={`postmortem-invalidation-quality-${event.id}`}
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={editingPostmortemInvalidationQuality}
+                        onChange={(newEvent) =>
+                          setEditingPostmortemInvalidationQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))
+                        }
+                      />
+                      <label htmlFor={`postmortem-max-loss-${event.id}`}>Max loss observed (%)</label>
+                      <input
+                        id={`postmortem-max-loss-${event.id}`}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={editingPostmortemMaxLossPercent}
+                        onChange={(newEvent) => setEditingPostmortemMaxLossPercent(newEvent.target.value)}
+                        placeholder="12.5"
+                      />
+                      <label htmlFor={`postmortem-lesson-${event.id}`}>Lesson learned</label>
+                      <textarea
+                        id={`postmortem-lesson-${event.id}`}
+                        value={editingPostmortemLessonLearned}
+                        className="notes"
+                        onChange={(newEvent) => setEditingPostmortemLessonLearned(newEvent.target.value)}
                       />
                       <div className="button-row">
                         <button type="button" onClick={savePostmortemOutcome}>

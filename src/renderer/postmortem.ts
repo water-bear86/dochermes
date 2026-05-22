@@ -46,6 +46,14 @@ export interface PostmortemOutcomeRecord {
   eventId: string;
   tag: PostmortemOutcomeTag;
   notes?: string;
+  mistakeTags?: string[];
+  setupQuality?: number;
+  sourceQuality?: number;
+  sizingQuality?: number;
+  entryTimingQuality?: number;
+  invalidationQuality?: number;
+  maxLossPercent?: number;
+  lessonLearned?: string;
   requestId?: string;
   updatedAt?: string;
 }
@@ -72,6 +80,14 @@ interface BuildOutcomeInput {
   eventId: string;
   tag: PostmortemOutcomeTag;
   notes?: string;
+  mistakeTags?: string[];
+  setupQuality?: number;
+  sourceQuality?: number;
+  sizingQuality?: number;
+  entryTimingQuality?: number;
+  invalidationQuality?: number;
+  maxLossPercent?: number;
+  lessonLearned?: string;
   requestId?: string;
   now?: () => Date;
   createId?: () => string;
@@ -290,6 +306,14 @@ export function appendPostmortemOutcomeRecord(
     eventId: input.eventId,
     tag: input.tag,
     notes: input.notes,
+    mistakeTags: input.mistakeTags,
+    setupQuality: input.setupQuality,
+    sourceQuality: input.sourceQuality,
+    sizingQuality: input.sizingQuality,
+    entryTimingQuality: input.entryTimingQuality,
+    invalidationQuality: input.invalidationQuality,
+    maxLossPercent: input.maxLossPercent,
+    lessonLearned: input.lessonLearned,
     requestId: input.requestId,
     now,
     createId
@@ -307,17 +331,43 @@ export function appendPostmortemOutcomeRecord(
 export function updatePostmortemOutcomeRecord(
   storage: Pick<Storage, 'getItem' | 'setItem'>,
   outcomeId: string,
-  updates: Partial<Pick<PostmortemOutcomeRecord, 'tag' | 'notes'>>
+  updates: Partial<Pick<PostmortemOutcomeRecord,
+    'tag' |
+    'notes' |
+    'mistakeTags' |
+    'setupQuality' |
+    'sourceQuality' |
+    'sizingQuality' |
+    'entryTimingQuality' |
+    'invalidationQuality' |
+    'maxLossPercent' |
+    'lessonLearned'
+  >>
 ): PostmortemOutcomeRecord[] {
   const nextEntries = readPostmortemOutcomeRecords(storage).map((entry) => {
     if (entry.id !== outcomeId) {
       return entry;
     }
 
+    const notes = updates.notes === undefined ? entry.notes : sanitizeOptionalText(updates.notes);
+    const lessonLearned = updates.lessonLearned === undefined ? entry.lessonLearned : sanitizeOptionalText(updates.lessonLearned);
+    const mistakeTags = updates.mistakeTags === undefined ? entry.mistakeTags : sanitizeMistakeTags(updates.mistakeTags);
+
     return {
       ...entry,
       ...updates,
-      notes: updates.notes === undefined ? entry.notes : updates.notes.trim() || undefined,
+      notes,
+      lessonLearned,
+      mistakeTags,
+      setupQuality: updates.setupQuality === undefined ? entry.setupQuality : sanitizeQualityScore(updates.setupQuality),
+      sourceQuality: updates.sourceQuality === undefined ? entry.sourceQuality : sanitizeQualityScore(updates.sourceQuality),
+      sizingQuality: updates.sizingQuality === undefined ? entry.sizingQuality : sanitizeQualityScore(updates.sizingQuality),
+      entryTimingQuality:
+        updates.entryTimingQuality === undefined ? entry.entryTimingQuality : sanitizeQualityScore(updates.entryTimingQuality),
+      invalidationQuality:
+        updates.invalidationQuality === undefined ? entry.invalidationQuality : sanitizeQualityScore(updates.invalidationQuality),
+      maxLossPercent:
+        updates.maxLossPercent === undefined ? entry.maxLossPercent : sanitizeMaxLossPercent(updates.maxLossPercent),
       updatedAt: new Date().toISOString()
     };
   });
@@ -339,12 +389,30 @@ function buildPostmortemOutcomeRecord(input: BuildOutcomeInput): PostmortemOutco
   const now = input.now ?? (() => new Date());
   const createId = input.createId ?? createRandomId;
 
+  const notes = sanitizeOptionalText(input.notes);
+  const lessonLearned = sanitizeOptionalText(input.lessonLearned);
+  const mistakeTags = sanitizeMistakeTags(input.mistakeTags);
+  const setupQuality = sanitizeQualityScore(input.setupQuality);
+  const sourceQuality = sanitizeQualityScore(input.sourceQuality);
+  const sizingQuality = sanitizeQualityScore(input.sizingQuality);
+  const entryTimingQuality = sanitizeQualityScore(input.entryTimingQuality);
+  const invalidationQuality = sanitizeQualityScore(input.invalidationQuality);
+  const maxLossPercent = sanitizeMaxLossPercent(input.maxLossPercent);
+
   return {
     id: createId(),
     createdAt: now().toISOString(),
     eventId: input.eventId,
     tag: input.tag,
-    ...(input.notes ? { notes: input.notes.trim() } : {}),
+    ...(notes ? { notes } : {}),
+    ...(mistakeTags && mistakeTags.length > 0 ? { mistakeTags } : {}),
+    ...(setupQuality !== undefined ? { setupQuality } : {}),
+    ...(sourceQuality !== undefined ? { sourceQuality } : {}),
+    ...(sizingQuality !== undefined ? { sizingQuality } : {}),
+    ...(entryTimingQuality !== undefined ? { entryTimingQuality } : {}),
+    ...(invalidationQuality !== undefined ? { invalidationQuality } : {}),
+    ...(maxLossPercent !== undefined ? { maxLossPercent } : {}),
+    ...(lessonLearned ? { lessonLearned } : {}),
     ...(input.requestId ? { requestId: input.requestId } : {})
   };
 }
@@ -478,8 +546,67 @@ function isPostmortemOutcomeRecord(value: unknown): value is PostmortemOutcomeRe
     typeof record.createdAt === 'string' &&
     typeof record.eventId === 'string' &&
     typeof record.tag === 'string' &&
-    isPostmortemOutcomeTag(record.tag)
+    isPostmortemOutcomeTag(record.tag) &&
+    (record.notes === undefined || typeof record.notes === 'string') &&
+    (record.mistakeTags === undefined || (Array.isArray(record.mistakeTags) && record.mistakeTags.every((entry) => typeof entry === 'string'))) &&
+    (record.setupQuality === undefined || isQualityScore(record.setupQuality)) &&
+    (record.sourceQuality === undefined || isQualityScore(record.sourceQuality)) &&
+    (record.sizingQuality === undefined || isQualityScore(record.sizingQuality)) &&
+    (record.entryTimingQuality === undefined || isQualityScore(record.entryTimingQuality)) &&
+    (record.invalidationQuality === undefined || isQualityScore(record.invalidationQuality)) &&
+    (record.maxLossPercent === undefined || (typeof record.maxLossPercent === 'number' && Number.isFinite(record.maxLossPercent))) &&
+    (record.lessonLearned === undefined || typeof record.lessonLearned === 'string')
   );
+}
+
+function sanitizeOptionalText(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function sanitizeMistakeTags(value: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const deduped = Array.from(
+    new Set(
+      value
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => entry.length > 0)
+    )
+  ).slice(0, 8);
+
+  return deduped.length > 0 ? deduped : undefined;
+}
+
+function sanitizeQualityScore(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const rounded = Math.round(value);
+  if (rounded < 1 || rounded > 5) {
+    return undefined;
+  }
+
+  return rounded;
+}
+
+function sanitizeMaxLossPercent(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.min(1000, Math.round(value * 100) / 100));
+}
+
+function isQualityScore(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 5;
 }
 
 function isPostmortemOutcomeTag(value: string): value is PostmortemOutcomeTag {
