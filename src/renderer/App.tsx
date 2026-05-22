@@ -2644,6 +2644,18 @@ export function App(): ReactElement {
                   : 'OCR monitoring waits for armed state.'
                 : 'OCR monitoring currently inactive.'}
             </p>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                void bridge?.recalibrateOCR().catch((nextError: unknown) => {
+                  setError(readError(nextError));
+                });
+              }}
+              disabled={!settings.watchOCR}
+            >
+              Recalibrate OCR regions
+            </button>
             <button type="button" onClick={testConnection} disabled={testingConnection}>
               {testingConnection ? 'Testing...' : 'Test connection'}
             </button>

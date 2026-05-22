@@ -32,7 +32,18 @@ let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
 let lastOCRImageDataUrl = '';
 let monitorSourceId: string | undefined;
-const ocrRegionProfiles = new Map<string, OcrRegion[]>();
+interface NormalizedOcrRegionProfile {
+  id: string;
+  label: string;
+  rectangle?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}
+
+const ocrRegionProfiles = new Map<string, NormalizedOcrRegionProfile[]>();
 const recentMonitorSignals = new Map<string, number>();
 let isWindowVisible = false;
 
@@ -261,6 +272,16 @@ function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('coach:recalibrate-ocr', () => {
+    ocrRegionProfiles.clear();
+    lastOCRImageDataUrl = '';
+    sendMonitorStatus(watchOCR, {
+      message: watchOCR
+        ? `OCR monitoring recalibrated (${formatOcrContextMode(ocrContextMode)}).`
+        : 'OCR monitoring currently inactive.'
+    });
+  });
+
   ipcMain.handle('coach:set-monitor-source', (_event, sourceId: unknown) => {
     if (typeof sourceId !== 'undefined' && typeof sourceId !== 'string') {
       throw new Error('Monitor source id must be a string.');
@@ -387,16 +408,18 @@ async function captureOcrSignals(now: number): Promise<void> {
 
     const preprocessedImageDataUrl = preprocessOcrImageDataUrl(imageDataUrl);
     const profileKey = `${monitorSourceId}:${ocrContextMode}`;
-    let ocrRegions = ocrRegionProfiles.get(profileKey);
-    if (!ocrRegions || ocrRegions.length === 0) {
-      ocrRegions = deriveOcrRegions(preprocessedImageDataUrl, ocrContextMode);
-      ocrRegionProfiles.set(profileKey, ocrRegions);
+    let normalizedProfile = ocrRegionProfiles.get(profileKey);
+    if (!normalizedProfile || normalizedProfile.length === 0) {
+      normalizedProfile = deriveDefaultNormalizedOcrProfile(ocrContextMode);
+      ocrRegionProfiles.set(profileKey, normalizedProfile);
     }
+    let ocrRegions = materializeOcrRegions(preprocessedImageDataUrl, normalizedProfile);
 
     const ocrResult = await runOcrOnImageDataUrl(preprocessedImageDataUrl, now, ocrRegions);
     if (ocrResult.confidence === 'low') {
-      const recalibratedRegions = deriveOcrRegions(preprocessedImageDataUrl, ocrContextMode);
-      ocrRegionProfiles.set(profileKey, recalibratedRegions);
+      const recalibratedProfile = deriveDefaultNormalizedOcrProfile(ocrContextMode);
+      ocrRegionProfiles.set(profileKey, recalibratedProfile);
+      ocrRegions = materializeOcrRegions(preprocessedImageDataUrl, recalibratedProfile);
     }
     lastOCRImageDataUrl = imageDataUrl;
     const nextSignals = ocrResult.signals.filter((signal) => shouldPublishSignal(signal));
@@ -428,7 +451,54 @@ function formatOcrContextMode(mode: OcrContextMode): string {
   return 'full-window';
 }
 
-function deriveOcrRegions(imageDataUrl: string, mode: OcrContextMode): OcrRegion[] {
+function deriveDefaultNormalizedOcrProfile(mode: OcrContextMode): NormalizedOcrRegionProfile[] {
+  if (mode === 'order-panel') {
+    return [
+      {
+        id: 'order-panel',
+        label: 'Order panel',
+        rectangle: {
+          left: 0.58,
+          top: 0.03,
+          width: 0.39,
+          height: 0.94
+        }
+      }
+    ];
+  }
+
+  if (mode === 'chart-order-panel') {
+    return [
+      {
+        id: 'order-panel',
+        label: 'Order panel',
+        rectangle: {
+          left: 0.58,
+          top: 0.03,
+          width: 0.39,
+          height: 0.94
+        }
+      },
+      {
+        id: 'chart-zone',
+        label: 'Chart and pair zone',
+        rectangle: {
+          left: 0.03,
+          top: 0.03,
+          width: 0.54,
+          height: 0.58
+        }
+      }
+    ];
+  }
+
+  return [{ id: 'full-window', label: 'Full window' }];
+}
+
+function materializeOcrRegions(
+  imageDataUrl: string,
+  normalizedProfile: NormalizedOcrRegionProfile[]
+): OcrRegion[] {
   const image = nativeImage.createFromDataURL(imageDataUrl);
   const size = image.getSize();
   const width = size.width;
@@ -438,30 +508,13 @@ function deriveOcrRegions(imageDataUrl: string, mode: OcrContextMode): OcrRegion
     return [{ id: 'full-window', label: 'Full window' }];
   }
 
-  const orderRegion = buildRegion('order-panel', 'Order panel', {
-    left: Math.round(width * 0.58),
-    top: Math.round(height * 0.03),
-    width: Math.round(width * 0.39),
-    height: Math.round(height * 0.94)
-  }, width, height);
+  const regions = normalizedProfile
+    .map((entry) =>
+      buildRegion(entry.id, entry.label, entry.rectangle, width, height)
+    )
+    .filter((entry): entry is OcrRegion => Boolean(entry));
 
-  const chartRegion = buildRegion('chart-zone', 'Chart and pair zone', {
-    left: Math.round(width * 0.03),
-    top: Math.round(height * 0.03),
-    width: Math.round(width * 0.54),
-    height: Math.round(height * 0.58)
-  }, width, height);
-
-  if (mode === 'order-panel') {
-    return orderRegion ? [orderRegion] : [{ id: 'full-window', label: 'Full window' }];
-  }
-
-  if (mode === 'chart-order-panel') {
-    const regions = [orderRegion, chartRegion].filter((entry): entry is OcrRegion => Boolean(entry));
-    return regions.length > 0 ? regions : [{ id: 'full-window', label: 'Full window' }];
-  }
-
-  return [{ id: 'full-window', label: 'Full window' }];
+  return regions.length > 0 ? regions : [{ id: 'full-window', label: 'Full window' }];
 }
 
 function preprocessOcrImageDataUrl(imageDataUrl: string): string {
@@ -505,21 +558,37 @@ function preprocessOcrImageDataUrl(imageDataUrl: string): string {
 function buildRegion(
   id: string,
   label: string,
-  input: {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  },
+  input:
+    | {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      }
+    | undefined,
   maxWidth: number,
   maxHeight: number
 ): OcrRegion | undefined {
-  const left = Math.max(0, Math.min(input.left, maxWidth - 1));
-  const top = Math.max(0, Math.min(input.top, maxHeight - 1));
+  if (!input) {
+    return {
+      id,
+      label
+    };
+  }
+
+  const pixelRect = {
+    left: Math.round(maxWidth * input.left),
+    top: Math.round(maxHeight * input.top),
+    width: Math.round(maxWidth * input.width),
+    height: Math.round(maxHeight * input.height)
+  };
+
+  const left = Math.max(0, Math.min(pixelRect.left, maxWidth - 1));
+  const top = Math.max(0, Math.min(pixelRect.top, maxHeight - 1));
   const maxAllowedWidth = Math.max(1, maxWidth - left);
   const maxAllowedHeight = Math.max(1, maxHeight - top);
-  const width = Math.min(Math.max(10, input.width), maxAllowedWidth);
-  const height = Math.min(Math.max(10, input.height), maxAllowedHeight);
+  const width = Math.min(Math.max(10, pixelRect.width), maxAllowedWidth);
+  const height = Math.min(Math.max(10, pixelRect.height), maxAllowedHeight);
 
   if (width <= 0 || height <= 0) {
     return undefined;

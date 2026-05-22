@@ -303,6 +303,7 @@ export interface CoachBridgeApi {
   setWatchOCR: (enabled: boolean) => Promise<void>;
   setMonitorSource: (sourceId?: string) => Promise<void>;
   setOcrContextMode: (mode: OcrContextMode) => Promise<void>;
+  recalibrateOCR: () => Promise<void>;
   setVoiceSettings: (settings: VoiceSettings) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
