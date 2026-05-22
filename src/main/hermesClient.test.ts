@@ -200,7 +200,67 @@ describe('parseHermesResponse', () => {
   it('rejects unknown response shapes with a useful error', () => {
     expect(() => parseHermesResponse({ ok: true })).toThrow('Hermes gateway response did not include readable text');
   });
-});
+  });
+
+  it('includes monitoring signals in the compact prompt context for openai-chat payloads', async () => {
+    let capturedPrompt = '';
+
+    await askHermes(
+      askInput({
+        monitoringContext: {
+          localWarnings: [],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              confidence: 'high',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'wallet detected'
+            } as JournalMonitoringSignal
+          ],
+          warningEvidence: [
+            {
+              warningText: 'recent duplicate',
+              source: 'clipboard',
+              detail: 'Seen three times this minute',
+              confidence: 'medium',
+              detectedAt: '2026-05-21T12:01:00.000Z'
+            }
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'low',
+              provenance: 'clipboard',
+              tokenHint: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              reason: 'low confidence parse from copy event'
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const message = (body.messages as Array<{ content?: unknown }>)[1];
+        if (!message || typeof message !== 'object' || !('content' in message) || !Array.isArray(message.content)) {
+          throw new Error('Malformed request');
+        }
+
+        const textItem = (message.content as Array<{ type: string; text?: string }>).find((item) => item.type === 'text');
+        capturedPrompt = textItem?.text ?? '';
+        return jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+      }
+    );
+
+    expect(capturedPrompt).toContain('"signals"');
+    expect(capturedPrompt).toContain('"source":"clipboard"');
+    expect(capturedPrompt).toContain('"kind":"evm-address"');
+    expect(capturedPrompt).toContain('"confidence":"high"');
+    expect(capturedPrompt).toContain('"maskedValue":"0xAbCdEf0123456789abcdef0123456789abcdef0123"');
+    expect(capturedPrompt).toContain('"warningEvidence"');
+    expect(capturedPrompt).toContain('"sourceQuality"');
+    expect(capturedPrompt).toContain('Monitoring summary (compact provenance):');
+  });
 
 describe('probeHermesConnection', () => {
   it('probes local candidates and reports a connected image-capable OpenAI adapter', async () => {

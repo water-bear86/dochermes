@@ -436,11 +436,22 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
 function summarizeMonitoringContext(context: MonitoringContextPayload): string {
   const summary: {
     localWarnings: string[];
+    signals?: Array<{ source: string; kind: string; confidence: string; maskedValue: string; message?: string }>;
     warningEvidence?: Array<{ warningText: string; source: string; confidence: string; detail?: string; detectedAt?: string }>;
     sourceQuality?: Array<{ category: string; confidence: string; provenance: string }>;
   } = {
     localWarnings: context.localWarnings
   };
+
+  if (context.signals.length > 0) {
+    summary.signals = context.signals.slice(0, 6).map((signal) => ({
+      source: signal.source,
+      kind: signal.kind,
+      confidence: signal.confidence,
+      maskedValue: signal.maskedValue,
+      ...(signal.message ? { message: signal.message } : {})
+    }));
+  }
 
   if (context.warningEvidence && context.warningEvidence.length > 0) {
     summary.warningEvidence = context.warningEvidence.slice(0, 12).map((entry) => ({
