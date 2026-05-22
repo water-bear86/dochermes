@@ -45,7 +45,7 @@ describe('parseLocalSettings', () => {
             cooldownMinutesAfterLoss: 22,
             maxSizeMultiplier: 1.8,
             tiltSensitivity: 'standard'
-            // not expected, parse should default constraints for missing source rules
+          // not expected, parse should default constraints for missing source rules
           },
           coachMode: 'advisory',
           keepAlwaysOnTop: false,
@@ -63,7 +63,7 @@ describe('parseLocalSettings', () => {
             kind: 'window'
           }
         })
-        )
+      )
       ).toEqual({
       connection: {
         connectionKind: 'hosted',
@@ -94,6 +94,7 @@ describe('parseLocalSettings', () => {
         tiltSensitivity: 'standard',
         sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
       },
+      personalRules: [],
       coachMode: 'advisory',
       keepAlwaysOnTop: false,
       armed: true,
@@ -142,6 +143,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      personalRules: [],
       coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
@@ -180,6 +182,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      personalRules: [],
       coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
@@ -216,6 +219,7 @@ describe('parseLocalSettings', () => {
         strictness: 'standard'
       },
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
+      personalRules: [],
       coachMode: 'advisory',
       keepAlwaysOnTop: true,
       armed: false,
@@ -269,6 +273,82 @@ describe('parseLocalSettings', () => {
       )
     ).toEqual(DEFAULT_LOCAL_SETTINGS);
   });
+
+  it('parses stored personal rules and drops invalid entries', () => {
+    const { personalRules } = parseLocalSettings(
+      JSON.stringify({
+        connection: {
+          connectionKind: 'local',
+          endpointMode: 'auto',
+          baseUrl: 'http://localhost:8642',
+          modelId: 'hermes-agent',
+          bearerToken: ''
+        },
+        privacy: {
+          preset: 'balanced',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        },
+        friction: {
+          enabled: true,
+          strictness: 'standard'
+        },
+        riskBudget: {
+          enabled: true,
+          maxTradesPerSession: 9,
+          maxLossPerSessionPercent: 18,
+          cooldownMinutesAfterLoss: 0,
+          maxSizeMultiplier: 2,
+          tiltSensitivity: 'standard',
+          sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
+        },
+        coachMode: 'advisory',
+        keepAlwaysOnTop: true,
+        armed: false,
+        watchClipboard: false,
+        watchOCR: false,
+        voice: DEFAULT_VOICE_SETTINGS,
+        personalRules: [
+          {
+            id: 'rule-1',
+            text: 'Never enter without confirmation',
+            enabled: true,
+            archived: false,
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z'
+          },
+          {
+            id: 123,
+            text: '   ',
+            enabled: 'yes'
+          },
+          {
+            text: 'Never size above 5 SOL',
+            enabled: true,
+            archived: false
+          }
+        ]
+      })
+    );
+
+    expect(personalRules).toHaveLength(2);
+    expect(personalRules[0]).toMatchObject({
+      id: 'rule-1',
+      text: 'Never enter without confirmation',
+      enabled: true,
+      archived: false
+    });
+    expect(personalRules[1]).toMatchObject({
+      id: expect.stringMatching(/^rule-\d+/),
+      text: 'Never size above 5 SOL',
+      enabled: true,
+      archived: false
+    });
+  });
 });
 
 describe('serializeLocalSettings', () => {
@@ -305,15 +385,16 @@ describe('serializeLocalSettings', () => {
             tiltSensitivity: 'standard',
             sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
           },
+          personalRules: [],
           coachMode: 'advisory',
-      keepAlwaysOnTop: true,
-      armed: false,
-      watchClipboard: false,
-      watchOCR: false,
-      voice: DEFAULT_VOICE_SETTINGS,
-      pairedWindow: {
-        id: 'window:1',
-        name: 'Trading Window',
+          keepAlwaysOnTop: true,
+          armed: false,
+          watchClipboard: false,
+          watchOCR: false,
+          voice: DEFAULT_VOICE_SETTINGS,
+          pairedWindow: {
+            id: 'window:1',
+            name: 'Trading Window',
             kind: 'window'
           }
         })
@@ -349,6 +430,7 @@ describe('serializeLocalSettings', () => {
         tiltSensitivity: 'standard',
         sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
       },
+      personalRules: [],
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,

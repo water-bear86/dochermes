@@ -23,12 +23,39 @@ export type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
 export type FrictionStrictness = 'low' | 'standard' | 'high';
 export type CoachMode = 'advisory' | 'guardrail' | 'policy';
 export type SessionRiskPolicyLevel = 'advisory' | 'guardrail' | 'policy';
+export type PersonalRulePolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type VoiceHotkey = 'space' | 'alt-space' | 'ctrl-space' | 'cmd-space';
 
 export interface VoiceSettings {
   enabled: boolean;
   hotkey: VoiceHotkey;
   speakReplies: boolean;
+}
+
+export interface PersonalRule {
+  id: string;
+  text: string;
+  enabled: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PersonalRuleMatch {
+  ruleId: string;
+  text: string;
+  policyLevel: PersonalRulePolicyLevel;
+  warningText: string;
+  source: string;
+  detail: string;
+  confidence: SourceQualityConfidence;
+  provenance: string;
+}
+
+export interface PersonalRuleContext {
+  totalRules: number;
+  activeRules: number;
+  matchedRules: PersonalRuleMatch[];
 }
 
 export type ClipboardCandidateKind =
@@ -290,6 +317,7 @@ export interface LocalSettings {
   friction: FrictionSettings;
   coachMode: CoachMode;
   riskBudget: SessionBudgetSettings;
+  personalRules: PersonalRule[];
   keepAlwaysOnTop: boolean;
   armed: boolean;
   watchClipboard: boolean;
@@ -334,6 +362,7 @@ export interface MemoryContext {
     notes: string;
     selectedWindowName: string;
   }>;
+  personalRules?: PersonalRuleContext;
 }
 
 export type WarningFeedbackAction = 'took-it-anyway' | 'skipped' | 'followed-plan' | 'added-note' | 'false-positive';

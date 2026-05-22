@@ -419,7 +419,12 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
     lines.push('', 'Monitoring summary (compact provenance):', summarizeMonitoringContext(input.monitoringContext));
   }
 
-  if (input.memoryContext && (input.memoryContext.matchedPatterns.length > 0 || input.memoryContext.recentNotes.length > 0)) {
+  if (
+    input.memoryContext &&
+    (input.memoryContext.matchedPatterns.length > 0 ||
+      input.memoryContext.recentNotes.length > 0 ||
+      (input.memoryContext.personalRules?.matchedRules.length ?? 0) > 0)
+  ) {
     lines.push('', 'Compact personal memory context:', JSON.stringify(input.memoryContext));
   }
 
@@ -599,7 +604,25 @@ function applyMemoryContextRedaction(
       response: applyPrivacyRedaction(note.response, redaction),
       notes: applyPrivacyRedaction(note.notes, redaction),
       selectedWindowName: note.selectedWindowName
-    }))
+    })),
+    ...(memoryContext.personalRules
+      ? {
+          personalRules: {
+            totalRules: memoryContext.personalRules.totalRules,
+            activeRules: memoryContext.personalRules.activeRules,
+            matchedRules: memoryContext.personalRules.matchedRules.map((match) => ({
+              ruleId: match.ruleId,
+              text: applyPrivacyRedaction(match.text, redaction),
+              policyLevel: match.policyLevel,
+              warningText: applyPrivacyRedaction(match.warningText, redaction),
+              source: applyPrivacyRedaction(match.source, redaction),
+              detail: applyPrivacyRedaction(match.detail, redaction),
+              confidence: match.confidence,
+              provenance: applyPrivacyRedaction(match.provenance, redaction)
+            }))
+          }
+        }
+      : {})
   };
 }
 

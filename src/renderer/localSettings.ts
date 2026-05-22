@@ -4,6 +4,7 @@ import type {
   HermesConnectionSettings,
   LocalSettings,
   FrictionSettings,
+  PersonalRule,
   CoachMode,
   SessionBudgetSettings,
   SourceConstraintCatalog,
@@ -73,6 +74,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   privacy: DEFAULT_PRIVACY_SETTINGS,
   friction: DEFAULT_FRICTION_SETTINGS,
   coachMode: DEFAULT_COACH_MODE,
+  personalRules: [],
   riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
   keepAlwaysOnTop: true,
   armed: false,
@@ -97,6 +99,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       privacy: parsePrivacySettings(parsed.privacy),
       friction: parseFrictionSettings(parsed.friction),
       riskBudget: parseRiskBudgetSettings(parsed.riskBudget),
+      personalRules: parsePersonalRules(parsed.personalRules),
       coachMode: parseCoachMode(parsed.coachMode),
       keepAlwaysOnTop:
         typeof parsed.keepAlwaysOnTop === 'boolean'
@@ -120,6 +123,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
       privacy: settings.privacy,
       friction: settings.friction,
       coachMode: settings.coachMode,
+      personalRules: settings.personalRules,
       riskBudget: settings.riskBudget,
       keepAlwaysOnTop: settings.keepAlwaysOnTop,
       armed: settings.armed,
@@ -293,6 +297,43 @@ function parseTiltSensitivity(value: unknown): SessionBudgetSettings['tiltSensit
   return value === 'low' || value === 'standard' || value === 'high' ? value : DEFAULT_RISK_BUDGET_SETTINGS.tiltSensitivity;
 }
 
+function parsePersonalRules(rawRules: unknown): PersonalRule[] {
+  if (!Array.isArray(rawRules)) {
+    return [];
+  }
+
+  return rawRules
+    .map(parsePersonalRule)
+    .filter((entry): entry is PersonalRule => entry !== undefined)
+    .filter((entry) => entry.text.length > 0);
+}
+
+function parsePersonalRule(value: unknown): PersonalRule | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as Partial<PersonalRule>;
+
+  const text = typeof candidate.text === 'string' ? candidate.text.trim() : '';
+  if (!text) {
+    return undefined;
+  }
+
+  const id = typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id.trim() : createRuleId();
+
+  const now = new Date().toISOString();
+
+  return {
+    id,
+    text,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : true,
+    archived: typeof candidate.archived === 'boolean' ? candidate.archived : false,
+    createdAt: typeof candidate.createdAt === 'string' && candidate.createdAt.trim() ? candidate.createdAt.trim() : now,
+    updatedAt: typeof candidate.updatedAt === 'string' && candidate.updatedAt.trim() ? candidate.updatedAt.trim() : now
+  };
+}
+
 function sanitizeSizeMultiplier(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_RISK_BUDGET_SETTINGS.maxSizeMultiplier;
@@ -354,6 +395,10 @@ function parsePrivacyRedaction(rawRedaction: unknown): PrivacyRedactionSettings 
 
 function parseNonEmptyString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function createRuleId(): string {
+  return `rule-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function migrateLegacyGatewayUrl(gatewayUrl: string): HermesConnectionSettings {

@@ -53,6 +53,11 @@ import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
+import {
+  buildPersonalRuleContext,
+  evaluatePersonalRules,
+  type PersonalRuleWarningCandidate
+} from './personalRules';
 
 type SpeechRecognitionResult = {
   continuous: boolean;
@@ -195,6 +200,9 @@ const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
 export function App(): ReactElement {
   const [settings, setSettings] = useState<LocalSettings>(() => readLocalSettings(localStorage));
   const [question, setQuestion] = useState('');
+  const [newRuleText, setNewRuleText] = useState('');
+  const [editingRuleId, setEditingRuleId] = useState<string | undefined>();
+  const [editingRuleText, setEditingRuleText] = useState('');
   const [sources, setSources] = useState<WindowSourceOption[]>([]);
   const [selectedSource, setSelectedSource] = useState<WindowSourceOption | undefined>(() =>
     settings.pairedWindow ? { ...settings.pairedWindow, thumbnailDataUrl: '' } : undefined
@@ -307,15 +315,36 @@ export function App(): ReactElement {
       }),
     [journalEntries, question, settings.riskBudget, sourceQualityAssessment.findings]
   );
+  const personalRulesWarningSummary = useMemo(
+    () =>
+      evaluatePersonalRules({
+        rules: settings.personalRules,
+        question,
+        monitorSignals,
+        knownLossCount: sessionRiskAssessment.status.knownLossSamples,
+        now: new Date().toISOString()
+      }),
+    [question, sessionRiskAssessment.status.knownLossSamples, settings.personalRules, monitorSignals]
+  );
   const topSourceQualityFinding = sourceQualityAssessment.findings[0];
   const topSourceQualityCategoryLabel = topSourceQualityFinding ? sourceCategoryLabel(topSourceQualityFinding.category) : '';
   const localWarningCards = useMemo(
     () =>
       buildLocalWarningCards({
-        ruleWarnings: [...localRuleWarnings(memoryContext.matchedPatterns.length > 0, question), ...sessionRiskAssessment.warnings],
+        ruleWarnings: [
+          ...localRuleWarnings(memoryContext.matchedPatterns.length > 0, question),
+          ...sessionRiskAssessment.warnings.map(toLocalWarningCandidate),
+          ...personalRulesWarningSummary.warnings.map(toLocalWarningCandidate)
+        ],
         sourceQualityWarnings: sourceQualityAssessment.warningFindings
       }),
-    [memoryContext.matchedPatterns, question, sessionRiskAssessment.warnings, sourceQualityAssessment.warningFindings]
+    [
+      memoryContext.matchedPatterns,
+      personalRulesWarningSummary.warnings,
+      question,
+      sessionRiskAssessment.warnings,
+      sourceQualityAssessment.warningFindings
+    ]
   );
   const localWarningEvidence = useMemo(
     () =>
@@ -332,12 +361,22 @@ export function App(): ReactElement {
     [localWarningCards]
   );
   const localWarnings = useMemo(() => localWarningCards.map((warning) => warning.text), [localWarningCards]);
+  const activePersonalRules = useMemo(
+    () => settings.personalRules.filter((rule) => !rule.archived),
+    [settings.personalRules]
+  );
+  const archivedPersonalRules = useMemo(() => settings.personalRules.filter((rule) => rule.archived), [settings.personalRules]);
   const policyBlockingWarnings = useMemo(
     () =>
       sessionRiskAssessment.warnings
         .filter((warning) => warning.policyLevel === 'policy')
-        .map((warning) => warning.text),
-    [sessionRiskAssessment.warnings]
+        .map((warning) => warning.text)
+        .concat(
+          personalRulesWarningSummary.warnings
+            .filter((warning) => warning.policyLevel === 'policy')
+            .map((warning) => warning.text)
+        ),
+    [personalRulesWarningSummary.warnings, sessionRiskAssessment.warnings]
   );
   const sessionRiskStatusClass = useMemo(() => {
     const policyWarnings = sessionRiskAssessment.warnings.filter((warning) => warning.policyLevel === 'policy');
@@ -441,6 +480,95 @@ export function App(): ReactElement {
       ...current,
       coachMode: mode
     }));
+  }, []);
+
+  const updatePersonalRules = useCallback((updater: (nextRules: LocalSettings['personalRules']) => LocalSettings['personalRules']) => {
+    const now = new Date().toISOString();
+
+    setSettings((current) => {
+      const nextRules = updater(current.personalRules);
+      return {
+        ...current,
+        personalRules: nextRules.map((rule) => ({
+          ...rule,
+          updatedAt: now
+        }))
+      };
+    });
+  }, []);
+
+  const addPersonalRule = useCallback(() => {
+    const text = newRuleText.trim();
+    if (!text) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextRule = {
+      id: createRequestContextId(),
+      text,
+      enabled: true,
+      archived: false,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    updatePersonalRules((current) => [nextRule, ...current]);
+    setNewRuleText('');
+  }, [newRuleText, updatePersonalRules]);
+
+  const togglePersonalRule = useCallback((ruleId: string) => {
+    updatePersonalRules((current) =>
+      current.map((rule) =>
+        rule.id === ruleId
+          ? {
+              ...rule,
+              enabled: !rule.enabled
+            }
+          : rule
+      )
+    );
+  }, [updatePersonalRules]);
+
+  const archivePersonalRule = useCallback((ruleId: string) => {
+    updatePersonalRules((current) => current.map((rule) => (rule.id === ruleId ? { ...rule, archived: true } : rule)));
+  }, [updatePersonalRules]);
+
+  const restorePersonalRule = useCallback((ruleId: string) => {
+    updatePersonalRules((current) => current.map((rule) => (rule.id === ruleId ? { ...rule, archived: false } : rule)));
+  }, [updatePersonalRules]);
+
+  const startRuleEdit = useCallback((ruleId: string, text: string) => {
+    setEditingRuleId(ruleId);
+    setEditingRuleText(text);
+  }, []);
+
+  const saveRuleEdit = useCallback(() => {
+    const text = editingRuleText.trim();
+    if (!editingRuleId || !text) {
+      setEditingRuleId(undefined);
+      setEditingRuleText('');
+      return;
+    }
+
+    updatePersonalRules((current) =>
+      current.map((rule) =>
+        rule.id === editingRuleId
+          ? {
+              ...rule,
+              text,
+              updatedAt: new Date().toISOString()
+            }
+          : rule
+      )
+    );
+    setEditingRuleId(undefined);
+    setEditingRuleText('');
+  }, [editingRuleId, editingRuleText, updatePersonalRules]);
+
+  const cancelRuleEdit = useCallback(() => {
+    setEditingRuleId(undefined);
+    setEditingRuleText('');
   }, []);
 
   const stopSpeechOutput = useCallback(() => {
@@ -783,14 +911,33 @@ export function App(): ReactElement {
         riskBudget: settings.riskBudget,
         sourceFindings: requestSourceQuality.findings
       });
+      const requestPersonalRules = evaluatePersonalRules({
+        rules: settings.personalRules,
+        question: questionText,
+        monitorSignals,
+        knownLossCount: requestSessionRiskAssessment.status.knownLossSamples
+      });
+      const requestPersonalRuleContext = buildPersonalRuleContext({
+        activeRules: requestPersonalRules.activeRules,
+        warnings: requestPersonalRules.warnings
+      });
       const requestLocalWarningCards = buildLocalWarningCards({
-        ruleWarnings: [...localRuleWarnings(requestMemoryContext.matchedPatterns.length > 0, questionText), ...requestSessionRiskAssessment.warnings],
+        ruleWarnings: [
+          ...localRuleWarnings(requestMemoryContext.matchedPatterns.length > 0, questionText),
+          ...requestSessionRiskAssessment.warnings.map(toLocalWarningCandidate),
+          ...requestPersonalRules.warnings.map(toLocalWarningCandidate)
+        ],
         sourceQualityWarnings: requestSourceQuality.warningFindings
       });
       const requestLocalWarnings = requestLocalWarningCards.map((entry) => entry.text);
-      const requestPolicyBlockingWarnings = requestSessionRiskAssessment.warnings
-        .filter((entry) => entry.policyLevel === 'policy')
-        .map((entry) => entry.text);
+      const requestPolicyBlockingWarnings = [
+        ...requestSessionRiskAssessment.warnings
+          .filter((entry) => entry.policyLevel === 'policy')
+          .map((entry) => entry.text),
+        ...requestPersonalRules.warnings
+          .filter((entry) => entry.policyLevel === 'policy')
+          .map((entry) => entry.text)
+      ];
       const requestWarningEvidence: WarningEvidenceSummary[] = requestLocalWarningCards.flatMap((entry) =>
         entry.evidences.map((evidence) => ({
           warningText: entry.text,
@@ -884,7 +1031,10 @@ export function App(): ReactElement {
           question: questionText,
           screenshotDataUrl: capture,
           selectedWindow: source,
-          memoryContext: requestMemoryContext,
+          memoryContext: {
+            ...requestMemoryContext,
+            personalRules: requestPersonalRuleContext
+          },
           monitoringContext: monitoringSnapshot,
           privacy: settings.privacy
         };
@@ -2006,6 +2156,84 @@ export function App(): ReactElement {
             <small className="subtle-note">
               Policy mode requires an explicit override before sending a blocked prompt to Hermes.
             </small>
+            <label>Personal trading rules</label>
+            <p className="subtle-note">Add plain-language rules; supported checks: confirmation requirements, size ceilings, and cooldown patterns.</p>
+            <label htmlFor="new-personal-rule">New rule</label>
+            <div className="source-constraint-row">
+              <input
+                id="new-personal-rule"
+                value={newRuleText}
+                onChange={(event) => setNewRuleText(event.target.value)}
+                placeholder='e.g. "Never enter without confirmation"'
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  addPersonalRule();
+                }}
+              />
+              <button type="button" onClick={addPersonalRule} disabled={!newRuleText.trim()}>
+                Add rule
+              </button>
+            </div>
+            {activePersonalRules.length > 0 ? (
+              <div className="source-constraint-row">
+                {activePersonalRules.map((rule) => (
+                  <div key={rule.id} className="source-constraint-row">
+                    <div className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={rule.enabled}
+                        onChange={() => togglePersonalRule(rule.id)}
+                        aria-label={`Enable rule ${rule.text}`}
+                      />
+                      <span>{rule.text}</span>
+                    </div>
+                    <div className="button-row">
+                      <button type="button" className="ghost" onClick={() => startRuleEdit(rule.id, rule.text)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ghost" onClick={() => archivePersonalRule(rule.id)}>
+                        Archive
+                      </button>
+                    </div>
+                    {editingRuleId === rule.id ? (
+                      <div className="button-row">
+                        <input
+                          value={editingRuleText}
+                          onChange={(event) => setEditingRuleText(event.target.value)}
+                          placeholder="Edit rule text"
+                        />
+                        <button type="button" onClick={saveRuleEdit}>
+                          Save
+                        </button>
+                        <button type="button" className="ghost" onClick={cancelRuleEdit}>
+                          Cancel
+                        </button>
+                      </div>
+                    ) : null}
+                    <small className="subtle-note">Updated {new Date(rule.updatedAt).toLocaleString()}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <small className="subtle-note">No active personal rules yet.</small>
+            )}
+            {archivedPersonalRules.length > 0 ? (
+              <details>
+                <summary>{archivedPersonalRules.length} archived rule(s)</summary>
+                {archivedPersonalRules.map((rule) => (
+                  <div key={rule.id} className="source-constraint-row">
+                    <small className="subtle-note">{rule.text}</small>
+                    <button type="button" className="ghost" onClick={() => restorePersonalRule(rule.id)}>
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </details>
+            ) : null}
             <label className="check-row" htmlFor="risk-budget-enabled">
               <input
                 id="risk-budget-enabled"
@@ -3116,6 +3344,13 @@ function localRuleWarnings(hasMemoryMatch: boolean, question: string): WarningCa
   }
 
   return warningCandidates;
+}
+
+function toLocalWarningCandidate(input: { text: string; evidence: WarningEvidenceEntry }): WarningCandidate {
+  return {
+    text: input.text,
+    evidence: input.evidence
+  };
 }
 
 function buildLocalWarningCards(input: {
