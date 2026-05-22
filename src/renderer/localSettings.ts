@@ -7,6 +7,7 @@ import type {
   PersonalRule,
   CoachMode,
   SessionBudgetSettings,
+  DataSharingSettings,
   SourceConstraintCatalog,
   SourceCategory,
   VoiceSettings,
@@ -75,6 +76,12 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   privacy: DEFAULT_PRIVACY_SETTINGS,
   friction: DEFAULT_FRICTION_SETTINGS,
   coachMode: DEFAULT_COACH_MODE,
+  dataSharing: {
+    useLocalTradeHistoryForRiskChecks: true,
+    sendCompactTradeSummaryToHermes: true,
+    sendRawTradeRecordsToHermes: false,
+    observedWalletAddresses: []
+  },
   personalRules: [],
   riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
   keepAlwaysOnTop: true,
@@ -101,6 +108,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       privacy: parsePrivacySettings(parsed.privacy),
       friction: parseFrictionSettings(parsed.friction),
       riskBudget: parseRiskBudgetSettings(parsed.riskBudget),
+      dataSharing: parseDataSharingSettings(parsed.dataSharing),
       personalRules: parsePersonalRules(parsed.personalRules),
       coachMode: parseCoachMode(parsed.coachMode),
       keepAlwaysOnTop:
@@ -126,6 +134,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
       privacy: settings.privacy,
       friction: settings.friction,
       coachMode: settings.coachMode,
+      dataSharing: settings.dataSharing,
       personalRules: settings.personalRules,
       riskBudget: settings.riskBudget,
       keepAlwaysOnTop: settings.keepAlwaysOnTop,
@@ -283,6 +292,32 @@ function parseSourceConstraints(rawSourceConstraints: unknown): SourceConstraint
   }
 
   return next;
+}
+
+function parseDataSharingSettings(rawDataSharing: unknown): DataSharingSettings {
+  if (!rawDataSharing || typeof rawDataSharing !== 'object') {
+    return DEFAULT_LOCAL_SETTINGS.dataSharing;
+  }
+
+  const candidate = rawDataSharing as Partial<DataSharingSettings>;
+
+  return {
+    useLocalTradeHistoryForRiskChecks:
+      typeof candidate.useLocalTradeHistoryForRiskChecks === 'boolean'
+        ? candidate.useLocalTradeHistoryForRiskChecks
+        : DEFAULT_LOCAL_SETTINGS.dataSharing.useLocalTradeHistoryForRiskChecks,
+    sendCompactTradeSummaryToHermes:
+      typeof candidate.sendCompactTradeSummaryToHermes === 'boolean'
+        ? candidate.sendCompactTradeSummaryToHermes
+        : DEFAULT_LOCAL_SETTINGS.dataSharing.sendCompactTradeSummaryToHermes,
+    sendRawTradeRecordsToHermes:
+      typeof candidate.sendRawTradeRecordsToHermes === 'boolean'
+        ? candidate.sendRawTradeRecordsToHermes
+        : DEFAULT_LOCAL_SETTINGS.dataSharing.sendRawTradeRecordsToHermes,
+    observedWalletAddresses: Array.isArray(candidate.observedWalletAddresses)
+      ? candidate.observedWalletAddresses.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 12)
+      : []
+  };
 }
 
 function sanitizeSourceConstraintMultiplier(value: unknown): number {

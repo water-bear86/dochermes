@@ -15,6 +15,8 @@ const CHAIN_RE =
   /\b(?:chain|network)\s*[:=]?\s*(ethereum|solana|sol|bsc|base|arbitrum|optimism|polygon|avalanche|avax|fantom|solana|sui|aptos)\b/gi;
 const ORDER_DIR_RE = /\b(buy|sell|long|short)\b/gi;
 const ORDER_TYPE_RE = /\b(market|limit|stop[- ]?loss|take[- ]?profit|tp|sl|stop)\b/gi;
+const ROUTE_RE = /\broute\s*[:=]?\s*([A-Za-z0-9\-_/ .]{2,80})\b/gi;
+const SOURCE_RE = /\bsource\s*[:=]?\s*([A-Za-z0-9\-_/ .]{2,80})\b/gi;
 
 const KNOWN_CHAINS = new Set<string>([
   'avalanche',
@@ -128,6 +130,24 @@ export function extractMonitoringSignalsFromText(
     if (normalizedDirection) {
       addSignal(normalizedDirection, 'order-direction', defaultConfidence, `Detected order direction ${normalizedDirection}`);
     }
+  }
+
+  for (const rawMatch of normalized.matchAll(ROUTE_RE)) {
+    const route = rawMatch[1]?.trim();
+    if (!route) {
+      continue;
+    }
+
+    addSignal(route.slice(0, 80), 'route', defaultConfidence, `Detected route context: ${route.slice(0, 80)}`);
+  }
+
+  for (const rawMatch of normalized.matchAll(SOURCE_RE)) {
+    const source = rawMatch[1]?.trim();
+    if (!source) {
+      continue;
+    }
+
+    addSignal(source.slice(0, 80), 'source', defaultConfidence, `Detected source context: ${source.slice(0, 80)}`);
   }
 
   const detectedAt = new Date(now).toISOString();

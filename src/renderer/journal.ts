@@ -203,6 +203,14 @@ function isMonitoringSignal(value: unknown): value is JournalMonitoringMetadata[
       record.kind === 'sol-address' ||
       record.kind === 'dex-url' ||
       record.kind === 'wallet-address' ||
+      record.kind === 'pair' ||
+      record.kind === 'chain' ||
+      record.kind === 'order-direction' ||
+      record.kind === 'order-size' ||
+      record.kind === 'leverage' ||
+      record.kind === 'order-type' ||
+      record.kind === 'route' ||
+      record.kind === 'source' ||
       record.kind === 'unknown') &&
     (record.confidence === 'high' || record.confidence === 'medium' || record.confidence === 'low') &&
     typeof record.detectedAt === 'string' &&

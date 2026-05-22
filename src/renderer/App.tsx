@@ -331,25 +331,29 @@ export function App(): ReactElement {
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
+  const historyEntriesForRiskChecks = useMemo(
+    () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? journalEntries : []),
+    [journalEntries, settings.dataSharing.useLocalTradeHistoryForRiskChecks]
+  );
   const memoryContext = useMemo(
-    () => buildMemoryContext(journalEntries, question, warningFeedbackEntries, postmortemSummaries),
-    [journalEntries, question, postmortemSummaries, warningFeedbackEntries]
+    () => buildMemoryContext(historyEntriesForRiskChecks, question, warningFeedbackEntries, postmortemSummaries),
+    [historyEntriesForRiskChecks, question, postmortemSummaries, warningFeedbackEntries]
   );
   const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
   const sourceQualityAssessment = useMemo(
-    () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries }),
-    [question, journalEntries, monitorSignals]
+    () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries: historyEntriesForRiskChecks }),
+    [question, historyEntriesForRiskChecks, monitorSignals]
   );
   const sessionRiskAssessment = useMemo(
     () =>
       buildSessionRiskAssessment({
         question,
-        journalEntries,
+        journalEntries: historyEntriesForRiskChecks,
         riskBudget: settings.riskBudget,
         sourceFindings: sourceQualityAssessment.findings
       }),
-    [journalEntries, question, settings.riskBudget, sourceQualityAssessment.findings]
+    [historyEntriesForRiskChecks, question, settings.riskBudget, sourceQualityAssessment.findings]
   );
   const personalRulesWarningSummary = useMemo(
     () =>
@@ -998,15 +1002,21 @@ export function App(): ReactElement {
         return;
       }
 
-      const requestMemoryContext = buildMemoryContext(journalEntries, questionText, warningFeedbackEntries, postmortemSummaries);
+      const requestHistoryEntries = settings.dataSharing.useLocalTradeHistoryForRiskChecks ? journalEntries : [];
+      const requestMemoryContext = buildMemoryContext(
+        requestHistoryEntries,
+        questionText,
+        warningFeedbackEntries,
+        postmortemSummaries
+      );
       const requestSourceQuality = buildSourceQualityAssessment({
         question: questionText,
         monitorSignals,
-        journalEntries
+        journalEntries: requestHistoryEntries
       });
       const requestSessionRiskAssessment = buildSessionRiskAssessment({
         question: questionText,
-        journalEntries,
+        journalEntries: requestHistoryEntries,
         riskBudget: settings.riskBudget,
         sourceFindings: requestSourceQuality.findings
       });
@@ -1029,6 +1039,9 @@ export function App(): ReactElement {
         sourceQualityWarnings: requestSourceQuality.warningFindings
       });
       const requestLocalWarnings = requestLocalWarningCards.map((entry) => entry.text);
+      const requestMemoryContextForHermes = settings.dataSharing.sendCompactTradeSummaryToHermes
+        ? requestMemoryContext
+        : withoutTradeHistorySummary(requestMemoryContext);
       const requestPolicyBlockingWarnings = [
         ...requestSessionRiskAssessment.warnings
           .filter((entry) => entry.policyLevel === 'policy')
@@ -1069,7 +1082,7 @@ export function App(): ReactElement {
       const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
         selectedWindow: source,
-        memoryContext: requestMemoryContext,
+        memoryContext: requestMemoryContextForHermes,
         privacy: settings.privacy,
         monitoringContext: monitoringSnapshot
       });
@@ -1131,7 +1144,7 @@ export function App(): ReactElement {
           screenshotDataUrl: capture,
           selectedWindow: source,
           memoryContext: {
-            ...requestMemoryContext,
+            ...requestMemoryContextForHermes,
             personalRules: requestPersonalRuleContext
           },
           monitoringContext: monitoringSnapshot,
@@ -2238,6 +2251,80 @@ export function App(): ReactElement {
             </label>
 
             {isMaximumPrivacy ? <small className="subtle-note">Maximum privacy forces all redaction options on.</small> : null}
+
+            <label className="check-row" htmlFor="use-local-history">
+              <input
+                id="use-local-history"
+                type="checkbox"
+                checked={settings.dataSharing.useLocalTradeHistoryForRiskChecks}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    dataSharing: {
+                      ...current.dataSharing,
+                      useLocalTradeHistoryForRiskChecks: event.target.checked
+                    }
+                  }))
+                }
+              />
+              <span>Use local trade history for risk checks</span>
+            </label>
+
+            <label className="check-row" htmlFor="send-compact-history">
+              <input
+                id="send-compact-history"
+                type="checkbox"
+                checked={settings.dataSharing.sendCompactTradeSummaryToHermes}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    dataSharing: {
+                      ...current.dataSharing,
+                      sendCompactTradeSummaryToHermes: event.target.checked
+                    }
+                  }))
+                }
+              />
+              <span>Send compact trade-history summary to Hermes</span>
+            </label>
+
+            <label className="check-row" htmlFor="send-raw-trades">
+              <input
+                id="send-raw-trades"
+                type="checkbox"
+                checked={settings.dataSharing.sendRawTradeRecordsToHermes}
+                disabled
+                onChange={() => undefined}
+              />
+              <span>Send raw trade records to Hermes (disabled in MVP)</span>
+            </label>
+
+            <label htmlFor="wallet-watchlist">Observed public wallet addresses (read-only)</label>
+            <textarea
+              id="wallet-watchlist"
+              className="notes"
+              value={settings.dataSharing.observedWalletAddresses.join('\n')}
+              onChange={(event) => {
+                const nextAddresses = event.target.value
+                  .split(/\n+/)
+                  .map((entry) => entry.trim())
+                  .filter(Boolean)
+                  .slice(0, 12);
+
+                setSettings((current) => ({
+                  ...current,
+                  dataSharing: {
+                    ...current.dataSharing,
+                    observedWalletAddresses: nextAddresses
+                  }
+                }));
+              }}
+              placeholder="One public address per line"
+            />
+            <small className="subtle-note">
+              Never enter seed phrases or private keys. DocHermes only supports read-only public addresses and never requests signing,
+              trading, approvals, or withdrawals.
+            </small>
 
             <label htmlFor="gateway">Hermes base URL</label>
             <input
@@ -3739,6 +3826,11 @@ function buildMonitoringMetadata(
         }
       : {})
   };
+}
+
+function withoutTradeHistorySummary(memoryContext: MemoryContext): MemoryContext {
+  const { tradeHistorySummary: _tradeHistorySummary, ...rest } = memoryContext;
+  return rest;
 }
 
 function localRuleWarnings(

@@ -63,4 +63,11 @@ describe('clipboard signal extraction', () => {
     const signals = extractOCRSignalsFromText('size: 1.25 SOL', NOW, 'low');
     expect(signals[0]?.message).toContain('OCR hint (low confidence):');
   });
+
+  it('extracts source and route metadata fields', () => {
+    const signals = extractClipboardSignalsFromText('source: wallet alert route: raydium/swap', NOW);
+
+    expect(signals.some((signal) => signal.kind === 'source' && signal.value.includes('wallet alert'))).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'route' && signal.value.includes('raydium/swap'))).toBe(true);
+  });
 });

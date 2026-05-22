@@ -48,6 +48,12 @@ describe('parseLocalSettings', () => {
           // not expected, parse should default constraints for missing source rules
           },
           coachMode: 'advisory',
+          dataSharing: {
+            useLocalTradeHistoryForRiskChecks: true,
+            sendCompactTradeSummaryToHermes: false,
+            sendRawTradeRecordsToHermes: false,
+            observedWalletAddresses: ['0xabc123']
+          },
           keepAlwaysOnTop: false,
           armed: true,
           watchClipboard: true,
@@ -97,6 +103,12 @@ describe('parseLocalSettings', () => {
       },
       personalRules: [],
       coachMode: 'advisory',
+      dataSharing: {
+        useLocalTradeHistoryForRiskChecks: true,
+        sendCompactTradeSummaryToHermes: false,
+        sendRawTradeRecordsToHermes: false,
+        observedWalletAddresses: ['0xabc123']
+      },
       keepAlwaysOnTop: false,
       armed: true,
       watchClipboard: true,
@@ -147,6 +159,7 @@ describe('parseLocalSettings', () => {
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       personalRules: [],
       coachMode: 'advisory',
+      dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -187,6 +200,7 @@ describe('parseLocalSettings', () => {
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       personalRules: [],
       coachMode: 'advisory',
+      dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -225,6 +239,7 @@ describe('parseLocalSettings', () => {
       riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
       personalRules: [],
       coachMode: 'advisory',
+      dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -313,6 +328,7 @@ describe('parseLocalSettings', () => {
           sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
         },
         coachMode: 'advisory',
+        dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
         keepAlwaysOnTop: true,
         armed: false,
         watchClipboard: false,
@@ -394,6 +410,12 @@ describe('serializeLocalSettings', () => {
           },
           personalRules: [],
           coachMode: 'advisory',
+          dataSharing: {
+            useLocalTradeHistoryForRiskChecks: true,
+            sendCompactTradeSummaryToHermes: true,
+            sendRawTradeRecordsToHermes: false,
+            observedWalletAddresses: ['wallet-one', 'wallet-two']
+          },
           keepAlwaysOnTop: true,
           armed: false,
           watchClipboard: false,
@@ -444,6 +466,12 @@ describe('serializeLocalSettings', () => {
       watchClipboard: false,
       watchOCR: false,
       ocrContextMode: 'chart-order-panel',
+      dataSharing: {
+        useLocalTradeHistoryForRiskChecks: true,
+        sendCompactTradeSummaryToHermes: true,
+        sendRawTradeRecordsToHermes: false,
+        observedWalletAddresses: ['wallet-one', 'wallet-two']
+      },
       voice: DEFAULT_VOICE_SETTINGS,
       pairedWindow: {
         id: 'window:1',

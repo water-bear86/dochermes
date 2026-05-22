@@ -25,17 +25,23 @@ The current prototype provides:
 - Connection test UI with text/image capability checks and copyable masked diagnostics.
 - Successful connection tests apply the discovered effective adapter/base URL to future asks.
 - Local settings for panel always-on-top, armed/pause, and live monitoring toggles.
+- Local OCR monitoring with selectable analysis region (`full-window`, `order-panel`, `chart-order-panel`) and manual recalibration.
+- Local data-sharing controls for memory context (use local history for risk checks, send compact summary, raw records disabled by default).
+- Read-only observed wallet address list with explicit private-key/seed warning.
 - Paired-window preference that persists across restarts so you can resume from the same trading window.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - Compact personal-memory context built from local journal entries.
 - Basic local pattern matching for early-entry risk and confirmation behavior.
 - Hermes response display.
+- Optional browser extension scaffold for DOM-first context extraction that can be copied into clipboard monitoring.
 
 Capture is user initiated. The app does not run hidden background capture and has no execution capability.
 
 The journal intentionally stores screenshot metadata instead of image bytes. That keeps the first local memory loop useful without silently retaining sensitive trading screenshots.
 
 When the coach is armed, clipboard changes are scanned for token/candidate patterns and surfaced as live monitoring signals.
+
+If OCR watch is enabled, selected-window captures are preprocessed locally (resize + grayscale/contrast + threshold), then parsed for order context signals.
 
 When a new question resembles prior notes, the renderer sends a compact `memoryContext` object with the Hermes request. This is intentionally summarized before transmission so the app does not dump the full local journal into every prompt.
 
@@ -97,3 +103,13 @@ Bearer tokens are stored locally in the Electron app's local settings for this p
 Legacy `/coach` remains available through `legacy-coach` mode for custom adapters, but it is no longer the default.
 
 See [Hermes API integration notes](docs/hermes-api-notes.md) for the recommended payload shape and migration notes.
+
+## Optional Browser Extension
+
+An optional browser-side extractor is available at:
+
+```text
+extensions/dochermes-context
+```
+
+Load this folder as an unpacked extension in Chromium-based browsers. The extension popup can extract page context (pair/chain/size/leverage/direction/type/address hints) and copy it as structured text for DocHermes clipboard monitoring.

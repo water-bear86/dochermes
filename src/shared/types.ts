@@ -71,6 +71,8 @@ export type ClipboardCandidateKind =
   | 'order-size'
   | 'leverage'
   | 'order-type'
+  | 'route'
+  | 'source'
   | 'unknown';
 
 export interface MonitoringSignal {
@@ -125,6 +127,13 @@ export interface SessionBudgetSettings {
   maxSizeMultiplier: number;
   tiltSensitivity: TiltSensitivity;
   sourceConstraints: SourceConstraintCatalog;
+}
+
+export interface DataSharingSettings {
+  useLocalTradeHistoryForRiskChecks: boolean;
+  sendCompactTradeSummaryToHermes: boolean;
+  sendRawTradeRecordsToHermes: boolean;
+  observedWalletAddresses: string[];
 }
 
 export interface MonitoringContextPayload {
@@ -327,6 +336,7 @@ export interface LocalSettings {
   friction: FrictionSettings;
   coachMode: CoachMode;
   riskBudget: SessionBudgetSettings;
+  dataSharing: DataSharingSettings;
   personalRules: PersonalRule[];
   keepAlwaysOnTop: boolean;
   armed: boolean;
