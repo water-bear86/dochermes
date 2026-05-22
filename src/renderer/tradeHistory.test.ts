@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JournalEntry } from '../shared/types';
-import { buildTradeHistorySummary, parseTradeSize } from './tradeHistory';
+import {
+  buildTradeHistorySummary,
+  parseImportedTradeRecordsCsv,
+  parseTradeSize,
+  replaceImportedTradeRecordsFromCsv,
+  readImportedTradeRecords
+} from './tradeHistory';
 
 const entries: JournalEntry[] = [
   {
@@ -59,6 +65,7 @@ describe('buildTradeHistorySummary', () => {
 
     expect(solSignal).toEqual({ unit: 'sol', medianSize: 1.5, maxSize: 2, sampleCount: 2 });
     expect(usdcSignal).toEqual({ unit: 'usdc', medianSize: 3, maxSize: 3, sampleCount: 1 });
+    expect(summary.importedTrades).toBe(0);
   });
 
   it('counts recent consecutive loss streak from freshest known outcomes', () => {
@@ -90,6 +97,46 @@ describe('buildTradeHistorySummary', () => {
     expect(stacked.recentLossStreak).toBe(1);
   });
 });
+
+describe('imported trade records', () => {
+  it('parses CSV trade rows into normalized records', () => {
+    const records = parseImportedTradeRecordsCsv(
+      'timestamp,size,unit,pnl_percent,token\n2026-05-21T10:00:00Z,0.5,SOL,-12.2,0xabc\n2026-05-21T11:00:00Z,1.2,USDC,5,USDC'
+    );
+
+    expect(records).toHaveLength(2);
+    expect(records[0].size).toEqual({ value: 0.5, unit: 'sol' });
+    expect(records[0].lossPercent).toBe(12.2);
+    expect(records[1].lossPercent).toBeUndefined();
+  });
+
+  it('stores imported CSV records for local history summaries', () => {
+    const storage = createStorage();
+    const imported = replaceImportedTradeRecordsFromCsv(
+      storage,
+      'timestamp,size,unit,pnl_percent\n2026-05-21T10:00:00Z,0.5,SOL,-12.2'
+    );
+
+    expect(imported).toHaveLength(1);
+    expect(readImportedTradeRecords(storage)).toHaveLength(1);
+  });
+});
+
+function createStorage(): Storage {
+  const state = new Map<string, string>();
+  return {
+    length: 0,
+    clear: () => state.clear(),
+    getItem: (key: string) => state.get(key) ?? null,
+    key: () => null,
+    removeItem: (key: string) => {
+      state.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      state.set(key, value);
+    }
+  } as Storage;
+}
 
 describe('parseTradeSize', () => {
   it('parses unit quantities from natural language prompts', () => {

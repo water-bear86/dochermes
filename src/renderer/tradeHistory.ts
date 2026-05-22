@@ -1,4 +1,7 @@
-import type { JournalEntry, TradeHistorySummary } from '../shared/types';
+import type { JournalEntry, TradeHistorySummary, TradeRecord } from '../shared/types';
+
+export const IMPORTED_TRADE_RECORDS_KEY = 'hermes.imported.trade.records.v1';
+export const IMPORTED_TRADE_RECORD_LIMIT = 500;
 
 const TRADE_SIZE_PATTERN =
   /(?:\b(?:size|alloc|allocating|risk|position|amount|qty)?\s*[:=]?\s*)(\d+(?:\.\d+)?)\s*(sol|usdc|usdt|usdc\.e|usdt\.e|eth|weth|btc|wbtc|bnb|arb|usd|usde|sui)\b/gi;
@@ -16,9 +19,15 @@ interface ParsedTradeEntry {
   lossPercent?: number;
 }
 
-export function buildTradeHistorySummary(entries: JournalEntry[], now = new Date()): TradeHistorySummary {
-  const parsedEntries = entries
-    .map((entry) => parseJournalTradeEntry(entry))
+export function buildTradeHistorySummary(
+  entries: JournalEntry[],
+  now = new Date(),
+  importedRecords: TradeRecord[] = []
+): TradeHistorySummary {
+  const parsedEntries = [
+    ...entries.map((entry) => parseJournalTradeEntry(entry)),
+    ...importedRecords.map((entry) => parseImportedTradeEntry(entry))
+  ]
     .filter((entry): entry is ParsedTradeEntry => Boolean(entry.createdAt))
     .sort((left, right) => new Date(right.createdAt).valueOf() - new Date(left.createdAt).valueOf());
 
@@ -70,6 +79,7 @@ export function buildTradeHistorySummary(entries: JournalEntry[], now = new Date
 
   return {
     totalTrades: parsedEntries.length,
+    importedTrades: importedRecords.length,
     tradesLastHour,
     tradesLastDay,
     recentLossStreak,
@@ -77,11 +87,112 @@ export function buildTradeHistorySummary(entries: JournalEntry[], now = new Date
   };
 }
 
+export function parseImportedTradeRecordsCsv(csvText: string, source: TradeRecord['source'] = 'csv'): TradeRecord[] {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return [];
+  }
+
+  const headers = splitCsvLine(lines[0]).map((header) => header.trim().toLowerCase());
+  const createdAtIndex = findHeaderIndex(headers, ['timestamp', 'created_at', 'createdat', 'time', 'date']);
+  if (createdAtIndex === -1) {
+    return [];
+  }
+
+  const sizeIndex = findHeaderIndex(headers, ['size', 'amount', 'qty', 'quantity', 'position_size', 'position size']);
+  const unitIndex = findHeaderIndex(headers, ['unit', 'symbol', 'currency']);
+  const pnlIndex = findHeaderIndex(headers, ['pnl_percent', 'pnl %', 'result_percent', 'loss_percent', 'pnl']);
+  const tokenIndex = findHeaderIndex(headers, ['token', 'address', 'contract', 'pair']);
+
+  const records: TradeRecord[] = [];
+  for (const line of lines.slice(1)) {
+    const cells = splitCsvLine(line);
+    const rawCreatedAt = cells[createdAtIndex]?.trim();
+    if (!rawCreatedAt) {
+      continue;
+    }
+
+    const createdAt = normalizeTimestamp(rawCreatedAt);
+    if (!createdAt) {
+      continue;
+    }
+
+    const rawSizeValue = sizeIndex >= 0 ? cells[sizeIndex]?.trim() : undefined;
+    const rawUnitValue = unitIndex >= 0 ? cells[unitIndex]?.trim() : undefined;
+    const parsedSize = parseCsvSize(rawSizeValue, rawUnitValue);
+    const lossPercent = parseCsvLossPercent(pnlIndex >= 0 ? cells[pnlIndex] : undefined);
+    const tokenHint = tokenIndex >= 0 ? sanitizeTokenHint(cells[tokenIndex]) : undefined;
+
+    records.push({
+      id: `${source}-${createdAt}-${records.length}`,
+      createdAt,
+      source,
+      ...(parsedSize ? { size: parsedSize } : {}),
+      ...(lossPercent !== undefined ? { lossPercent } : {}),
+      ...(tokenHint ? { tokenHint } : {})
+    });
+  }
+
+  return records.slice(0, IMPORTED_TRADE_RECORD_LIMIT);
+}
+
+export function readImportedTradeRecords(storage: Pick<Storage, 'getItem'>): TradeRecord[] {
+  const raw = storage.getItem(IMPORTED_TRADE_RECORDS_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter(isTradeRecord)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, IMPORTED_TRADE_RECORD_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+export function writeImportedTradeRecords(storage: Pick<Storage, 'setItem'>, records: TradeRecord[]): TradeRecord[] {
+  const normalized = records
+    .filter(isTradeRecord)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, IMPORTED_TRADE_RECORD_LIMIT);
+
+  storage.setItem(IMPORTED_TRADE_RECORDS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+export function replaceImportedTradeRecordsFromCsv(
+  storage: Pick<Storage, 'setItem'>,
+  csvText: string,
+  source: TradeRecord['source'] = 'csv'
+): TradeRecord[] {
+  const parsed = parseImportedTradeRecordsCsv(csvText, source);
+  return writeImportedTradeRecords(storage, parsed);
+}
+
 function parseJournalTradeEntry(entry: JournalEntry): ParsedTradeEntry {
   return {
     createdAt: entry.createdAt,
     size: parseTradeSize(`${entry.question} ${entry.response} ${entry.notes}`),
     lossPercent: parseLossPercent(`${entry.question} ${entry.response} ${entry.notes}`)
+  };
+}
+
+function parseImportedTradeEntry(entry: TradeRecord): ParsedTradeEntry {
+  return {
+    createdAt: entry.createdAt,
+    size: entry.size,
+    lossPercent: entry.lossPercent
   };
 }
 
@@ -145,6 +256,145 @@ function normalizeUnit(rawUnit: string): string {
   }
 
   return unit;
+}
+
+function splitCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      fields.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  fields.push(current);
+  return fields;
+}
+
+function findHeaderIndex(headers: string[], candidates: string[]): number {
+  for (const candidate of candidates) {
+    const index = headers.findIndex((entry) => entry === candidate);
+    if (index >= 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function normalizeTimestamp(input: string): string | undefined {
+  const parsed = new Date(input);
+  if (!Number.isFinite(parsed.valueOf())) {
+    return undefined;
+  }
+
+  return parsed.toISOString();
+}
+
+function parseCsvSize(sizeValue: string | undefined, unitValue: string | undefined): TradeRecord['size'] | undefined {
+  if (!sizeValue) {
+    return undefined;
+  }
+
+  const compact = sizeValue.replace(/,/g, ' ').trim();
+  const parsed = Number(compact);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    const unit = unitValue ? normalizeUnit(unitValue) : 'unknown';
+    return {
+      value: parsed,
+      unit
+    };
+  }
+
+  const embedded = parseTradeSize(compact);
+  if (!embedded) {
+    return undefined;
+  }
+
+  return embedded;
+}
+
+function parseCsvLossPercent(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace('%', '').trim();
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  if (parsed >= 0) {
+    return undefined;
+  }
+
+  return Math.abs(parsed);
+}
+
+function sanitizeTokenHint(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 120) : undefined;
+}
+
+function isTradeRecord(value: unknown): value is TradeRecord {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as TradeRecord;
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.createdAt !== 'string' ||
+    (candidate.source !== 'journal' && candidate.source !== 'csv' && candidate.source !== 'wallet')
+  ) {
+    return false;
+  }
+
+  if (candidate.size) {
+    if (
+      typeof candidate.size.value !== 'number' ||
+      !Number.isFinite(candidate.size.value) ||
+      typeof candidate.size.unit !== 'string'
+    ) {
+      return false;
+    }
+  }
+
+  if (candidate.lossPercent !== undefined) {
+    if (typeof candidate.lossPercent !== 'number' || !Number.isFinite(candidate.lossPercent)) {
+      return false;
+    }
+  }
+
+  if (candidate.tokenHint !== undefined && typeof candidate.tokenHint !== 'string') {
+    return false;
+  }
+
+  return true;
 }
 
 function median(values: number[]): number | undefined {

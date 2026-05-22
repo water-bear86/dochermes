@@ -28,6 +28,7 @@ The current prototype provides:
 - Local OCR monitoring with selectable analysis region (`full-window`, `order-panel`, `chart-order-panel`) and manual recalibration.
 - Local data-sharing controls for memory context (use local history for risk checks, send compact summary, raw records disabled by default).
 - Read-only observed wallet address list with explicit private-key/seed warning.
+- Read-only CSV trade-history import into normalized local memory summaries.
 - Paired-window preference that persists across restarts so you can resume from the same trading window.
 - Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
 - Compact personal-memory context built from local journal entries.

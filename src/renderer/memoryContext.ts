@@ -1,6 +1,13 @@
-import type { JournalEntry, MemoryContext, MemoryPattern, MemoryPostmortemSummary, WarningFeedbackRecord } from '../shared/types';
+import type {
+  JournalEntry,
+  MemoryContext,
+  MemoryPattern,
+  MemoryPostmortemSummary,
+  TradeRecord as ImportedTradeRecord,
+  WarningFeedbackRecord
+} from '../shared/types';
 import { buildTradeBehaviorStats } from '../shared/tradeStats';
-import { normalizeTradeRecord, type TradeRecord } from '../shared/tradeRecord';
+import { normalizeTradeRecord, type TradeRecord as NormalizedTradeRecord } from '../shared/tradeRecord';
 import { buildTradeHistorySummary } from './tradeHistory';
 
 const RECENT_NOTE_LIMIT = 6;
@@ -19,7 +26,8 @@ export function buildMemoryContext(
   entries: JournalEntry[],
   currentQuestion: string,
   warningFeedback: WarningFeedbackRecord[] = [],
-  postmortemSummaries: MemoryPostmortemSummary[] = []
+  postmortemSummaries: MemoryPostmortemSummary[] = [],
+  importedTradeRecords: ImportedTradeRecord[] = []
 ): MemoryContext {
   const recentNotes = entries
     .slice()
@@ -51,7 +59,7 @@ export function buildMemoryContext(
       notableRisks: summary.notableRisks
     }));
 
-  const tradeHistorySummary = buildTradeHistorySummary(entries);
+  const tradeHistorySummary = buildTradeHistorySummary(entries, new Date(), importedTradeRecords);
 
   return {
     matchedPatterns: matchPatterns(entries, currentQuestion, falsePositiveSuppressedQuestions),
@@ -79,7 +87,7 @@ function buildJournalTradeBehaviorStats(entries: JournalEntry[]): MemoryContext[
   return buildTradeBehaviorStats(trades);
 }
 
-function inferJournalOutcome(entry: JournalEntry): TradeRecord['outcome'] {
+function inferJournalOutcome(entry: JournalEntry): NormalizedTradeRecord['outcome'] {
   const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
   if (containsAny(text, ['skipped', 'passed', 'avoided'])) {
     return 'skipped';

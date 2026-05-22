@@ -69,7 +69,7 @@ import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
 import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
-import { parseTradeSize } from './tradeHistory';
+import { parseTradeSize, readImportedTradeRecords, replaceImportedTradeRecordsFromCsv, writeImportedTradeRecords } from './tradeHistory';
 import {
   buildPersonalRuleContext,
   evaluatePersonalRules,
@@ -236,6 +236,9 @@ export function App(): ReactElement {
   const [response, setResponse] = useState('');
   const [journalNotes, setJournalNotes] = useState('');
   const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
+  const [importedTradeRecords, setImportedTradeRecords] = useState(() => readImportedTradeRecords(localStorage));
+  const [tradeCsvInput, setTradeCsvInput] = useState('');
+  const [tradeCsvMessage, setTradeCsvMessage] = useState('');
   const [journalSavedMessage, setJournalSavedMessage] = useState('');
   const [postmortemOutcomeRecords, setPostmortemOutcomeRecords] = useState<PostmortemOutcomeRecord[]>(() =>
     readPostmortemOutcomeRecords(localStorage)
@@ -343,9 +346,20 @@ export function App(): ReactElement {
     () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? journalEntries : []),
     [journalEntries, settings.dataSharing.useLocalTradeHistoryForRiskChecks]
   );
+  const importedTradeRecordsForRiskChecks = useMemo(
+    () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? importedTradeRecords : []),
+    [importedTradeRecords, settings.dataSharing.useLocalTradeHistoryForRiskChecks]
+  );
   const memoryContext = useMemo(
-    () => buildMemoryContext(historyEntriesForRiskChecks, question, warningFeedbackEntries, postmortemSummaries),
-    [historyEntriesForRiskChecks, question, postmortemSummaries, warningFeedbackEntries]
+    () =>
+      buildMemoryContext(
+        historyEntriesForRiskChecks,
+        question,
+        warningFeedbackEntries,
+        postmortemSummaries,
+        importedTradeRecordsForRiskChecks
+      ),
+    [historyEntriesForRiskChecks, importedTradeRecordsForRiskChecks, question, postmortemSummaries, warningFeedbackEntries]
   );
   const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
@@ -1011,11 +1025,15 @@ export function App(): ReactElement {
       }
 
       const requestHistoryEntries = settings.dataSharing.useLocalTradeHistoryForRiskChecks ? journalEntries : [];
+      const requestImportedTradeRecords = settings.dataSharing.useLocalTradeHistoryForRiskChecks
+        ? importedTradeRecords
+        : [];
       const requestMemoryContext = buildMemoryContext(
         requestHistoryEntries,
         questionText,
         warningFeedbackEntries,
-        postmortemSummaries
+        postmortemSummaries,
+        requestImportedTradeRecords
       );
       const requestSourceQuality = buildSourceQualityAssessment({
         question: questionText,
@@ -1263,10 +1281,12 @@ export function App(): ReactElement {
       bridge,
       loadSources,
       journalEntries,
+      importedTradeRecords,
       monitorSignals,
       warningFeedbackEntries,
       settings.connection,
       settings.coachMode,
+      settings.dataSharing,
       settings.privacy,
       settings.riskBudget,
       settings.voice.speakReplies,
@@ -1762,6 +1782,28 @@ export function App(): ReactElement {
       setPostmortemSummaryMessage('');
     }, 2200);
   }, [postmortemOutcomeRecords, postmortemSession]);
+
+  const importTradeCsvRecords = useCallback(() => {
+    const raw = tradeCsvInput.trim();
+    if (!raw) {
+      setTradeCsvMessage('Paste CSV text before importing.');
+      return;
+    }
+
+    const nextRecords = replaceImportedTradeRecordsFromCsv(localStorage, raw, 'csv');
+    setImportedTradeRecords(nextRecords);
+    setTradeCsvMessage(
+      nextRecords.length > 0
+        ? `Imported ${nextRecords.length} trade record${nextRecords.length === 1 ? '' : 's'} from CSV.`
+        : 'No valid trade rows detected. Check CSV headers (timestamp/date + size/amount/unit and optional pnl_percent).'
+    );
+  }, [tradeCsvInput]);
+
+  const clearImportedTradeRecords = useCallback(() => {
+    const nextRecords = writeImportedTradeRecords(localStorage, []);
+    setImportedTradeRecords(nextRecords);
+    setTradeCsvMessage('Cleared imported trade-history records.');
+  }, []);
 
   const persistPreTradeDecision = useCallback(
     (actionLabel: string, note: string | undefined, source: 'friction' | 'policy') => {
@@ -2408,6 +2450,27 @@ export function App(): ReactElement {
             <small className="subtle-note">
               Never enter seed phrases or private keys. DocHermes only supports read-only public addresses and never requests signing,
               trading, approvals, or withdrawals.
+            </small>
+
+            <label htmlFor="trade-csv-import">Trade history CSV import (read-only)</label>
+            <textarea
+              id="trade-csv-import"
+              className="notes"
+              value={tradeCsvInput}
+              onChange={(event) => setTradeCsvInput(event.target.value)}
+              placeholder="timestamp,size,unit,pnl_percent,token\n2026-05-22T12:00:00Z,0.5,SOL,-8.2,0x..."
+            />
+            <div className="button-row">
+              <button type="button" onClick={importTradeCsvRecords}>
+                Import CSV
+              </button>
+              <button type="button" className="ghost" onClick={clearImportedTradeRecords}>
+                Clear imported records
+              </button>
+            </div>
+            <small className="subtle-note">
+              Imported records: {importedTradeRecords.length}
+              {tradeCsvMessage ? ` · ${tradeCsvMessage}` : ''}
             </small>
 
             <label htmlFor="gateway">Hermes base URL</label>
@@ -3356,6 +3419,9 @@ export function App(): ReactElement {
               {memoryContext.tradeHistorySummary.totalTrades} recent trades tracked · {memoryContext.tradeHistorySummary.recentLossStreak} recent loss
               {memoryContext.tradeHistorySummary.recentLossStreak === 1 ? '' : 'es'} (latest hour/day:
               {memoryContext.tradeHistorySummary.tradesLastHour}/{memoryContext.tradeHistorySummary.tradesLastDay})
+              {memoryContext.tradeHistorySummary.importedTrades > 0
+                ? ` · imported records: ${memoryContext.tradeHistorySummary.importedTrades}`
+                : ''}
             </li>
             {memoryContext.tradeHistorySummary.sizeSignals.length > 0 ? (
               memoryContext.tradeHistorySummary.sizeSignals.map((signal) => (

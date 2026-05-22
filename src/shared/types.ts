@@ -398,8 +398,21 @@ export interface TradeHistorySignal {
   sampleCount: number;
 }
 
+export interface TradeRecord {
+  id: string;
+  createdAt: string;
+  source: 'journal' | 'csv' | 'wallet';
+  size?: {
+    value: number;
+    unit: string;
+  };
+  lossPercent?: number;
+  tokenHint?: string;
+}
+
 export interface TradeHistorySummary {
   totalTrades: number;
+  importedTrades: number;
   tradesLastHour: number;
   tradesLastDay: number;
   recentLossStreak: number;
