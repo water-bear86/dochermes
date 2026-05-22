@@ -1808,23 +1808,6 @@ export function App(): ReactElement {
     }
   }, [hermesHeartbeat.status]);
 
-  const appendSignalToQuestion = useCallback((signal: MonitoringSignal) => {
-    const tokenHint = signal.value.trim();
-    if (!tokenHint) {
-      return;
-    }
-
-    setQuestion((current) => {
-      const trimmed = current.trim();
-      if (trimmed.includes(tokenHint)) {
-        return current;
-      }
-
-      const nextLine = trimmed.length > 0 ? `${trimmed}\n` : '';
-      return `${nextLine}Candidate detected: ${tokenHint}`;
-    });
-  }, []);
-
   const clearMonitorSignals = useCallback(() => {
     setMonitorSignals([]);
   }, []);
@@ -1854,6 +1837,27 @@ export function App(): ReactElement {
   const isSameMonitoringSignal = useCallback((left: MonitoringSignal, right: MonitoringSignal): boolean => {
     return left.kind === right.kind && left.source === right.source && left.value === right.value && left.detectedAt === right.detectedAt;
   }, []);
+
+  const appendSignalToQuestion = useCallback(
+    (signal: MonitoringSignal) => {
+      const tokenHint = signal.value.trim();
+      if (!tokenHint) {
+        return;
+      }
+
+      setQuestion((current) => {
+        const trimmed = current.trim();
+        if (trimmed.includes(tokenHint)) {
+          return current;
+        }
+
+        const nextLine = trimmed.length > 0 ? `${trimmed}\n` : '';
+        return `${nextLine}Candidate detected: ${tokenHint}`;
+      });
+      dismissMonitorSignal(signal);
+    },
+    [dismissMonitorSignal]
+  );
 
   const runHermesHeartbeat = useCallback(async () => {
     if (heartbeatInFlightRef.current) {
