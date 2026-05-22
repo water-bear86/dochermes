@@ -1,8 +1,9 @@
-import type { JournalEntry, MemoryContext, MemoryPattern, WarningFeedbackRecord } from '../shared/types';
+import type { JournalEntry, MemoryContext, MemoryPattern, MemoryPostmortemSummary, WarningFeedbackRecord } from '../shared/types';
 import { buildTradeBehaviorStats } from '../shared/tradeStats';
 import { normalizeTradeRecord, type TradeRecord } from '../shared/tradeRecord';
 
 const RECENT_NOTE_LIMIT = 6;
+const POSTMORTEM_SUMMARY_CONTEXT_LIMIT = 4;
 
 const EARLY_ENTRY_TERMS = ['early', 'immediate', 'immediately', 'enter now', 'ape'];
 const NEGATIVE_TERMS = ['poor', 'loss', 'lost', 'oversized', 'drawdown', 'bad', 'mistake'];
@@ -16,7 +17,8 @@ export const EARLY_ENTRY_WARNING_TEXT =
 export function buildMemoryContext(
   entries: JournalEntry[],
   currentQuestion: string,
-  warningFeedback: WarningFeedbackRecord[] = []
+  warningFeedback: WarningFeedbackRecord[] = [],
+  postmortemSummaries: MemoryPostmortemSummary[] = []
 ): MemoryContext {
   const recentNotes = entries
     .slice()
@@ -32,10 +34,27 @@ export function buildMemoryContext(
 
   const falsePositiveSuppressedQuestions = collectFalsePositiveSuppressedQuestions(warningFeedback);
 
+  const postmortemSummaryContext = postmortemSummaries
+    .slice()
+    .sort((left, right) => right.generatedAt.localeCompare(left.generatedAt))
+    .slice(0, POSTMORTEM_SUMMARY_CONTEXT_LIMIT)
+    .map((summary) => ({
+      id: summary.id,
+      generatedAt: summary.generatedAt,
+      sessionId: summary.sessionId,
+      sessionLabel: summary.sessionLabel,
+      compactSummary: summary.compactSummary,
+      eventCount: summary.eventCount,
+      taggedEventCount: summary.taggedEventCount,
+      tagCounts: summary.tagCounts,
+      notableRisks: summary.notableRisks
+    }));
+
   return {
     matchedPatterns: matchPatterns(entries, currentQuestion, falsePositiveSuppressedQuestions),
     tradeBehaviorStats: buildJournalTradeBehaviorStats(entries),
-    recentNotes
+    recentNotes,
+    ...(postmortemSummaryContext.length > 0 ? { postmortemSummaries: postmortemSummaryContext } : {})
   };
 }
 

@@ -796,6 +796,119 @@ textarea:focus {
   min-height: 58px;
 }
 
+.postmortem {
+  border-color: #4a4a5e;
+  background: #1a1924;
+}
+
+.postmortem h3 {
+  margin: 0;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #e0e6db;
+}
+
+.postmortem-timeline {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.postmortem-event {
+  border: 1px solid #3f3e54;
+  border-radius: 8px;
+  padding: 8px;
+  background: #11101a;
+}
+
+.postmortem-event-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  color: #d7e3d7;
+}
+
+.postmortem-event-heading small {
+  color: #9ea29a;
+  white-space: nowrap;
+}
+
+.postmortem-event-summary {
+  margin: 6px 0 0;
+}
+
+.postmortem-event-subtitle {
+  display: block;
+  color: #9ba3a0;
+  margin-top: 3px;
+}
+
+.postmortem-event-list {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  color: #ded4b7;
+  display: grid;
+  gap: 3px;
+}
+
+.postmortem-event-provenance {
+  color: #9ba09a;
+}
+
+.postmortem-event-provenance li {
+  font-size: 11px;
+}
+
+.postmortem-outcome-chip {
+  display: inline-flex;
+  margin-top: 7px;
+  border: 1px solid #4f6450;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #d3e6ce;
+}
+
+.postmortem-edit-row {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.postmortem-edit-row textarea {
+  min-height: 64px;
+}
+
+.postmortem-summary-listing {
+  margin-top: 12px;
+}
+
+.postmortem-summary-list {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.postmortem-summary-item {
+  border: 1px solid #3c4a46;
+  border-radius: 8px;
+  background: #121619;
+  padding: 7px;
+}
+
+.postmortem-summary-item strong {
+  font-size: 12px;
+  line-height: 1.3;
+  display: block;
+}
+
+.postmortem-summary-item small {
+  display: block;
+  margin-top: 4px;
+}
+
 .monitor-list {
   margin: 8px 0 0 18px;
   padding: 0;

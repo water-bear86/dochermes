@@ -33,6 +33,22 @@ import {
   clearRequestDiagnostics,
   createRequestDiagnostic
 } from './requestDiagnostics';
+import {
+  appendPostmortemOutcomeRecord,
+  appendPostmortemSummary,
+  buildCompactPostmortemSummary,
+  buildPostmortemSessions,
+  deletePostmortemOutcomeRecord,
+  formatPostmortemTagLabel,
+  readPostmortemOutcomeRecords,
+  readPostmortemSummaries,
+  updatePostmortemOutcomeRecord,
+  type PostmortemOutcomeRecord,
+  type PostmortemOutcomeTag,
+  type PostmortemSession,
+  type PostmortemSummaryRecord,
+  type PostmortemTimelineEvent
+} from './postmortem';
 import { buildSourceQualityAssessment } from './sourceQuality';
 import {
   appendWarningFeedback,
@@ -194,6 +210,14 @@ const SOURCE_OUTCOME_HELP: Record<SourceQualityOutcome, string> = {
   neutral: 'Source was observed but outcome was not clearly good or bad.',
   bad: 'Source led to a negative outcome.'
 };
+const POSTMORTEM_OUTCOME_TAG_OPTIONS: Array<{ value: PostmortemOutcomeTag; label: string }> = [
+  { value: 'good-skip', label: formatPostmortemTagLabel('good-skip') },
+  { value: 'bad-entry', label: formatPostmortemTagLabel('bad-entry') },
+  { value: 'ignored-warning', label: formatPostmortemTagLabel('ignored-warning') },
+  { value: 'followed-plan', label: formatPostmortemTagLabel('followed-plan') },
+  { value: 'note-for-next-time', label: formatPostmortemTagLabel('note-for-next-time') }
+];
+const POSTMORTEM_SUMMARY_PREVIEW_LIMIT = 3;
 const MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAaElEQVR42u3YIQ7AIAwFUI6CJjsAR5tB7wI75xIEeszhMAiy5CVfN31JW9EQU96Yct1PbSsJAAAAAABLgK/Er2OEAAAAAEY3x/nOAwAA4AoBAAAAAAD4SvhK2AEAAAAAAAAAAAAAgNo6u75Vu6TiAIgAAAAASUVORK5CYII=';
 
@@ -212,6 +236,17 @@ export function App(): ReactElement {
   const [journalNotes, setJournalNotes] = useState('');
   const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
   const [journalSavedMessage, setJournalSavedMessage] = useState('');
+  const [postmortemOutcomeRecords, setPostmortemOutcomeRecords] = useState<PostmortemOutcomeRecord[]>(() =>
+    readPostmortemOutcomeRecords(localStorage)
+  );
+  const [postmortemSummaries, setPostmortemSummaries] = useState<PostmortemSummaryRecord[]>(() =>
+    readPostmortemSummaries(localStorage)
+  );
+  const [selectedPostmortemSessionId, setSelectedPostmortemSessionId] = useState<string | undefined>();
+  const [editingPostmortemEventId, setEditingPostmortemEventId] = useState<string | undefined>();
+  const [editingPostmortemOutcome, setEditingPostmortemOutcome] = useState<PostmortemOutcomeTag>('good-skip');
+  const [editingPostmortemNotes, setEditingPostmortemNotes] = useState('');
+  const [postmortemSummaryMessage, setPostmortemSummaryMessage] = useState('');
   const [connectionReport, setConnectionReport] = useState<HermesConnectionReport | undefined>();
   const [testingConnection, setTestingConnection] = useState(false);
   const [copiedReport, setCopiedReport] = useState(false);
@@ -296,8 +331,8 @@ export function App(): ReactElement {
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
   const selectedLabel = selectedSource ? `${selectedSource.name} (${selectedSource.kind})` : 'No trading window selected';
   const memoryContext = useMemo(
-    () => buildMemoryContext(journalEntries, question, warningFeedbackEntries),
-    [journalEntries, question, warningFeedbackEntries]
+    () => buildMemoryContext(journalEntries, question, warningFeedbackEntries, postmortemSummaries),
+    [journalEntries, question, postmortemSummaries, warningFeedbackEntries]
   );
   const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
@@ -328,6 +363,63 @@ export function App(): ReactElement {
   );
   const topSourceQualityFinding = sourceQualityAssessment.findings[0];
   const topSourceQualityCategoryLabel = topSourceQualityFinding ? sourceCategoryLabel(topSourceQualityFinding.category) : '';
+  const postmortemSessions = useMemo(
+    () =>
+      buildPostmortemSessions({
+        journalEntries,
+        warningFeedbackEntries,
+        requestDiagnostics
+      }),
+    [journalEntries, warningFeedbackEntries, requestDiagnostics]
+  );
+  const postmortemSessionById = useMemo(() => {
+    const next: Record<string, PostmortemSession> = {};
+    for (const session of postmortemSessions) {
+      next[session.id] = session;
+    }
+    return next;
+  }, [postmortemSessions]);
+  const postmortemSession = useMemo(() => {
+    if (!selectedPostmortemSessionId) {
+      return postmortemSessions[0];
+    }
+
+    return postmortemSessionById[selectedPostmortemSessionId] ?? postmortemSessions[0];
+  }, [postmortemSessionById, postmortemSessions, selectedPostmortemSessionId]);
+  const postmortemOutcomesBySession = useMemo(() => {
+    const next = new Map<string, PostmortemOutcomeRecord[]>();
+    for (const session of postmortemSessions) {
+      const eventIds = new Set(session.timeline.map((event) => event.id));
+      const outcomes = postmortemOutcomeRecords.filter((record) => eventIds.has(record.eventId));
+      next.set(session.id, outcomes);
+    }
+    return next;
+  }, [postmortemOutcomeRecords, postmortemSessions]);
+  const postmortemSessionOutcomes = useMemo(() => {
+    if (!postmortemSession) {
+      return [] as PostmortemOutcomeRecord[];
+    }
+
+    return postmortemOutcomesBySession.get(postmortemSession.id) ?? [];
+  }, [postmortemOutcomesBySession, postmortemSession]);
+  const postmortemSessionSummaries = useMemo(
+    () => postmortemSummaries.filter((summary) => postmortemSession && summary.sessionId === postmortemSession.id),
+    [postmortemSession, postmortemSummaries]
+  );
+  const postmortemSessionSummaryLabel = postmortemSession ? postmortemSession.label : 'No session selected';
+
+  useEffect(() => {
+    if (postmortemSessions.length === 0) {
+      setSelectedPostmortemSessionId(undefined);
+      return;
+    }
+
+    if (selectedPostmortemSessionId && postmortemSessionById[selectedPostmortemSessionId]) {
+      return;
+    }
+
+    setSelectedPostmortemSessionId(postmortemSessions[0].id);
+  }, [postmortemSessionById, postmortemSessions, selectedPostmortemSessionId]);
   const localWarningCards = useMemo(
     () =>
       buildLocalWarningCards({
@@ -899,7 +991,7 @@ export function App(): ReactElement {
         return;
       }
 
-      const requestMemoryContext = buildMemoryContext(journalEntries, questionText, warningFeedbackEntries);
+      const requestMemoryContext = buildMemoryContext(journalEntries, questionText, warningFeedbackEntries, postmortemSummaries);
       const requestSourceQuality = buildSourceQualityAssessment({
         question: questionText,
         monitorSignals,
@@ -1150,6 +1242,7 @@ export function App(): ReactElement {
       settings.privacy,
       settings.riskBudget,
       settings.voice.speakReplies,
+      postmortemSummaries,
       isTextRedactionEnabled,
       hermesHeartbeat.status
     ]
@@ -1456,6 +1549,115 @@ export function App(): ReactElement {
       setEditingFeedbackNotes('');
     }
   }, [editingFeedbackId]);
+
+  const postmortemOutcomeForEvent = useCallback(
+    (eventId: string) => postmortemOutcomeRecords.find((record) => record.eventId === eventId),
+    [postmortemOutcomeRecords]
+  );
+  const beginEditPostmortemOutcome = useCallback(
+    (event: PostmortemTimelineEvent) => {
+      const nextOutcome = postmortemOutcomeForEvent(event.id);
+      setEditingPostmortemEventId(event.id);
+      setEditingPostmortemOutcome(nextOutcome?.tag ?? 'followed-plan');
+      setEditingPostmortemNotes(nextOutcome?.notes ?? '');
+    },
+    [postmortemOutcomeForEvent]
+  );
+
+  const savePostmortemOutcome = useCallback(() => {
+    if (!postmortemSession || !editingPostmortemEventId) {
+      return;
+    }
+
+    const timelineEvent = postmortemSession.timeline.find((entry) => entry.id === editingPostmortemEventId);
+    if (!timelineEvent) {
+      setEditingPostmortemEventId(undefined);
+      setEditingPostmortemNotes('');
+      setEditingPostmortemOutcome('followed-plan');
+      return;
+    }
+
+    const existingOutcome = postmortemOutcomeForEvent(editingPostmortemEventId);
+    const notes = editingPostmortemNotes.trim();
+
+    const nextOutcomeRecords = existingOutcome
+      ? updatePostmortemOutcomeRecord(localStorage, existingOutcome.id, {
+          tag: editingPostmortemOutcome,
+          notes
+        })
+      : appendPostmortemOutcomeRecord(localStorage, {
+          eventId: timelineEvent.id,
+          tag: editingPostmortemOutcome,
+          ...(notes ? { notes } : {}),
+          ...(timelineEvent.requestId ? { requestId: timelineEvent.requestId } : {})
+        });
+
+    setPostmortemOutcomeRecords(nextOutcomeRecords);
+    setEditingPostmortemEventId(undefined);
+    setEditingPostmortemNotes('');
+    setEditingPostmortemOutcome('followed-plan');
+  }, [editingPostmortemEventId, editingPostmortemNotes, editingPostmortemOutcome, postmortemOutcomeForEvent, postmortemSession]);
+
+  const clearPostmortemEditing = useCallback(() => {
+    setEditingPostmortemEventId(undefined);
+    setEditingPostmortemNotes('');
+    setEditingPostmortemOutcome('followed-plan');
+  }, []);
+
+  const deletePostmortemOutcome = useCallback(
+    (outcomeId: string) => {
+      const nextOutcomeRecords = deletePostmortemOutcomeRecord(localStorage, outcomeId);
+      setPostmortemOutcomeRecords(nextOutcomeRecords);
+      if (editingPostmortemEventId) {
+        const editingOutcome = nextOutcomeRecords.find((record) => record.eventId === editingPostmortemEventId);
+        if (!editingOutcome) {
+          clearPostmortemEditing();
+        }
+      }
+  }, [clearPostmortemEditing, editingPostmortemEventId]);
+
+  useEffect(() => {
+    if (!editingPostmortemEventId) {
+      return;
+    }
+
+    if (!postmortemSession) {
+      clearPostmortemEditing();
+      return;
+    }
+
+    const stillPresent = postmortemSession.timeline.some((entry) => entry.id === editingPostmortemEventId);
+    if (!stillPresent) {
+      clearPostmortemEditing();
+      return;
+    }
+
+    const outcome = postmortemOutcomeForEvent(editingPostmortemEventId);
+    if (outcome) {
+      setEditingPostmortemOutcome(outcome.tag);
+      setEditingPostmortemNotes(outcome.notes ?? '');
+      return;
+    }
+
+    setEditingPostmortemOutcome('followed-plan');
+    setEditingPostmortemNotes('');
+  }, [editingPostmortemEventId, clearPostmortemEditing, postmortemOutcomeForEvent, postmortemSession]);
+
+  const savePostmortemSummary = useCallback(() => {
+    if (!postmortemSession) {
+      return;
+    }
+
+    const nextSummaries = appendPostmortemSummary(
+      localStorage,
+      buildCompactPostmortemSummary(postmortemSession, postmortemOutcomeRecords)
+    );
+    setPostmortemSummaries(nextSummaries);
+    setPostmortemSummaryMessage(`Saved summary for ${postmortemSession.label}`);
+    setTimeout(() => {
+      setPostmortemSummaryMessage('');
+    }, 2200);
+  }, [postmortemOutcomeRecords, postmortemSession]);
 
   const persistPreTradeDecision = useCallback(
     (actionLabel: string, note: string | undefined, source: 'friction' | 'policy') => {
@@ -2987,6 +3189,146 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
+      {postmortemSessions.length > 0 ? (
+        <section className="message postmortem" aria-label="Postmortem replay">
+          <span className="label">Postmortem replay</span>
+          <div className="section-heading compact">
+            <h2>{postmortemSessionSummaryLabel}</h2>
+            <button type="button" className="ghost" onClick={savePostmortemSummary}>
+              Save session compact summary
+            </button>
+          </div>
+
+          <label htmlFor="postmortem-session">Replay session</label>
+          <select
+            id="postmortem-session"
+            value={postmortemSession?.id ?? ''}
+            onChange={(event) => {
+              setSelectedPostmortemSessionId(event.target.value);
+              setPostmortemSummaryMessage('');
+              clearPostmortemEditing();
+            }}
+          >
+            {postmortemSessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.label}
+              </option>
+            ))}
+          </select>
+
+          {postmortemSummaryMessage ? <small className="subtle-note">{postmortemSummaryMessage}</small> : null}
+
+          <div className="subtle-note">
+            {postmortemSession.timeline.length} timeline event(s) · {postmortemSessionOutcomes.length} tagged outcome(s)
+            {postmortemSession.riskSignals.length > 0
+              ? ` · top risks: ${postmortemSession.riskSignals.slice(0, 3).join(', ')}`
+              : ''}
+          </div>
+
+          <div className="postmortem-timeline">
+            {postmortemSession.timeline.map((event) => {
+              const eventOutcome = postmortemOutcomeForEvent(event.id);
+              const isEditing = editingPostmortemEventId === event.id;
+
+              return (
+                <article key={event.id} className="postmortem-event">
+                  <div className="postmortem-event-heading">
+                    <strong>{event.source}</strong>
+                    <small>{new Date(event.timestamp).toLocaleString()}</small>
+                  </div>
+                  <h3>{event.title}</h3>
+                  <p className="postmortem-event-summary">{event.summary}</p>
+                  <small className="postmortem-event-subtitle">{event.riskSignals.length > 0 ? 'Risk signals present' : 'No explicit risk signal'}</small>
+
+                  <ul className="postmortem-event-list">
+                    {event.details.map((detail, index) => (
+                      <li key={`${event.id}-detail-${index}`}>{detail}</li>
+                    ))}
+                  </ul>
+                  {event.provenance.length > 0 ? (
+                    <ul className="postmortem-event-list postmortem-event-provenance">
+                      {event.provenance.map((entry, index) => (
+                        <li key={`${event.id}-prov-${index}`}>{entry}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {eventOutcome ? (
+                    <small className="postmortem-outcome-chip">
+                      Outcome: {formatPostmortemTagLabel(eventOutcome.tag)}
+                      {eventOutcome.notes ? ` · ${eventOutcome.notes}` : ''}
+                    </small>
+                  ) : null}
+
+                  {isEditing ? (
+                    <div className="postmortem-edit-row">
+                      <label htmlFor={`postmortem-tag-${event.id}`}>Outcome tag</label>
+                      <select
+                        id={`postmortem-tag-${event.id}`}
+                        value={editingPostmortemOutcome}
+                        onChange={(newEvent) => setEditingPostmortemOutcome(newEvent.target.value as PostmortemOutcomeTag)}
+                      >
+                        {POSTMORTEM_OUTCOME_TAG_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <label htmlFor={`postmortem-notes-${event.id}`}>Notes</label>
+                      <textarea
+                        id={`postmortem-notes-${event.id}`}
+                        value={editingPostmortemNotes}
+                        className="notes"
+                        onChange={(newEvent) => setEditingPostmortemNotes(newEvent.target.value)}
+                      />
+                      <div className="button-row">
+                        <button type="button" onClick={savePostmortemOutcome}>
+                          Save outcome
+                        </button>
+                        <button type="button" className="ghost" onClick={clearPostmortemEditing}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="button-row">
+                      <button type="button" onClick={() => beginEditPostmortemOutcome(event)}>
+                        {eventOutcome ? 'Edit outcome' : 'Add outcome'}
+                      </button>
+                      {eventOutcome ? (
+                        <button type="button" className="ghost" onClick={() => deletePostmortemOutcome(eventOutcome.id)}>
+                          Clear outcome
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
+          {postmortemSessionSummaries.length > 0 ? (
+            <div className="postmortem-summary-listing">
+              <div className="section-heading compact">
+                <h2>Saved session summaries</h2>
+                <small>{postmortemSessionSummaries.length}</small>
+              </div>
+              <ol className="postmortem-summary-list">
+                {postmortemSessionSummaries.slice(0, POSTMORTEM_SUMMARY_PREVIEW_LIMIT).map((summary) => (
+                  <li key={summary.id} className="postmortem-summary-item">
+                    <strong>{summary.compactSummary}</strong>
+                    <small>
+                      Generated {new Date(summary.generatedAt).toLocaleString()} · {summary.eventCount} events · {summary.taggedEventCount}{' '}
+                      tagged
+                    </small>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {screenshotDataUrl ? (
         <section className="preview" aria-label="Latest screenshot preview">
           <div className="section-heading">
@@ -3156,7 +3498,11 @@ function buildHermesRequestPreview(input: {
     }
   }
 
-  if (memoryContext.matchedPatterns.length > 0 || memoryContext.recentNotes.length > 0) {
+  if (
+    memoryContext.matchedPatterns.length > 0 ||
+    memoryContext.recentNotes.length > 0 ||
+    (memoryContext.postmortemSummaries?.length ?? 0) > 0
+  ) {
     payloadClasses.push('Compact memory context');
   }
 

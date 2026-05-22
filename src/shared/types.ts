@@ -352,6 +352,24 @@ export interface MemoryPattern {
   recommendation: string;
 }
 
+export interface MemoryPostmortemSummary {
+  id: string;
+  generatedAt: string;
+  sessionId: string;
+  sessionLabel: string;
+  compactSummary: string;
+  eventCount: number;
+  taggedEventCount: number;
+  tagCounts: {
+    'good-skip': number;
+    'bad-entry': number;
+    'ignored-warning': number;
+    'followed-plan': number;
+    'note-for-next-time': number;
+  };
+  notableRisks: string[];
+}
+
 export interface MemoryContext {
   matchedPatterns: MemoryPattern[];
   tradeBehaviorStats?: TradeBehaviorStats;
@@ -362,6 +380,7 @@ export interface MemoryContext {
     notes: string;
     selectedWindowName: string;
   }>;
+  postmortemSummaries?: MemoryPostmortemSummary[];
   personalRules?: PersonalRuleContext;
 }
 

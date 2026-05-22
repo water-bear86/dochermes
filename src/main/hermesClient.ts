@@ -423,6 +423,7 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
     input.memoryContext &&
     (input.memoryContext.matchedPatterns.length > 0 ||
       input.memoryContext.recentNotes.length > 0 ||
+      (input.memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
       (input.memoryContext.personalRules?.matchedRules.length ?? 0) > 0)
   ) {
     lines.push('', 'Compact personal memory context:', JSON.stringify(input.memoryContext));
@@ -605,6 +606,21 @@ function applyMemoryContextRedaction(
       notes: applyPrivacyRedaction(note.notes, redaction),
       selectedWindowName: note.selectedWindowName
     })),
+    ...(memoryContext.postmortemSummaries
+      ? {
+          postmortemSummaries: memoryContext.postmortemSummaries.map((summary) => ({
+            id: summary.id,
+            generatedAt: summary.generatedAt,
+            sessionId: summary.sessionId,
+            sessionLabel: applyPrivacyRedaction(summary.sessionLabel, redaction),
+            compactSummary: applyPrivacyRedaction(summary.compactSummary, redaction),
+            eventCount: summary.eventCount,
+            taggedEventCount: summary.taggedEventCount,
+            tagCounts: summary.tagCounts,
+            notableRisks: summary.notableRisks.map((risk) => applyPrivacyRedaction(risk, redaction))
+          }))
+        }
+      : {}),
     ...(memoryContext.personalRules
       ? {
           personalRules: {

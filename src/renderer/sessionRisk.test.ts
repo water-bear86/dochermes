@@ -64,6 +64,7 @@ describe('buildSessionRiskAssessment', () => {
 
   it('warns at trade budget cap and on exceed', () => {
     const nearCap = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T11:00:00.000Z'),
       question: 'Buy 0.1 SOL',
       journalEntries: [
         makeEntry({
@@ -99,6 +100,7 @@ describe('buildSessionRiskAssessment', () => {
     expect(nearCap.status.tradeCount).toBe(3);
 
     const overCap = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T11:00:00.000Z'),
       question: 'Buy 0.1 SOL',
       journalEntries: [
         makeEntry({
@@ -142,6 +144,7 @@ describe('buildSessionRiskAssessment', () => {
 
   it('tracks loss budget usage and alerts when near/exceeded', () => {
     const approaching = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T09:10:00.000Z'),
       question: 'Buy 1 SOL',
       journalEntries: [
         makeEntry({
@@ -163,6 +166,7 @@ describe('buildSessionRiskAssessment', () => {
     ).toBe(true);
 
     const exceeded = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T09:10:00.000Z'),
       question: 'Buy 1 SOL',
       journalEntries: [
         makeEntry({
@@ -207,6 +211,7 @@ describe('buildSessionRiskAssessment', () => {
 
   it('warns on oversized position size versus session median', () => {
     const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T09:30:00.000Z'),
       question: 'Buy 3 SOL',
       journalEntries: [
         makeEntry({
