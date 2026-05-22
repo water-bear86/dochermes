@@ -1,10 +1,15 @@
 import type { JournalEntry, MemoryContext, MemoryPattern, WarningFeedbackRecord } from '../shared/types';
+import { buildTradeBehaviorStats } from '../shared/tradeStats';
+import { normalizeTradeRecord, type TradeRecord } from '../shared/tradeRecord';
 
 const RECENT_NOTE_LIMIT = 6;
 
 const EARLY_ENTRY_TERMS = ['early', 'immediate', 'immediately', 'enter now', 'ape'];
 const NEGATIVE_TERMS = ['poor', 'loss', 'lost', 'oversized', 'drawdown', 'bad', 'mistake'];
 const CONFIRMATION_TERMS = ['confirmation', 'confirmed', 'wait', 'waited', 'support'];
+const WIN_TERMS = ['win', 'won', 'profit', 'profitable', 'green', 'worked'];
+const OVERSIZE_TERMS = ['oversized', 'oversize', 'too big', 'overleveraged', 'over-leveraged'];
+const FOMO_TERMS = ['fomo', 'ape', 'chased', 'chase'];
 const EARLY_ENTRY_WARNING_TEXT =
   'This resembles prior early-entry risk patterns; set a confirmation plan before acting.';
 
@@ -29,8 +34,58 @@ export function buildMemoryContext(
 
   return {
     matchedPatterns: matchPatterns(entries, currentQuestion, falsePositiveSuppressedQuestions),
+    tradeBehaviorStats: buildJournalTradeBehaviorStats(entries),
     recentNotes
   };
+}
+
+function buildJournalTradeBehaviorStats(entries: JournalEntry[]): MemoryContext['tradeBehaviorStats'] {
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const trades = entries.map((entry) => normalizeTradeRecord({
+    source: 'journal',
+    entryId: entry.id,
+    createdAt: entry.createdAt,
+    selectedWindowName: entry.selectedWindow.name,
+    outcome: inferJournalOutcome(entry),
+    mistakeTags: inferMistakeTags(entry)
+  }));
+
+  return buildTradeBehaviorStats(trades);
+}
+
+function inferJournalOutcome(entry: JournalEntry): TradeRecord['outcome'] {
+  const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
+  if (containsAny(text, ['skipped', 'passed', 'avoided'])) {
+    return 'skipped';
+  }
+  if (containsAny(text, NEGATIVE_TERMS)) {
+    return 'loss';
+  }
+  if (containsAny(text, WIN_TERMS)) {
+    return 'win';
+  }
+  return 'unknown';
+}
+
+function inferMistakeTags(entry: JournalEntry): string[] | undefined {
+  const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
+  const tags: string[] = [];
+  if (containsAny(text, EARLY_ENTRY_TERMS)) {
+    tags.push('early-entry');
+  }
+  if (containsAny(text, OVERSIZE_TERMS)) {
+    tags.push('oversized');
+  }
+  if (containsAny(text, FOMO_TERMS)) {
+    tags.push('fomo');
+  }
+  if (containsAny(text, CONFIRMATION_TERMS)) {
+    tags.push('confirmation-plan');
+  }
+  return tags.length > 0 ? tags : undefined;
 }
 
 function matchPatterns(
@@ -129,11 +184,11 @@ function countTermOverlap(left: string, right: string): number {
   );
 
   let overlap = 0;
-  for (const term of leftTerms) {
+  Array.from(leftTerms).forEach((term) => {
     if (rightTerms.has(term)) {
       overlap += 1;
     }
-  }
+  });
 
   return overlap;
 }

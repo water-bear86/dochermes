@@ -1,3 +1,5 @@
+import type { TradeBehaviorStats } from './tradeStats';
+
 export type WindowSourceKind = 'window' | 'screen';
 
 export interface WindowSourceOption {
@@ -204,6 +206,7 @@ export interface MemoryPattern {
 
 export interface MemoryContext {
   matchedPatterns: MemoryPattern[];
+  tradeBehaviorStats?: TradeBehaviorStats;
   recentNotes: Array<{
     createdAt: string;
     question: string;
