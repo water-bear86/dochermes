@@ -3,12 +3,15 @@ import type {
   HermesConnectionKind,
   HermesConnectionSettings,
   HermesEndpointMode,
+  VoiceHotkey,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings,
   MemoryContext,
   MonitoringContextPayload,
-  JournalMonitoringSignal
+  JournalMonitoringSignal,
+  OcrRegionProfileSettings,
+  VoiceSettings
 } from '../shared/types';
 
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
@@ -21,6 +24,21 @@ const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
     redactBalances: false,
     redactUsernames: false,
     redactAmounts: false
+  }
+};
+export const DEFAULT_OCR_REGION_PROFILE: OcrRegionProfileSettings = {
+  overlayEnabled: true,
+  orderPanel: {
+    left: 0.58,
+    top: 0.03,
+    width: 0.39,
+    height: 0.94
+  },
+  chartZone: {
+    left: 0.03,
+    top: 0.03,
+    width: 0.54,
+    height: 0.58
   }
 };
 
@@ -132,12 +150,51 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
   };
 }
 
+export function assertVoiceSettings(input: unknown): { enabled: boolean; hotkey: VoiceHotkey; speakReplies: boolean } {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Voice settings payload is required.');
+  }
+
+  const record = input as Partial<VoiceSettings>;
+
+  return {
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
+    hotkey: parseVoiceHotkey(record.hotkey),
+    speakReplies: typeof record.speakReplies === 'boolean' ? record.speakReplies : false
+  };
+}
+
+export function assertOcrRegionProfileSettings(input: unknown): OcrRegionProfileSettings {
+  if (!input || typeof input !== 'object') {
+    throw new Error('OCR region profile payload is required.');
+  }
+
+  const candidate = input as Partial<OcrRegionProfileSettings>;
+
+  return {
+    overlayEnabled:
+      typeof candidate.overlayEnabled === 'boolean'
+        ? candidate.overlayEnabled
+        : DEFAULT_OCR_REGION_PROFILE.overlayEnabled,
+    orderPanel: assertNormalizedRegionRect(candidate.orderPanel, DEFAULT_OCR_REGION_PROFILE.orderPanel, 'orderPanel'),
+    chartZone: assertNormalizedRegionRect(candidate.chartZone, DEFAULT_OCR_REGION_PROFILE.chartZone, 'chartZone')
+  };
+}
+
 export function isConnectionKind(value: unknown): value is HermesConnectionKind {
   return value === 'local' || value === 'hosted' || value === 'custom';
 }
 
 export function isEndpointMode(value: unknown): value is HermesEndpointMode {
   return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom';
+}
+
+function parseVoiceHotkey(value: unknown): VoiceHotkey {
+  if (value === 'space' || value === 'alt-space' || value === 'ctrl-space' || value === 'cmd-space') {
+    return value;
+  }
+
+  return 'space';
 }
 
 function parsePrivacySettings(value: unknown): PrivacySettings {
@@ -278,6 +335,59 @@ function isJournalMonitoringSignal(value: unknown): value is JournalMonitoringSi
     typeof signal.detectedAt === 'string' &&
     (signal.message === undefined || typeof signal.message === 'string')
   );
+}
+
+function assertNormalizedRegionRect(
+  value: unknown,
+  fallback: OcrRegionProfileSettings['orderPanel'],
+  fieldName: string
+): OcrRegionProfileSettings['orderPanel'] {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`OCR region profile ${fieldName} rectangle is required.`);
+  }
+
+  const candidate = value as Partial<OcrRegionProfileSettings['orderPanel']>;
+  const left = clampNormalizedComponent(candidate.left, fallback.left, `${fieldName}.left`);
+  const top = clampNormalizedComponent(candidate.top, fallback.top, `${fieldName}.top`);
+  const width = clampNormalizedDimension(candidate.width, fallback.width, `${fieldName}.width`);
+  const height = clampNormalizedDimension(candidate.height, fallback.height, `${fieldName}.height`);
+
+  if (left + width > 1.0001) {
+    throw new Error(`OCR region profile ${fieldName} exceeds horizontal bounds.`);
+  }
+
+  if (top + height > 1.0001) {
+    throw new Error(`OCR region profile ${fieldName} exceeds vertical bounds.`);
+  }
+
+  return {
+    left: roundNormalized(left),
+    top: roundNormalized(top),
+    width: roundNormalized(width),
+    height: roundNormalized(height)
+  };
+}
+
+function clampNormalizedComponent(value: unknown, fallback: number, field: string): number {
+  const nextValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (nextValue < 0 || nextValue > 1) {
+    throw new Error(`OCR region profile ${field} must be between 0 and 1.`);
+  }
+
+  return nextValue;
+}
+
+function clampNormalizedDimension(value: unknown, fallback: number, field: string): number {
+  const nextValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (nextValue <= 0 || nextValue > 1) {
+    throw new Error(`OCR region profile ${field} must be greater than 0 and at most 1.`);
+  }
+
+  return nextValue;
+}
+
+function roundNormalized(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 
 export function estimateBase64Bytes(dataUrl: string): number {

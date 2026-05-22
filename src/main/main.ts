@@ -1,13 +1,24 @@
-import { app, BrowserWindow, clipboard, ipcMain, type Tray } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, type Tray } from 'electron';
 
 import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
-import { assertAskHermesInput, assertHermesConnection } from './inputValidation';
+import {
+  assertAskHermesInput,
+  assertHermesConnection,
+  assertOcrRegionProfileSettings,
+  assertVoiceSettings,
+  DEFAULT_OCR_REGION_PROFILE
+} from './inputValidation';
+import { extractClipboardSignalsFromText } from './monitoringSignals';
+import { closeOcrWorker, runOcrOnImageDataUrl, type OcrRegion } from './ocr';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
 import type {
   MonitoringSignal,
-  MonitoringStatus
+  MonitoringStatus,
+  OcrContextMode,
+  OcrRegionProfileSettings,
+  VoiceSettings
 } from '../shared/types';
 
 let coachWindow: BrowserWindow | undefined;
@@ -16,8 +27,31 @@ let isQuitting = false;
 let isArmed = false;
 let watchClipboard = false;
 let watchOCR = false;
+let ocrContextMode: OcrContextMode = 'full-window';
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  enabled: false,
+  hotkey: 'space',
+  speakReplies: false
+};
+let activeVoiceSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;
+let activeVoiceShortcut: string | null = null;
+let activeOcrRegionProfile: OcrRegionProfileSettings = DEFAULT_OCR_REGION_PROFILE;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
+let lastOCRImageDataUrl = '';
+let monitorSourceId: string | undefined;
+interface NormalizedOcrRegionProfile {
+  id: string;
+  label: string;
+  rectangle?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}
+
+const ocrRegionProfiles = new Map<string, NormalizedOcrRegionProfile[]>();
 const recentMonitorSignals = new Map<string, number>();
 let isWindowVisible = false;
 
@@ -101,7 +135,8 @@ function sendRendererCommand(
     | 'coach:open-settings'
     | 'coach:set-armed'
     | 'coach:monitor-signal'
-    | 'coach:monitor-status',
+    | 'coach:monitor-status'
+    | 'coach:voice-hotkey',
   payload?: unknown,
   reveal = true
 ): void {
@@ -120,6 +155,47 @@ function sendRendererCommand(
   }
 
   contents.send(channel, payload);
+}
+
+function voiceHotkeyToAccelerator(hotkey: VoiceSettings['hotkey']): string {
+  switch (hotkey) {
+    case 'alt-space':
+      return 'Alt+Space';
+    case 'ctrl-space':
+      return 'Control+Space';
+    case 'cmd-space':
+      return 'CommandOrControl+Space';
+    default:
+      return 'Space';
+  }
+}
+
+function applyVoiceShortcut(settings: VoiceSettings): void {
+  if (activeVoiceShortcut) {
+    globalShortcut.unregister(activeVoiceShortcut);
+    activeVoiceShortcut = null;
+  }
+
+  if (!settings.enabled) {
+    return;
+  }
+
+  const accelerator = voiceHotkeyToAccelerator(settings.hotkey);
+  const registered = globalShortcut.register(accelerator, () => {
+    sendRendererCommand('coach:voice-hotkey', undefined, false);
+  });
+
+  if (registered) {
+    activeVoiceShortcut = accelerator;
+    return;
+  }
+
+  console.warn('Failed to register voice hotkey accelerator', accelerator);
+}
+
+function setVoiceSettings(settings: unknown): void {
+  activeVoiceSettings = assertVoiceSettings(settings);
+  applyVoiceShortcut(activeVoiceSettings);
 }
 
 function registerIpcHandlers(): void {
@@ -188,25 +264,84 @@ function registerIpcHandlers(): void {
     syncMonitorMode();
     sendMonitorStatus(watchOCR);
   });
+
+  ipcMain.handle('coach:set-ocr-context-mode', (_event, mode: unknown) => {
+    if (mode !== 'full-window' && mode !== 'order-panel' && mode !== 'chart-order-panel') {
+      throw new Error('OCR context mode is invalid.');
+    }
+
+    ocrContextMode = mode;
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+    if (watchOCR) {
+      sendMonitorStatus(true, {
+        message: `OCR monitoring mode updated: ${formatOcrContextMode(ocrContextMode)}.`
+      });
+    }
+  });
+
+  ipcMain.handle('coach:set-ocr-region-profile', (_event, profile: unknown) => {
+    activeOcrRegionProfile = assertOcrRegionProfileSettings(profile);
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+
+    if (watchOCR) {
+      sendMonitorStatus(true, {
+        message: `OCR region profile updated (${formatOcrContextMode(ocrContextMode)}).`
+      });
+    }
+  });
+
+  ipcMain.handle('coach:recalibrate-ocr', () => {
+    ocrRegionProfiles.clear();
+    lastOCRImageDataUrl = '';
+    sendMonitorStatus(watchOCR, {
+      message: watchOCR
+        ? `OCR monitoring recalibrated (${formatOcrContextMode(ocrContextMode)}).`
+        : 'OCR monitoring currently inactive.'
+    });
+  });
+
+  ipcMain.handle('coach:set-monitor-source', (_event, sourceId: unknown) => {
+    if (typeof sourceId !== 'undefined' && typeof sourceId !== 'string') {
+      throw new Error('Monitor source id must be a string.');
+    }
+
+    monitorSourceId = typeof sourceId === 'string' && sourceId.trim() ? sourceId.trim() : undefined;
+    lastOCRImageDataUrl = '';
+    ocrRegionProfiles.clear();
+    if (watchOCR) {
+      sendMonitorStatus(true);
+    }
+    if (!monitorSourceId) {
+      sendMonitorStatus(false, { status: 'not-configured', message: 'OCR monitoring requires a selected capture target.' });
+    }
+  });
+
+  ipcMain.handle('coach:set-voice-settings', (_event, settings: unknown) => {
+    setVoiceSettings(settings);
+  });
 }
 
 function sendMonitorSignal(signal: MonitoringSignal): void {
   sendRendererCommand('coach:monitor-signal', signal, false);
 }
 
-function sendMonitorStatus(enabled: boolean): void {
-  const status: MonitoringStatus = enabled
-    ? {
-        source: 'ocr',
-        status: 'active',
-        message:
-          'OCR monitoring is enabled. Local OCR extraction is not yet connected in this build; currently using placeholder mode.'
-    }
-    : {
-        source: 'ocr',
-        status: 'inactive',
-        message: 'OCR monitoring currently inactive.'
-      };
+function sendMonitorStatus(
+  enabled: boolean,
+  options: { status?: MonitoringStatus['status']; message?: string } = {}
+): void {
+  const status: MonitoringStatus = {
+    source: 'ocr',
+    status: options.status ?? (enabled ? 'active' : 'inactive'),
+    message:
+      options.message ??
+      (enabled
+        ? monitorSourceId
+          ? 'OCR monitoring is enabled. Local OCR extraction is running on the selected window.'
+          : 'OCR monitoring is enabled but no monitoring source is selected.'
+        : 'OCR monitoring currently inactive.')
+  };
 
   sendRendererCommand('coach:monitor-status', status, false);
 }
@@ -257,7 +392,7 @@ function pruneMonitorSignalState(now: number): void {
   }
 }
 
-function captureMonitoringSignals(): void {
+async function captureMonitoringSignals(): Promise<void> {
   if (!isArmed) {
     clearMonitorTimer();
     return;
@@ -271,8 +406,209 @@ function captureMonitoringSignals(): void {
   }
 
   if (watchOCR) {
-    sendMonitorStatus(true);
+    await captureOcrSignals(now);
   }
+}
+
+async function captureOcrSignals(now: number): Promise<void> {
+  if (!monitorSourceId) {
+    sendMonitorStatus(false, {
+      status: 'not-configured',
+      message: 'OCR monitoring is enabled, but no capture target is selected for monitoring.'
+    });
+
+    return;
+  }
+
+  try {
+    const imageDataUrl = await captureWindowSource(monitorSourceId);
+    if (imageDataUrl === lastOCRImageDataUrl) {
+      return;
+    }
+
+    const preprocessedImageDataUrl = preprocessOcrImageDataUrl(imageDataUrl);
+    const profileKey = `${monitorSourceId}:${ocrContextMode}`;
+    let normalizedProfile = ocrRegionProfiles.get(profileKey);
+    if (!normalizedProfile || normalizedProfile.length === 0) {
+      normalizedProfile = deriveDefaultNormalizedOcrProfile(ocrContextMode);
+      ocrRegionProfiles.set(profileKey, normalizedProfile);
+    }
+    let ocrRegions = materializeOcrRegions(preprocessedImageDataUrl, normalizedProfile);
+
+    const ocrResult = await runOcrOnImageDataUrl(preprocessedImageDataUrl, now, ocrRegions);
+    if (ocrResult.confidence === 'low') {
+      const recalibratedProfile = deriveDefaultNormalizedOcrProfile(ocrContextMode);
+      ocrRegionProfiles.set(profileKey, recalibratedProfile);
+      ocrRegions = materializeOcrRegions(preprocessedImageDataUrl, recalibratedProfile);
+    }
+    lastOCRImageDataUrl = imageDataUrl;
+    const nextSignals = ocrResult.signals.filter((signal) => shouldPublishSignal(signal));
+
+    for (const signal of nextSignals) {
+      sendMonitorSignal(signal);
+    }
+
+    sendMonitorStatus(true, {
+      message: `OCR monitoring active (${formatOcrContextMode(ocrContextMode)}, ${ocrResult.confidence}-confidence, ${ocrResult.text.length} chars, ${nextSignals.length} signal(s)).`
+    });
+  } catch (error) {
+    sendMonitorStatus(false, {
+      status: 'inactive',
+      message: `OCR monitoring error: ${error instanceof Error ? error.message : 'unknown OCR failure.'}`
+    });
+  }
+}
+
+function formatOcrContextMode(mode: OcrContextMode): string {
+  if (mode === 'order-panel') {
+    return 'order-panel';
+  }
+
+  if (mode === 'chart-order-panel') {
+    return 'chart+order';
+  }
+
+  return 'full-window';
+}
+
+function deriveDefaultNormalizedOcrProfile(mode: OcrContextMode): NormalizedOcrRegionProfile[] {
+  if (mode === 'order-panel') {
+    return [
+      {
+        id: 'order-panel',
+        label: 'Order panel',
+        rectangle: activeOcrRegionProfile.orderPanel
+      }
+    ];
+  }
+
+  if (mode === 'chart-order-panel') {
+    return [
+      {
+        id: 'order-panel',
+        label: 'Order panel',
+        rectangle: activeOcrRegionProfile.orderPanel
+      },
+      {
+        id: 'chart-zone',
+        label: 'Chart and pair zone',
+        rectangle: activeOcrRegionProfile.chartZone
+      }
+    ];
+  }
+
+  return [{ id: 'full-window', label: 'Full window' }];
+}
+
+function materializeOcrRegions(
+  imageDataUrl: string,
+  normalizedProfile: NormalizedOcrRegionProfile[]
+): OcrRegion[] {
+  const image = nativeImage.createFromDataURL(imageDataUrl);
+  const size = image.getSize();
+  const width = size.width;
+  const height = size.height;
+
+  if (width < 20 || height < 20) {
+    return [{ id: 'full-window', label: 'Full window' }];
+  }
+
+  const regions = normalizedProfile
+    .map((entry) =>
+      buildRegion(entry.id, entry.label, entry.rectangle, width, height)
+    )
+    .filter((entry): entry is OcrRegion => Boolean(entry));
+
+  return regions.length > 0 ? regions : [{ id: 'full-window', label: 'Full window' }];
+}
+
+function preprocessOcrImageDataUrl(imageDataUrl: string): string {
+  const source = nativeImage.createFromDataURL(imageDataUrl);
+  const size = source.getSize();
+  if (size.width <= 0 || size.height <= 0) {
+    return imageDataUrl;
+  }
+
+  const scaleFactor = Math.min(1.6, Math.max(1, 1300 / Math.max(size.width, size.height)));
+  const resized = scaleFactor > 1
+    ? source.resize({
+        width: Math.max(10, Math.round(size.width * scaleFactor)),
+        height: Math.max(10, Math.round(size.height * scaleFactor))
+      })
+    : source;
+
+  const nextSize = resized.getSize();
+  const bitmap = Buffer.from(resized.toBitmap());
+  for (let index = 0; index < bitmap.length; index += 4) {
+    const blue = bitmap[index];
+    const green = bitmap[index + 1];
+    const red = bitmap[index + 2];
+    const grayscale = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    const contrasted = ((grayscale - 128) * 1.28) + 128;
+    const thresholded = contrasted > 122 ? 255 : 0;
+
+    bitmap[index] = thresholded;
+    bitmap[index + 1] = thresholded;
+    bitmap[index + 2] = thresholded;
+  }
+
+  const processed = nativeImage.createFromBitmap(bitmap, {
+    width: nextSize.width,
+    height: nextSize.height
+  });
+
+  return processed.toDataURL();
+}
+
+function buildRegion(
+  id: string,
+  label: string,
+  input:
+    | {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      }
+    | undefined,
+  maxWidth: number,
+  maxHeight: number
+): OcrRegion | undefined {
+  if (!input) {
+    return {
+      id,
+      label
+    };
+  }
+
+  const pixelRect = {
+    left: Math.round(maxWidth * input.left),
+    top: Math.round(maxHeight * input.top),
+    width: Math.round(maxWidth * input.width),
+    height: Math.round(maxHeight * input.height)
+  };
+
+  const left = Math.max(0, Math.min(pixelRect.left, maxWidth - 1));
+  const top = Math.max(0, Math.min(pixelRect.top, maxHeight - 1));
+  const maxAllowedWidth = Math.max(1, maxWidth - left);
+  const maxAllowedHeight = Math.max(1, maxHeight - top);
+  const width = Math.min(Math.max(10, pixelRect.width), maxAllowedWidth);
+  const height = Math.min(Math.max(10, pixelRect.height), maxAllowedHeight);
+
+  if (width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return {
+    id,
+    label,
+    rectangle: {
+      left,
+      top,
+      width,
+      height
+    }
+  };
 }
 
 function readClipboardSignals(now: number): MonitoringSignal[] {
@@ -290,7 +626,7 @@ function readClipboardSignals(now: number): MonitoringSignal[] {
   }
 
   lastClipboardText = text;
-  const rawSignals = extractClipboardSignals(text, now);
+  const rawSignals = extractClipboardSignalsFromText(text, now);
   const nextSignals = rawSignals.filter((signal) => shouldPublishSignal(signal));
   if (nextSignals.length === 0) {
     return [];
@@ -313,92 +649,6 @@ function shouldPublishSignal(signal: MonitoringSignal): boolean {
   return true;
 }
 
-function extractClipboardSignals(text: string, now: number): MonitoringSignal[] {
-  const normalized = text.trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const signals = new Map<string, MonitoringSignal>();
-  for (const rawMatch of normalized.matchAll(/0x[a-fA-F0-9]{64}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'evm-tx-hash', 'high'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/0x[a-fA-F0-9]{40}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'evm-address', 'medium'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/\b[1-9A-HJ-NP-Za-km-z]{40,88}\b/g)) {
-    addSignal(signals, normalizeMatch(rawMatch[0], 'sol-address', 'medium'));
-  }
-
-  for (const rawMatch of normalized.matchAll(/https?:\/\/[^\s]+/g)) {
-    const rawUrl = rawMatch[0];
-    const sanitizedUrl = sanitizeUrlCandidate(rawUrl);
-    if (!sanitizedUrl) {
-      continue;
-    }
-
-    const kind: MonitoringSignal['kind'] =
-      /dextools|dexscreener|birdeye|solscan|etherscan|solana|solana\.fm|raydium|meteora/.test(sanitizedUrl)
-        ? 'dex-url'
-        : 'wallet-address';
-    const message = kind === 'dex-url' ? 'Detected trading-context URL' : undefined;
-    addSignal(signals, {
-      source: 'clipboard',
-      kind,
-      value: sanitizedUrl,
-      maskedValue: sanitizeUrlCandidate(sanitizedUrl),
-      confidence: kind === 'dex-url' ? 'medium' : 'low',
-      message
-    });
-  }
-
-  return [...signals.values()].map((value) => ({
-    ...value,
-    detectedAt: new Date(now).toISOString()
-  }));
-
-  function addSignal(
-    target: Map<string, Omit<MonitoringSignal, 'detectedAt'>>,
-    signal: Omit<MonitoringSignal, 'detectedAt'>
-  ): void {
-    if (target.has(signal.value.toLowerCase())) {
-      return;
-    }
-
-    target.set(signal.value.toLowerCase(), signal);
-  }
-
-  function normalizeMatch(value: string, kind: MonitoringSignal['kind'], confidence: MonitoringSignal['confidence']): Omit<MonitoringSignal, 'detectedAt'> {
-    return {
-      source: 'clipboard',
-      kind,
-      value,
-      maskedValue: maskValue(value),
-      confidence
-    };
-  }
-}
-
-function sanitizeUrlCandidate(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname;
-    return `${host}${pathname}`.slice(0, 120);
-  } catch {
-    return rawUrl.slice(0, 120);
-  }
-}
-
-function maskValue(value: string): string {
-  if (value.length <= 12) {
-    return value;
-  }
-
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
-}
 
 app.whenReady().then(() => {
   registerIpcHandlers();
@@ -438,4 +688,6 @@ app.on('window-all-closed', () => undefined);
 app.on('will-quit', () => {
   clearMonitorTimer();
   coachTray?.destroy();
+  globalShortcut.unregisterAll();
+  void closeOcrWorker();
 });

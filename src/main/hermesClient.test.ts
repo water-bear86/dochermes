@@ -200,7 +200,67 @@ describe('parseHermesResponse', () => {
   it('rejects unknown response shapes with a useful error', () => {
     expect(() => parseHermesResponse({ ok: true })).toThrow('Hermes gateway response did not include readable text');
   });
-});
+  });
+
+  it('includes monitoring signals in the compact prompt context for openai-chat payloads', async () => {
+    let capturedPrompt = '';
+
+    await askHermes(
+      askInput({
+        monitoringContext: {
+          localWarnings: [],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              confidence: 'high',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'wallet detected'
+            } as JournalMonitoringSignal
+          ],
+          warningEvidence: [
+            {
+              warningText: 'recent duplicate',
+              source: 'clipboard',
+              detail: 'Seen three times this minute',
+              confidence: 'medium',
+              detectedAt: '2026-05-21T12:01:00.000Z'
+            }
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'low',
+              provenance: 'clipboard',
+              tokenHint: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              reason: 'low confidence parse from copy event'
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const message = (body.messages as Array<{ content?: unknown }>)[1];
+        if (!message || typeof message !== 'object' || !('content' in message) || !Array.isArray(message.content)) {
+          throw new Error('Malformed request');
+        }
+
+        const textItem = (message.content as Array<{ type: string; text?: string }>).find((item) => item.type === 'text');
+        capturedPrompt = textItem?.text ?? '';
+        return jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+      }
+    );
+
+    expect(capturedPrompt).toContain('"signals"');
+    expect(capturedPrompt).toContain('"source":"clipboard"');
+    expect(capturedPrompt).toContain('"kind":"evm-address"');
+    expect(capturedPrompt).toContain('"confidence":"high"');
+    expect(capturedPrompt).toContain('"maskedValue":"0xAbCdEf0123456789abcdef0123456789abcdef0123"');
+    expect(capturedPrompt).toContain('"warningEvidence"');
+    expect(capturedPrompt).toContain('"sourceQuality"');
+    expect(capturedPrompt).toContain('Monitoring summary (compact provenance):');
+  });
 
 describe('probeHermesConnection', () => {
   it('probes local candidates and reports a connected image-capable OpenAI adapter', async () => {
@@ -440,6 +500,15 @@ describe('probeHermesConnection', () => {
               detectedAt: '2026-05-21T12:00:00.000Z',
               message: 'user seen'
             } as JournalMonitoringSignal
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'clipboard',
+              tokenHint: '0x1111111111111111111111111111111111111111',
+              reason: 'Repeated copied token with prior low outcome'
+            }
           ]
         }
       }),
@@ -459,6 +528,123 @@ describe('probeHermesConnection', () => {
     expect(capturedPrompt).toContain('[redacted address]');
     expect(capturedPrompt).toContain('[redacted username]');
     expect(capturedPrompt).toContain('[redacted amount]');
+    expect(capturedPrompt).not.toContain('1111111111111111111111111111111111111111');
+  });
+
+  it('forces full redaction for maximum privacy regardless of redaction toggles', async () => {
+    let capturedPrompt = '';
+
+    await askHermes(
+      askInput({
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: false,
+            redactBalances: false,
+            redactUsernames: false,
+            redactAmounts: false
+          }
+        },
+        question: 'Enter 12 SOL with @alpha bot address 0xAbCdEf0123456789abcdef0123456789abcdef0123',
+        memoryContext: {
+          matchedPatterns: [
+            {
+              name: 'pattern-1',
+              evidenceCount: 2,
+              summary: 'Wallet 0xAbCdEf0123456789abcdef0123456789abcdef0123 appeared in prior notes.',
+              recommendation: 'Wait for confirmation.'
+            }
+          ],
+          recentNotes: []
+        },
+        monitoringContext: {
+          localWarnings: ['Potential immediate entry around 0xAbCdEf0123456789abcdef0123456789abcdef0123'],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'evm-address',
+              maskedValue: '0xAbCdEf0123456789abcdef0123456789abcdef0123',
+              confidence: 'high',
+              detectedAt: '2026-05-21T12:00:00.000Z',
+              message: 'wallet detected'
+            } as JournalMonitoringSignal
+          ],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'question',
+              reason: `Repeatedly pasted wallet 0xAbCdEf0123456789abcdef0123456789abcdef0123`,
+              tokenHint: '0xAbCdEf0123456789abcdef0123456789abcdef0123'
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const message = (body.messages as Array<{ content?: unknown }>)[1];
+        if (!message || typeof message !== 'object' || !('content' in message) || !Array.isArray(message.content)) {
+          throw new Error('Malformed request');
+        }
+
+        const textItem = (message.content as Array<{ type: string; text?: string }>).find((item) => item.type === 'text');
+        capturedPrompt = textItem?.text ?? '';
+        return jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+      }
+    );
+
+    expect(capturedPrompt).toContain('[redacted address]');
+    expect(capturedPrompt).toContain('[redacted amount]');
+    expect(capturedPrompt).toContain('[redacted username]');
+    expect(capturedPrompt).not.toContain('0xAbCdEf0123456789abcdef0123456789abcdef0123');
+  });
+
+  it('redacts source-quality token hints before sending legacy payloads', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const tokenHint = '0x1111111111111111111111111111111111111111';
+
+    await askHermes(
+      askInput({
+        connection: defaultConnection({
+          connectionKind: 'custom',
+          endpointMode: 'legacy-coach'
+        }),
+        privacy: {
+          preset: 'full',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: true,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
+        monitoringContext: {
+          localWarnings: ['Potential duplicate token'],
+          signals: [],
+          sourceQuality: [
+            {
+              category: 'token-address',
+              confidence: 'high',
+              provenance: 'Question text',
+              tokenHint,
+              reason: `Observed copied token ${tokenHint} from prior context`
+            }
+          ]
+        }
+      }),
+      async (_url, init) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ answer: 'ok' });
+      }
+    );
+
+    const monitoringContext = capturedBody?.monitoringContext as Record<string, unknown> | undefined;
+    const sourceQuality = monitoringContext?.sourceQuality as Array<Record<string, unknown>> | undefined;
+    const finding = sourceQuality?.[0];
+
+    expect(finding?.tokenHint).not.toBe(tokenHint);
+    expect(finding?.tokenHint).toContain('[redacted address]');
+    expect(String(finding?.reason)).not.toContain(tokenHint);
   });
 
   it('supports explicit legacy /coach probes', async () => {

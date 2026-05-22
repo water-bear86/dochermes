@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JournalEntry, WarningFeedbackRecord } from '../shared/types';
+import type { JournalEntry, MemoryPostmortemSummary, WarningFeedbackRecord } from '../shared/types';
 import { buildMemoryContext } from './memoryContext';
 
 const earlyLossEntry: JournalEntry = {
@@ -35,6 +35,24 @@ const confirmationEntry: JournalEntry = {
     captured: true,
     imageStored: false
   }
+};
+
+const postmortemSummary: MemoryPostmortemSummary = {
+  id: 'summary-1',
+  generatedAt: '2026-05-20T12:00:00.000Z',
+  sessionId: '2026-05-18',
+  sessionLabel: '2026-05-18',
+  compactSummary: 'Session compact summary',
+  eventCount: 3,
+  taggedEventCount: 1,
+  tagCounts: {
+    'good-skip': 1,
+    'bad-entry': 0,
+    'ignored-warning': 0,
+    'followed-plan': 0,
+    'note-for-next-time': 0
+  },
+  notableRisks: ['action:bad-entry']
 };
 
 describe('buildMemoryContext', () => {
@@ -92,6 +110,13 @@ describe('buildMemoryContext', () => {
     expect(context.matchedPatterns).toEqual([]);
     expect(context.tradeBehaviorStats).toBeUndefined();
     expect(context.recentNotes).toEqual([]);
+  });
+
+  it('includes recent postmortem summaries in memory context', () => {
+    const context = buildMemoryContext([earlyLossEntry], 'Should I enter immediately?', [], [postmortemSummary]);
+
+    expect(context.postmortemSummaries).toEqual([postmortemSummary]);
+    expect(context.tradeHistorySummary?.totalTrades).toBe(1);
   });
 
   it('suppresses early-entry pattern matching for false-positive feedback', () => {

@@ -409,15 +409,69 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
     '- captureRequiresUserSelection: true'
   ];
 
-  if (input.monitoringContext && input.monitoringContext.signals.length > 0) {
-    lines.push('', 'Monitoring summary:', JSON.stringify(input.monitoringContext));
+  if (
+    input.monitoringContext &&
+    (input.monitoringContext.localWarnings.length > 0 ||
+      input.monitoringContext.signals.length > 0 ||
+      (input.monitoringContext.warningEvidence?.length ?? 0) > 0 ||
+      (input.monitoringContext.sourceQuality?.length ?? 0) > 0)
+  ) {
+    lines.push('', 'Monitoring summary (compact provenance):', summarizeMonitoringContext(input.monitoringContext));
   }
 
-  if (input.memoryContext && (input.memoryContext.matchedPatterns.length > 0 || input.memoryContext.recentNotes.length > 0)) {
+  if (
+    input.memoryContext &&
+    (input.memoryContext.matchedPatterns.length > 0 ||
+      input.memoryContext.recentNotes.length > 0 ||
+      (input.memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
+      input.memoryContext.tradeHistorySummary !== undefined ||
+      (input.memoryContext.personalRules?.matchedRules.length ?? 0) > 0)
+  ) {
     lines.push('', 'Compact personal memory context:', JSON.stringify(input.memoryContext));
   }
 
   return lines.join('\n');
+}
+
+function summarizeMonitoringContext(context: MonitoringContextPayload): string {
+  const summary: {
+    localWarnings: string[];
+    signals?: Array<{ source: string; kind: string; confidence: string; maskedValue: string; message?: string }>;
+    warningEvidence?: Array<{ warningText: string; source: string; confidence: string; detail?: string; detectedAt?: string }>;
+    sourceQuality?: Array<{ category: string; confidence: string; provenance: string }>;
+  } = {
+    localWarnings: context.localWarnings
+  };
+
+  if (context.signals.length > 0) {
+    summary.signals = context.signals.slice(0, 6).map((signal) => ({
+      source: signal.source,
+      kind: signal.kind,
+      confidence: signal.confidence,
+      maskedValue: signal.maskedValue,
+      ...(signal.message ? { message: signal.message } : {})
+    }));
+  }
+
+  if (context.warningEvidence && context.warningEvidence.length > 0) {
+    summary.warningEvidence = context.warningEvidence.slice(0, 12).map((entry) => ({
+      warningText: entry.warningText,
+      source: entry.source,
+      confidence: entry.confidence,
+      ...(entry.detail ? { detail: entry.detail } : {}),
+      ...(entry.detectedAt ? { detectedAt: entry.detectedAt } : {})
+    }));
+  }
+
+  if ((context.sourceQuality?.length ?? 0) > 0) {
+    summary.sourceQuality = context.sourceQuality!.slice(0, 6).map((entry) => ({
+      category: entry.category,
+      confidence: entry.confidence,
+      provenance: entry.provenance
+    }));
+  }
+
+  return JSON.stringify(summary);
 }
 
 function normalizePrivacySettings(value: PrivacySettings | undefined): PrivacySettings {
@@ -450,15 +504,24 @@ function normalizePrivacyRedaction(rawValue: PrivacyRedactionSettings | undefine
 
 function buildPrivacyAwarePayloadInput(input: AskHermesInput): BuildHermesPayloadInput {
   const privacy = normalizePrivacySettings(input.privacy);
+  const redaction =
+    privacy.preset === 'maximum'
+      ? {
+          redactAddresses: true,
+          redactBalances: true,
+          redactUsernames: true,
+          redactAmounts: true
+        }
+      : privacy.redaction;
   return {
-    question: applyPrivacyRedaction(input.question, privacy.redaction).trim(),
+    question: applyPrivacyRedaction(input.question, redaction).trim(),
     screenshotDataUrl:
       privacy.preset === 'maximum' ? MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL : input.screenshotDataUrl,
     selectedWindow: maybeSanitizeSelectedWindow(input.selectedWindow, privacy.preset),
-    memoryContext: privacy.preset === 'maximum' ? undefined : applyMemoryContextRedaction(input.memoryContext, privacy.redaction),
+    memoryContext: privacy.preset === 'maximum' ? undefined : applyMemoryContextRedaction(input.memoryContext, redaction),
     monitoringContext: applyMonitoringContext(
       maybeRestrictMonitoringContext(input.monitoringContext, privacy.preset),
-      privacy.redaction
+      redaction
     )
   };
 }
@@ -503,10 +566,33 @@ function applyMonitoringContext(
 
   return {
     localWarnings: monitoringContext.localWarnings.map((warning) => applyPrivacyRedaction(warning, redaction)),
+    ...(monitoringContext.warningEvidence
+      ? {
+          warningEvidence: monitoringContext.warningEvidence.map((entry) => ({
+            warningText: entry.warningText,
+            source: applyPrivacyRedaction(entry.source, redaction),
+            detail: applyPrivacyRedaction(entry.detail, redaction),
+            confidence: entry.confidence,
+            ...(entry.provenance ? { provenance: applyPrivacyRedaction(entry.provenance, redaction) } : {}),
+            ...(entry.detectedAt ? { detectedAt: entry.detectedAt } : {})
+          }))
+        }
+      : {}),
     signals: monitoringContext.signals.map((signal) => ({
       ...signal,
       maskedValue: applyPrivacyRedaction(signal.maskedValue, redaction)
-    }))
+    })),
+        ...(monitoringContext.sourceQuality
+          ? {
+              sourceQuality: monitoringContext.sourceQuality.map((finding) => ({
+                category: finding.category,
+                confidence: finding.confidence,
+                provenance: finding.provenance,
+                reason: applyPrivacyRedaction(finding.reason, redaction),
+                ...(finding.tokenHint ? { tokenHint: applyPrivacyRedaction(finding.tokenHint, redaction) } : {})
+              }))
+            }
+          : {})
   };
 }
 
@@ -531,7 +617,45 @@ function applyMemoryContextRedaction(
       response: applyPrivacyRedaction(note.response, redaction),
       notes: applyPrivacyRedaction(note.notes, redaction),
       selectedWindowName: note.selectedWindowName
-    }))
+    })),
+    ...(memoryContext.postmortemSummaries
+      ? {
+          postmortemSummaries: memoryContext.postmortemSummaries.map((summary) => ({
+            id: summary.id,
+            generatedAt: summary.generatedAt,
+            sessionId: summary.sessionId,
+            sessionLabel: applyPrivacyRedaction(summary.sessionLabel, redaction),
+            compactSummary: applyPrivacyRedaction(summary.compactSummary, redaction),
+            eventCount: summary.eventCount,
+            taggedEventCount: summary.taggedEventCount,
+            tagCounts: summary.tagCounts,
+            notableRisks: summary.notableRisks.map((risk) => applyPrivacyRedaction(risk, redaction))
+          }))
+        }
+      : {}),
+    ...(memoryContext.tradeHistorySummary
+      ? {
+          tradeHistorySummary: memoryContext.tradeHistorySummary
+        }
+      : {}),
+    ...(memoryContext.personalRules
+      ? {
+          personalRules: {
+            totalRules: memoryContext.personalRules.totalRules,
+            activeRules: memoryContext.personalRules.activeRules,
+            matchedRules: memoryContext.personalRules.matchedRules.map((match) => ({
+              ruleId: match.ruleId,
+              text: applyPrivacyRedaction(match.text, redaction),
+              policyLevel: match.policyLevel,
+              warningText: applyPrivacyRedaction(match.warningText, redaction),
+              source: applyPrivacyRedaction(match.source, redaction),
+              detail: applyPrivacyRedaction(match.detail, redaction),
+              confidence: match.confidence,
+              provenance: applyPrivacyRedaction(match.provenance, redaction)
+            }))
+          }
+        }
+      : {})
   };
 }
 
