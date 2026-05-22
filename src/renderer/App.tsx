@@ -1845,6 +1845,16 @@ export function App(): ReactElement {
     setError('');
   }, []);
 
+  const dismissMonitorSignal = useCallback((signal: MonitoringSignal) => {
+    setMonitorSignals((current) =>
+      current.filter((entry) => !isSameMonitoringSignal(entry, signal))
+    );
+  }, []);
+
+  const isSameMonitoringSignal = useCallback((left: MonitoringSignal, right: MonitoringSignal): boolean => {
+    return left.kind === right.kind && left.source === right.source && left.value === right.value && left.detectedAt === right.detectedAt;
+  }, []);
+
   const runHermesHeartbeat = useCallback(async () => {
     if (heartbeatInFlightRef.current) {
       return;
@@ -3082,9 +3092,14 @@ export function App(): ReactElement {
                   </div>
                 </div>
                 {signal.source === 'clipboard' ? (
-                  <button type="button" className="ghost" onClick={() => appendSignalToQuestion(signal)}>
-                    Use
-                  </button>
+                  <div className="button-row">
+                    <button type="button" className="ghost" onClick={() => appendSignalToQuestion(signal)}>
+                      Use
+                    </button>
+                    <button type="button" className="ghost" onClick={() => dismissMonitorSignal(signal)}>
+                      Dismiss
+                    </button>
+                  </div>
                 ) : null}
               </li>
             ))}
