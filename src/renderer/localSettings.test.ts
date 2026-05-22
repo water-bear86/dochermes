@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_RISK_BUDGET_SETTINGS,
+  DEFAULT_VOICE_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
   parseLocalSettings,
   serializeLocalSettings
@@ -51,14 +52,19 @@ describe('parseLocalSettings', () => {
           armed: true,
           watchClipboard: true,
           watchOCR: true,
+          voice: {
+            enabled: true,
+            hotkey: 'alt-space',
+            speakReplies: true
+          },
           pairedWindow: {
             id: 'window:42',
             name: 'Trading Terminal',
             kind: 'window'
           }
         })
-      )
-    ).toEqual({
+        )
+      ).toEqual({
       connection: {
         connectionKind: 'hosted',
         endpointMode: 'openai-chat',
@@ -93,6 +99,11 @@ describe('parseLocalSettings', () => {
       armed: true,
       watchClipboard: true,
       watchOCR: true,
+      voice: {
+        enabled: true,
+        hotkey: 'alt-space',
+        speakReplies: true
+      },
       pairedWindow: {
         id: 'window:42',
         name: 'Trading Terminal',
@@ -135,7 +146,8 @@ describe('parseLocalSettings', () => {
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
-      watchOCR: false
+      watchOCR: false,
+      voice: DEFAULT_VOICE_SETTINGS
     });
   });
 
@@ -172,7 +184,8 @@ describe('parseLocalSettings', () => {
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
-      watchOCR: false
+      watchOCR: false,
+      voice: DEFAULT_VOICE_SETTINGS
     });
 
     expect(
@@ -207,7 +220,8 @@ describe('parseLocalSettings', () => {
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
-      watchOCR: false
+      watchOCR: false,
+      voice: DEFAULT_VOICE_SETTINGS
     });
   });
 
@@ -292,13 +306,14 @@ describe('serializeLocalSettings', () => {
             sourceConstraints: DEFAULT_SOURCE_CONSTRAINTS
           },
           coachMode: 'advisory',
-          keepAlwaysOnTop: true,
-          armed: false,
-          watchClipboard: false,
-          watchOCR: false,
-          pairedWindow: {
-            id: 'window:1',
-            name: 'Trading Window',
+      keepAlwaysOnTop: true,
+      armed: false,
+      watchClipboard: false,
+      watchOCR: false,
+      voice: DEFAULT_VOICE_SETTINGS,
+      pairedWindow: {
+        id: 'window:1',
+        name: 'Trading Window',
             kind: 'window'
           }
         })
@@ -338,6 +353,7 @@ describe('serializeLocalSettings', () => {
       armed: false,
       watchClipboard: false,
       watchOCR: false,
+      voice: DEFAULT_VOICE_SETTINGS,
       pairedWindow: {
         id: 'window:1',
         name: 'Trading Window',

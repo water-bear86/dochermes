@@ -20,6 +20,8 @@ const api: CoachBridgeApi & {
   captureWindowSource: (sourceId: string) => ipcRenderer.invoke('window-sources:capture', sourceId) as Promise<string>,
   setWatchClipboard: (enabled: boolean) => ipcRenderer.invoke('coach:set-watch-clipboard', enabled) as Promise<void>,
   setWatchOCR: (enabled: boolean) => ipcRenderer.invoke('coach:set-watch-ocr', enabled) as Promise<void>,
+  setVoiceSettings: (settings: Parameters<CoachBridgeApi['setVoiceSettings']>[0]) =>
+    ipcRenderer.invoke('coach:set-voice-settings', settings) as Promise<void>,
   askHermes: (input: AskHermesInput) => ipcRenderer.invoke('hermes:ask', input) as Promise<string>,
   testHermesConnection: (connection: HermesConnectionSettings) =>
     ipcRenderer.invoke('hermes:test-connection', connection) as Promise<HermesConnectionReport>,
@@ -54,6 +56,11 @@ const api: CoachBridgeApi & {
     const listener = (_event: unknown, status: MonitoringStatus): void => callback(status);
     ipcRenderer.on('coach:monitor-status', listener);
     return () => ipcRenderer.removeListener('coach:monitor-status', listener);
+  },
+  onVoiceHotkey: (callback: () => void) => {
+    const listener = (): void => callback();
+    ipcRenderer.on('coach:voice-hotkey', listener);
+    return () => ipcRenderer.removeListener('coach:voice-hotkey', listener);
   }
 };
 

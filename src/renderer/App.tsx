@@ -54,6 +54,43 @@ import { shouldCaptureWindowForPrivacy } from './requestPolicy';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL } from '../shared/privacy';
 import { buildSessionRiskAssessment } from './sessionRisk';
 
+type SpeechRecognitionResult = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: VoiceRecognitionEvent) => void) | null;
+  onerror: ((event: VoiceRecognitionError) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  abort: () => void;
+};
+
+type WindowWithSpeechSupport = Window & {
+  SpeechRecognition?: {
+    new (): SpeechRecognitionResult;
+  };
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
+type SpeechRecognitionConstructor = {
+  new (): SpeechRecognitionResult;
+};
+
+type VoiceRecognitionEvent = {
+  results: {
+    length: number;
+    [index: number]: {
+      0: {
+        transcript: string;
+      };
+    };
+  };
+};
+
+type VoiceRecognitionError = {
+  error: string;
+};
+
 interface WarningEvidenceEntry {
   source: string;
   detail: string;
@@ -85,6 +122,7 @@ declare global {
       onOpenWindowPicker: (callback: () => void) => () => void;
       onOpenSettings: (callback: () => void) => () => void;
       onArmCoach: (callback: (enabled: boolean) => void) => () => void;
+      onVoiceHotkey: (callback: () => void) => () => void;
       onMonitorSignal: (callback: (signal: MonitoringSignal) => void) => () => void;
       onMonitorStatus: (callback: (status: MonitoringStatus) => void) => () => void;
     };
@@ -184,6 +222,8 @@ export function App(): ReactElement {
     hermesMs?: number;
     totalMs?: number;
   } | undefined>();
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [isSpeechSpeaking, setIsSpeechSpeaking] = useState(false);
   const [requestDiagnostics, setRequestDiagnostics] = useState<HermesRequestDiagnostic[]>(
     () => readRequestDiagnostics(localStorage)
   );
@@ -232,6 +272,16 @@ export function App(): ReactElement {
   const validatedPairRef = useRef<string | undefined>(undefined);
   const heartbeatInFlightRef = useRef(false);
   const sourceContextAutoFillRequestId = useRef<string | undefined>(undefined);
+  const questionRef = useRef('');
+  const speechRecognitionRef = useRef<SpeechRecognitionResult | null>(null);
+  const askWithSourceRef = useRef<(
+    source: WindowSourceOption | undefined,
+    options: {
+      skipRemoteConsent?: boolean;
+      skipPolicyCheck?: boolean;
+    },
+    rawQuestion?: string
+  ) => Promise<void>>(null);
   const bridge = window.hermesCoach;
 
   const hasQuestion = question.trim().length > 0;
@@ -321,6 +371,10 @@ export function App(): ReactElement {
     : 'No structured loss data today';
   const sessionRiskTradeText = `${sessionRiskAssessment.status.tradeCount}/${sessionRiskAssessment.status.maxTradesPerSession}`;
 
+  useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
 
   useEffect(() => {
     const firstFinding = sourceQualityAssessment.findings[0];
@@ -389,6 +443,48 @@ export function App(): ReactElement {
     }));
   }, []);
 
+  const stopSpeechOutput = useCallback(() => {
+    if (!window.speechSynthesis) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    setIsSpeechSpeaking(false);
+  }, []);
+
+  const speakResponse = useCallback((text: string) => {
+    if (!window.speechSynthesis) {
+      return;
+    }
+
+    stopSpeechOutput();
+    const nextUtterance = new SpeechSynthesisUtterance(text);
+    nextUtterance.onstart = () => {
+      setIsSpeechSpeaking(true);
+    };
+    nextUtterance.onend = () => {
+      setIsSpeechSpeaking(false);
+    };
+    nextUtterance.onerror = () => {
+      setIsSpeechSpeaking(false);
+    };
+
+    window.speechSynthesis.speak(nextUtterance);
+  }, [stopSpeechOutput]);
+
+  const resolveSpeechRecognitionConstructor = useCallback((): SpeechRecognitionConstructor | undefined => {
+    const typedWindow = window as WindowWithSpeechSupport;
+    if (typeof typedWindow.SpeechRecognition === 'function') {
+      return typedWindow.SpeechRecognition;
+    }
+
+    if (typeof typedWindow.webkitSpeechRecognition === 'function') {
+      return typedWindow.webkitSpeechRecognition;
+    }
+
+    return undefined;
+  }, []);
+
   const loadSources = useCallback(async (mode: PickerMode = 'pair') => {
     if (!bridge) {
       setError('Hermes Coach must be run from the desktop add-on to capture windows.');
@@ -414,6 +510,117 @@ export function App(): ReactElement {
     }
   }, [bridge]);
 
+  const stopVoiceCapture = useCallback(() => {
+    const activeRecognition = speechRecognitionRef.current;
+    if (!activeRecognition) {
+      setIsVoiceListening(false);
+      return;
+    }
+
+    activeRecognition.onend = null;
+    activeRecognition.onerror = null;
+    activeRecognition.onresult = null;
+    try {
+      activeRecognition.abort();
+    } catch {
+      // ignore
+    }
+    speechRecognitionRef.current = null;
+    setIsVoiceListening(false);
+  }, []);
+
+  const startVoiceCapture = useCallback(() => {
+    if (!settings.voice.enabled) {
+      setError('Enable the voice assistant before using push-to-talk.');
+      return;
+    }
+
+    if (!selectedSource) {
+      setError('Choose the trading window to inspect first.');
+      setPickerMode('ask');
+      void loadSources('ask');
+      return;
+    }
+
+    if (requestState !== 'idle') {
+      setError('Wait for the current request to finish before recording.');
+      return;
+    }
+
+    const SpeechRecognitionCtor = resolveSpeechRecognitionConstructor();
+    if (!SpeechRecognitionCtor) {
+      setError('Push-to-talk is unavailable: this build lacks browser speech recognition.');
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    const selectedSourceForRequest = selectedSource;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((entry) => entry[0]?.transcript)
+        .join(' ')
+        .trim();
+      const runRequest = askWithSourceRef.current;
+
+      if (!transcript) {
+        setError('No clear speech captured. Try again.');
+        return;
+      }
+
+      if (!runRequest) {
+        setError('Voice request pipeline is still initializing. Try again.');
+        return;
+      }
+
+      setQuestion(transcript);
+      void runRequest(selectedSourceForRequest, {}, transcript);
+      stopVoiceCapture();
+    };
+    recognition.onerror = (event) => {
+      const detail = event.error;
+      setError(`Push-to-talk error: ${detail}`);
+      stopVoiceCapture();
+    };
+    recognition.onend = () => {
+      setIsVoiceListening(false);
+      if (speechRecognitionRef.current === recognition) {
+        speechRecognitionRef.current = null;
+      }
+    };
+
+    speechRecognitionRef.current = recognition;
+    setIsVoiceListening(true);
+    setError('');
+    try {
+      recognition.start();
+    } catch (nextError) {
+      stopVoiceCapture();
+      setError(readError(nextError));
+    }
+  }, [loadSources, resolveSpeechRecognitionConstructor, requestState, selectedSource, settings.voice.enabled, stopVoiceCapture]);
+
+  const toggleVoiceCapture = useCallback(() => {
+    if (isVoiceListening) {
+      stopVoiceCapture();
+      return;
+    }
+
+    startVoiceCapture();
+  }, [isVoiceListening, startVoiceCapture, stopVoiceCapture]);
+
+  const updateVoice = useCallback((updates: Partial<LocalSettings['voice']>) => {
+    setSettings((current) => ({
+      ...current,
+      voice: {
+        ...current.voice,
+        ...updates
+      }
+    }));
+  }, []);
+
   useEffect(() => {
     writeLocalSettings(localStorage, settings);
     void bridge?.setAlwaysOnTop(settings.keepAlwaysOnTop).catch((nextError: unknown) => {
@@ -428,7 +635,30 @@ export function App(): ReactElement {
     void bridge?.setWatchOCR(settings.watchOCR).catch((nextError: unknown) => {
       setError(readError(nextError));
     });
+    void bridge?.setVoiceSettings(settings.voice).catch((nextError: unknown) => {
+      setError(readError(nextError));
+    });
   }, [bridge, settings]);
+
+  useEffect(() => {
+    if (!bridge) {
+      return undefined;
+    }
+
+    return bridge.onVoiceHotkey(() => {
+      if (!settings.voice.enabled) {
+        return;
+      }
+
+      toggleVoiceCapture();
+    });
+  }, [bridge, settings.voice.enabled, toggleVoiceCapture]);
+
+  useEffect(() => {
+    if (!settings.voice.speakReplies) {
+      stopSpeechOutput();
+    }
+  }, [settings.voice.speakReplies, stopSpeechOutput]);
 
   useEffect(() => {
     if (!bridge) {
@@ -513,10 +743,18 @@ export function App(): ReactElement {
       options: {
         skipRemoteConsent?: boolean;
         skipPolicyCheck?: boolean;
-      } = {}
+      } = {},
+      rawQuestion?: string
     ) => {
+      const questionText = (rawQuestion ?? questionRef.current).trim();
       const skipRemoteConsent = options.skipRemoteConsent ?? false;
       const skipPolicyCheck = options.skipPolicyCheck ?? false;
+
+      if (!questionText) {
+        setError('Ask a question before sending a capture to Hermes.');
+        return;
+      }
+
       if (!bridge) {
         setError('Hermes Coach must be run from the desktop add-on to capture windows.');
         return;
@@ -532,35 +770,60 @@ export function App(): ReactElement {
         void loadSources('ask');
         return;
       }
-      setPolicyCard(undefined);
 
-      if (
-        !skipPolicyCheck &&
-        settings.coachMode === 'policy' &&
-        policyBlockingWarnings.length > 0
-      ) {
+      const requestMemoryContext = buildMemoryContext(journalEntries, questionText, warningFeedbackEntries);
+      const requestSourceQuality = buildSourceQualityAssessment({
+        question: questionText,
+        monitorSignals,
+        journalEntries
+      });
+      const requestSessionRiskAssessment = buildSessionRiskAssessment({
+        question: questionText,
+        journalEntries,
+        riskBudget: settings.riskBudget,
+        sourceFindings: requestSourceQuality.findings
+      });
+      const requestLocalWarningCards = buildLocalWarningCards({
+        ruleWarnings: [...localRuleWarnings(requestMemoryContext.matchedPatterns.length > 0, questionText), ...requestSessionRiskAssessment.warnings],
+        sourceQualityWarnings: requestSourceQuality.warningFindings
+      });
+      const requestLocalWarnings = requestLocalWarningCards.map((entry) => entry.text);
+      const requestPolicyBlockingWarnings = requestSessionRiskAssessment.warnings
+        .filter((entry) => entry.policyLevel === 'policy')
+        .map((entry) => entry.text);
+      const requestWarningEvidence: WarningEvidenceSummary[] = requestLocalWarningCards.flatMap((entry) =>
+        entry.evidences.map((evidence) => ({
+          warningText: entry.text,
+          source: evidence.source,
+          detail: evidence.detail,
+          confidence: evidence.confidence,
+          ...(evidence.provenance ? { provenance: evidence.provenance } : {}),
+          ...(evidence.detectedAt ? { detectedAt: evidence.detectedAt } : {})
+        }))
+      );
+      const monitoringSnapshot = buildMonitoringMetadata(
+        requestLocalWarnings,
+        monitorSignals,
+        requestSourceQuality.findings,
+        requestWarningEvidence
+      );
+
+      setPolicyCard(undefined);
+      if (!skipPolicyCheck && settings.coachMode === 'policy' && requestPolicyBlockingWarnings.length > 0) {
         setPolicyCard({
           id: createRequestContextId(),
-          question,
-          warnings: localWarnings,
-          blockers: policyBlockingWarnings
+          question: questionText,
+          warnings: requestLocalWarnings,
+          blockers: requestPolicyBlockingWarnings
         });
         return;
       }
 
       const analysisStartedAt = performance.now();
-      const warningEvidenceSnapshot = [...localWarningEvidence];
-      const monitoringSnapshot = buildMonitoringMetadata(
-        localWarnings,
-        monitorSignals,
-        sourceQualityAssessment.findings,
-        warningEvidenceSnapshot
-      );
-
       const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
         selectedWindow: source,
-        memoryContext,
+        memoryContext: requestMemoryContext,
         privacy: settings.privacy,
         monitoringContext: monitoringSnapshot
       });
@@ -618,10 +881,10 @@ export function App(): ReactElement {
         const requestBuildStart = performance.now();
         const request: AskHermesInput = {
           connection: settings.connection,
-          question,
+          question: questionText,
           screenshotDataUrl: capture,
           selectedWindow: source,
-          memoryContext,
+          memoryContext: requestMemoryContext,
           monitoringContext: monitoringSnapshot,
           privacy: settings.privacy
         };
@@ -633,13 +896,16 @@ export function App(): ReactElement {
         hermesMs = Math.round(performance.now() - hermesStart);
 
         const responseText =
-          localWarnings.length > 0 ? `Local risk guardrail: ${localWarnings.join(' ')}\n\n${answer}` : answer;
+          requestLocalWarnings.length > 0 ? `Local risk guardrail: ${requestLocalWarnings.join(' ')}\n\n${answer}` : answer;
         setResponse(responseText);
+        if (settings.voice.speakReplies && window.speechSynthesis) {
+          speakResponse(responseText);
+        }
 
         setLastRequestMonitoringMetadata(monitoringSnapshot);
         setLastRequestContext({
           id: requestId,
-          question,
+          question: questionText,
           response: responseText,
           selectedWindowId: source.id,
           selectedWindowName: source.name,
@@ -686,7 +952,7 @@ export function App(): ReactElement {
           startedAt: requestStartedAt,
           completedAt: new Date().toISOString(),
           status: failure ? 'failure' : 'success',
-          questionPreview: sanitizeQuestionPreview(question),
+          questionPreview: sanitizeQuestionPreview(questionText),
           selectedWindowName: source.name,
           selectedWindowId: source.id,
           selectedWindowKind: source.kind,
@@ -725,19 +991,23 @@ export function App(): ReactElement {
     },
     [
       bridge,
-      memoryContext,
+      loadSources,
+      journalEntries,
       monitorSignals,
-      question,
+      warningFeedbackEntries,
       settings.connection,
-      settings.privacy,
       settings.coachMode,
-      sourceQualityAssessment.findings,
-      localWarnings,
-      localWarningEvidence,
-      policyBlockingWarnings,
+      settings.privacy,
+      settings.riskBudget,
+      settings.voice.speakReplies,
+      isTextRedactionEnabled,
       hermesHeartbeat.status
     ]
   );
+
+  useEffect(() => {
+    askWithSourceRef.current = askWithSource;
+  }, [askWithSource]);
 
   const askCoach = useCallback(async () => {
     if (!hasQuestion) {
@@ -1154,9 +1424,17 @@ export function App(): ReactElement {
       case 'asking':
         return 'Sending context to Hermes';
       default:
-        return `${settings.armed ? 'Armed' : 'Paused'} • ${selectedSource ? 'Ready' : 'Window selection required'}`;
+        const voiceText = isVoiceListening
+          ? 'Voice listening'
+          : isSpeechSpeaking
+            ? 'Voice speaking'
+            : settings.voice.enabled
+              ? 'Voice ready'
+              : 'Voice off';
+
+        return `${settings.armed ? 'Armed' : 'Paused'} • ${selectedSource ? 'Ready' : 'Window selection required'} • ${voiceText}`;
     }
-  }, [requestState, selectedSource, settings.armed]);
+  }, [isSpeechSpeaking, isVoiceListening, requestState, selectedSource, settings.armed, settings.voice.enabled]);
 
   const hermesStatusText = useMemo(() => {
     switch (hermesHeartbeat.status) {
@@ -1640,6 +1918,43 @@ export function App(): ReactElement {
               />
               <span>Keep coach panel on top</span>
             </label>
+            <label className="check-row" htmlFor="voice-enabled">
+              <input
+                id="voice-enabled"
+                type="checkbox"
+                checked={settings.voice.enabled}
+                onChange={(event) => updateVoice({ enabled: event.target.checked })}
+              />
+              <span>Enable push-to-talk</span>
+            </label>
+            <label htmlFor="voice-hotkey">Push-to-talk hotkey</label>
+            <select
+              id="voice-hotkey"
+              value={settings.voice.hotkey}
+              disabled={!settings.voice.enabled}
+              onChange={(event) =>
+                updateVoice({
+                  hotkey: event.target.value as LocalSettings['voice']['hotkey']
+                })
+              }
+            >
+              <option value="space">Space</option>
+              <option value="alt-space">Alt + Space</option>
+              <option value="ctrl-space">Ctrl + Space</option>
+              <option value="cmd-space">Cmd + Space</option>
+            </select>
+            <label className="check-row" htmlFor="voice-speak-replies">
+              <input
+                id="voice-speak-replies"
+                type="checkbox"
+                checked={settings.voice.speakReplies}
+                onChange={(event) => updateVoice({ speakReplies: event.target.checked })}
+              />
+              <span>Read Hermes replies aloud</span>
+            </label>
+            <small className="subtle-note">
+              Voice flow uses the selected trading window and shares the same Hermes request path as manual capture.
+            </small>
             <label className="check-row" htmlFor="friction-enabled">
               <input
                 id="friction-enabled"
@@ -2101,10 +2416,19 @@ export function App(): ReactElement {
           onChange={(event) => setQuestion(event.target.value)}
           placeholder="Should I take this trade now?"
         />
-
-        <button type="button" className="primary" onClick={askCoach} disabled={!canAsk}>
-          Capture and ask
-        </button>
+        <div className="button-row">
+          <button type="button" className="primary" onClick={askCoach} disabled={!canAsk}>
+            Capture and ask
+          </button>
+          <button type="button" className="ghost" onClick={toggleVoiceCapture} disabled={!settings.voice.enabled}>
+            {isVoiceListening ? 'Stop listening' : 'Push-to-talk'}
+          </button>
+          {isSpeechSpeaking ? (
+            <button type="button" className="ghost" onClick={stopSpeechOutput}>
+              Stop reply audio
+            </button>
+          ) : null}
+        </div>
       </section>
 
       {frictionCard ? (

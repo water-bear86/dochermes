@@ -1,13 +1,14 @@
-import { app, BrowserWindow, clipboard, ipcMain, type Tray } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, type Tray } from 'electron';
 
 import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
 import { createCoachWindow } from './coachWindow';
-import { assertAskHermesInput, assertHermesConnection } from './inputValidation';
+import { assertAskHermesInput, assertHermesConnection, assertVoiceSettings } from './inputValidation';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
 import type {
   MonitoringSignal,
-  MonitoringStatus
+  MonitoringStatus,
+  VoiceSettings
 } from '../shared/types';
 
 let coachWindow: BrowserWindow | undefined;
@@ -16,6 +17,13 @@ let isQuitting = false;
 let isArmed = false;
 let watchClipboard = false;
 let watchOCR = false;
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  enabled: false,
+  hotkey: 'space',
+  speakReplies: false
+};
+let activeVoiceSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;
+let activeVoiceShortcut: string | null = null;
 let monitorTimer: ReturnType<typeof setInterval> | undefined;
 let lastClipboardText = '';
 const recentMonitorSignals = new Map<string, number>();
@@ -101,7 +109,8 @@ function sendRendererCommand(
     | 'coach:open-settings'
     | 'coach:set-armed'
     | 'coach:monitor-signal'
-    | 'coach:monitor-status',
+    | 'coach:monitor-status'
+    | 'coach:voice-hotkey',
   payload?: unknown,
   reveal = true
 ): void {
@@ -120,6 +129,47 @@ function sendRendererCommand(
   }
 
   contents.send(channel, payload);
+}
+
+function voiceHotkeyToAccelerator(hotkey: VoiceSettings['hotkey']): string {
+  switch (hotkey) {
+    case 'alt-space':
+      return 'Alt+Space';
+    case 'ctrl-space':
+      return 'Control+Space';
+    case 'cmd-space':
+      return 'CommandOrControl+Space';
+    default:
+      return 'Space';
+  }
+}
+
+function applyVoiceShortcut(settings: VoiceSettings): void {
+  if (activeVoiceShortcut) {
+    globalShortcut.unregister(activeVoiceShortcut);
+    activeVoiceShortcut = null;
+  }
+
+  if (!settings.enabled) {
+    return;
+  }
+
+  const accelerator = voiceHotkeyToAccelerator(settings.hotkey);
+  const registered = globalShortcut.register(accelerator, () => {
+    sendRendererCommand('coach:voice-hotkey', undefined, false);
+  });
+
+  if (registered) {
+    activeVoiceShortcut = accelerator;
+    return;
+  }
+
+  console.warn('Failed to register voice hotkey accelerator', accelerator);
+}
+
+function setVoiceSettings(settings: unknown): void {
+  activeVoiceSettings = assertVoiceSettings(settings);
+  applyVoiceShortcut(activeVoiceSettings);
 }
 
 function registerIpcHandlers(): void {
@@ -187,6 +237,10 @@ function registerIpcHandlers(): void {
     watchOCR = enabled;
     syncMonitorMode();
     sendMonitorStatus(watchOCR);
+  });
+
+  ipcMain.handle('coach:set-voice-settings', (_event, settings: unknown) => {
+    setVoiceSettings(settings);
   });
 }
 
@@ -438,4 +492,5 @@ app.on('window-all-closed', () => undefined);
 app.on('will-quit', () => {
   clearMonitorTimer();
   coachTray?.destroy();
+  globalShortcut.unregisterAll();
 });

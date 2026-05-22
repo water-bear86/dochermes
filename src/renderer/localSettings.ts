@@ -8,6 +8,8 @@ import type {
   SessionBudgetSettings,
   SourceConstraintCatalog,
   SourceCategory,
+  VoiceSettings,
+  VoiceHotkey,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -36,6 +38,12 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
 export const DEFAULT_FRICTION_SETTINGS: FrictionSettings = {
   enabled: true,
   strictness: 'standard'
+};
+
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  enabled: false,
+  hotkey: 'space',
+  speakReplies: false
 };
 
 const DEFAULT_COACH_MODE: CoachMode = 'advisory';
@@ -69,7 +77,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   keepAlwaysOnTop: true,
   armed: false,
   watchClipboard: false,
-  watchOCR: false
+  watchOCR: false,
+  voice: DEFAULT_VOICE_SETTINGS
 };
 
 export function parseLocalSettings(rawValue: string | null): LocalSettings {
@@ -97,6 +106,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       watchClipboard:
         typeof parsed.watchClipboard === 'boolean' ? parsed.watchClipboard : DEFAULT_LOCAL_SETTINGS.watchClipboard,
       watchOCR: typeof parsed.watchOCR === 'boolean' ? parsed.watchOCR : DEFAULT_LOCAL_SETTINGS.watchOCR,
+      voice: parseVoiceSettings(parsed.voice),
       ...(pairedWindow ? { pairedWindow } : {})
     };
   } catch {
@@ -115,6 +125,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
       armed: settings.armed,
       watchClipboard: settings.watchClipboard,
       watchOCR: settings.watchOCR,
+      voice: settings.voice,
     pairedWindow: settings.pairedWindow
   });
 }
@@ -406,4 +417,24 @@ function parsePairedWindow(rawWindow: unknown): LocalSettings['pairedWindow'] {
     name: candidate.name.trim(),
     kind: candidate.kind
   };
+}
+
+function parseVoiceSettings(rawVoice: unknown): VoiceSettings {
+  if (!rawVoice || typeof rawVoice !== 'object') {
+    return DEFAULT_VOICE_SETTINGS;
+  }
+
+  const candidate = rawVoice as Partial<VoiceSettings>;
+
+  return {
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_VOICE_SETTINGS.enabled,
+    hotkey: parseVoiceHotkey(candidate.hotkey),
+    speakReplies: typeof candidate.speakReplies === 'boolean' ? candidate.speakReplies : DEFAULT_VOICE_SETTINGS.speakReplies
+  };
+}
+
+function parseVoiceHotkey(value: unknown): VoiceHotkey {
+  return value === 'space' || value === 'alt-space' || value === 'ctrl-space' || value === 'cmd-space'
+    ? value
+    : DEFAULT_VOICE_SETTINGS.hotkey;
 }

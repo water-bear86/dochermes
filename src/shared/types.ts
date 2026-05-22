@@ -23,6 +23,13 @@ export type DataSharingScope = 'local-first' | 'hosted' | 'advanced';
 export type FrictionStrictness = 'low' | 'standard' | 'high';
 export type CoachMode = 'advisory' | 'guardrail' | 'policy';
 export type SessionRiskPolicyLevel = 'advisory' | 'guardrail' | 'policy';
+export type VoiceHotkey = 'space' | 'alt-space' | 'ctrl-space' | 'cmd-space';
+
+export interface VoiceSettings {
+  enabled: boolean;
+  hotkey: VoiceHotkey;
+  speakReplies: boolean;
+}
 
 export type ClipboardCandidateKind =
   | 'evm-address'
@@ -260,6 +267,7 @@ export interface CoachBridgeApi {
   validateSelectedWindow: (sourceId: string) => Promise<boolean>;
   setWatchClipboard: (enabled: boolean) => Promise<void>;
   setWatchOCR: (enabled: boolean) => Promise<void>;
+  setVoiceSettings: (settings: VoiceSettings) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
@@ -271,6 +279,7 @@ export interface CoachBridgeApi {
   onOpenWindowPicker: (callback: () => void) => () => void;
   onOpenSettings: (callback: () => void) => () => void;
   onArmCoach: (callback: (enabled: boolean) => void) => () => void;
+  onVoiceHotkey: (callback: () => void) => () => void;
   onMonitorSignal: (callback: (signal: MonitoringSignal) => void) => () => void;
   onMonitorStatus: (callback: (status: MonitoringStatus) => void) => () => void;
 }
@@ -285,6 +294,7 @@ export interface LocalSettings {
   armed: boolean;
   watchClipboard: boolean;
   watchOCR: boolean;
+  voice: VoiceSettings;
   pairedWindow?: WindowSourceRef;
 }
 

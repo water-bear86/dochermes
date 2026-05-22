@@ -3,12 +3,14 @@ import type {
   HermesConnectionKind,
   HermesConnectionSettings,
   HermesEndpointMode,
+  VoiceHotkey,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings,
   MemoryContext,
   MonitoringContextPayload,
-  JournalMonitoringSignal
+  JournalMonitoringSignal,
+  VoiceSettings
 } from '../shared/types';
 
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
@@ -132,12 +134,34 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
   };
 }
 
+export function assertVoiceSettings(input: unknown): { enabled: boolean; hotkey: VoiceHotkey; speakReplies: boolean } {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Voice settings payload is required.');
+  }
+
+  const record = input as Partial<VoiceSettings>;
+
+  return {
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
+    hotkey: parseVoiceHotkey(record.hotkey),
+    speakReplies: typeof record.speakReplies === 'boolean' ? record.speakReplies : false
+  };
+}
+
 export function isConnectionKind(value: unknown): value is HermesConnectionKind {
   return value === 'local' || value === 'hosted' || value === 'custom';
 }
 
 export function isEndpointMode(value: unknown): value is HermesEndpointMode {
   return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom';
+}
+
+function parseVoiceHotkey(value: unknown): VoiceHotkey {
+  if (value === 'space' || value === 'alt-space' || value === 'ctrl-space' || value === 'cmd-space') {
+    return value;
+  }
+
+  return 'space';
 }
 
 function parsePrivacySettings(value: unknown): PrivacySettings {

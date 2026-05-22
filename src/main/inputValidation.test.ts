@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AskHermesInput } from '../shared/types';
 
-import { assertAskHermesInput, assertHermesConnection, MAX_SCREENSHOT_BYTES, estimateBase64Bytes } from './inputValidation';
+import {
+  assertAskHermesInput,
+  assertHermesConnection,
+  assertVoiceSettings,
+  MAX_SCREENSHOT_BYTES,
+  estimateBase64Bytes
+} from './inputValidation';
 
 const VALID_BASE_CONNECTION = {
   connectionKind: 'local' as const,
@@ -241,5 +247,32 @@ describe('assertAskHermesInput', () => {
         }
       } as unknown as AskHermesInput)
     ).toThrow('Monitoring context is invalid.');
+  });
+});
+
+describe('assertVoiceSettings', () => {
+  it('normalizes missing or malformed voice settings', () => {
+    expect(() => assertVoiceSettings(undefined)).toThrow('Voice settings payload is required.');
+    expect(assertVoiceSettings({ enabled: 'yes' as unknown as boolean, hotkey: 'invalid' as never, speakReplies: 'no' as never })).toEqual(
+      {
+        enabled: false,
+        hotkey: 'space',
+        speakReplies: false
+      }
+    );
+  });
+
+  it('accepts valid voice settings', () => {
+    expect(
+      assertVoiceSettings({
+        enabled: true,
+        hotkey: 'cmd-space',
+        speakReplies: true
+      })
+    ).toEqual({
+      enabled: true,
+      hotkey: 'cmd-space',
+      speakReplies: true
+    });
   });
 });
