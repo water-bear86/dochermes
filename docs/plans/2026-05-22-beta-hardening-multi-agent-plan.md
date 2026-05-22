@@ -1,25 +1,26 @@
-# DocHermes Beta Hardening Multi-Agent Plan
+# DocHermes Beta Hardening Two-Agent Plan
 
-> **For Hermes:** Use this plan as the shared coordination document for beta hardening on the single `main` branch. Local Codex owns implementation work in explicit task lanes; local Hermes owns planning, review, verification, and integration guidance unless assigned a code lane.
+> **For Hermes:** Use this plan as the shared coordination document for beta hardening on the single `main` branch. Local Codex owns implementation work in explicit task lanes; this Telegram Hermes thread owns planning, review, verification, and integration guidance unless assigned a code lane.
 
 **Goal:** Harden DocHermes for a beta-ready desktop trading sidecar while keeping one source-of-truth branch: `main`.
 
-**Architecture:** Work in short, low-risk hardening passes with tests first. Codex implements one narrow lane at a time and commits frequently. Hermes reviews diffs, runs validation, updates the plan, and keeps privacy/advisory boundaries intact.
+**Architecture:** Work in short, low-risk hardening passes with tests first. Codex implements one narrow lane at a time and commits frequently. Hermes in this chat reviews diffs, runs validation on the shared repo, updates the plan, and keeps privacy/advisory boundaries intact.
 
-**Tech Stack:** Electron + electron-vite, React, TypeScript, Vitest, localStorage persistence, optional local Hermes API server/OpenAI-compatible endpoint, optional local Codex CLI.
+**Tech Stack:** Electron + electron-vite, React, TypeScript, Vitest, localStorage persistence, optional local Hermes API server/OpenAI-compatible endpoint, local Codex CLI.
 
 ---
 
 ## Coordination Rules
 
 1. **One branch only:** all beta hardening happens on `main`.
-2. **No blind parallel edits:** before either agent edits files, it claims a lane in this plan or in chat.
-3. **Codex implementation lanes:** Codex should touch only the files named in its current prompt unless it discovers a necessary adjacent change and says so in its final summary.
-4. **Hermes review lane:** Hermes should avoid editing Codex-owned files while Codex is actively running, except for explicit review fixes after Codex stops.
-5. **Commit often:** one commit per completed hardening lane.
-6. **Validation gate after every lane:** run at minimum `npm run typecheck && npm test -- --run`; run `npm run build` before handoff or beta tags.
-7. **Privacy boundary:** never add wallet control, order routing, signing, private key handling, or trade execution.
-8. **Compatibility boundary:** avoid hardcoding Hermes-specific one-off endpoints. Prefer OpenAI-compatible `/v1/chat/completions`, capability discovery, or configurable endpoint modes.
+2. **Two active workers only:** this Telegram Hermes thread coordinates/reviews; local Codex implements. Do not start a separate local Hermes reviewer session.
+3. **No blind parallel edits:** before either agent edits files, it claims a lane in this plan or in chat.
+4. **Codex implementation lanes:** Codex should touch only the files named in its current prompt unless it discovers a necessary adjacent change and says so in its final summary.
+5. **Hermes review lane:** Hermes should avoid editing Codex-owned files while Codex is actively running, except for explicit review fixes after Codex stops.
+6. **Commit often:** one commit per completed hardening lane.
+7. **Validation gate after every lane:** run at minimum `npm run typecheck && npm test -- --run`; run `npm run build` before handoff or beta tags.
+8. **Privacy boundary:** never add wallet control, order routing, signing, private key handling, or trade execution.
+9. **Compatibility boundary:** avoid hardcoding Hermes-specific one-off endpoints. Prefer OpenAI-compatible `/v1/chat/completions`, capability discovery, or configurable endpoint modes.
 
 ---
 
@@ -59,24 +60,17 @@ hermes gateway status
 
 Expected: API server adapter is available at the configured local port, usually `http://127.0.0.1:8642/v1/chat/completions` if enabled.
 
-### 3. Start local Hermes reviewer/planner session
+### 3. Tell this Hermes chat that Codex is about to run
 
-Open a second terminal:
-
-```bash
-cd /path/to/dochermes
-hermes --skills writing-plans,github-pr-workflow,requesting-code-review,test-driven-development
-```
-
-Paste this as the first message:
+Send this Telegram message before starting Codex:
 
 ```text
-We are hardening DocHermes for beta on a single branch: main. Read docs/plans/2026-05-22-beta-hardening-multi-agent-plan.md. You are the local Hermes reviewer/planner. Do not edit files while Codex is actively implementing unless I explicitly assign you a code lane. Your job is to keep lanes small, review diffs, run validation, preserve privacy/advisory boundaries, and update the plan when needed.
+Starting local Codex on DocHermes Lane 1. You are the reviewer/coordinator. Do not edit Codex-owned files while it is running. After Codex stops, review its commit, run validation, and tell me whether to unlock Lane 2.
 ```
 
 ### 4. Start local Codex implementation session
 
-Open a third terminal:
+Open a second terminal:
 
 ```bash
 cd /path/to/dochermes
@@ -276,7 +270,7 @@ git commit -m "fix: improve beta offline and degraded-mode UX"
 
 ## Lane 6: Beta Release Gate
 
-**Owner:** Hermes/reviewer after all implementation lanes pass
+**Owner:** Telegram Hermes after all implementation lanes pass
 
 **Objective:** Produce a go/no-go summary for beta hardening.
 
@@ -327,4 +321,4 @@ Stop and ask before continuing if any lane discovers:
 - Need to change Hermes Agent config globally
 - Need to delete user data without an explicit confirmation flow
 - Test failures outside the lane that look unrelated
-- Merge conflict or dirty worktree from another local agent
+- Merge conflict or dirty worktree from Codex or this Hermes thread
