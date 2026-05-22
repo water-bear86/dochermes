@@ -63,6 +63,7 @@ import {
   DEFAULT_OCR_REGION_PROFILE,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
+  clearLocalSettings,
   readLocalSettings,
   writeLocalSettings
 } from './localSettings';
@@ -243,6 +244,13 @@ const POSTMORTEM_OUTCOME_TAG_OPTIONS: Array<{ value: PostmortemOutcomeTag; label
 ];
 const POSTMORTEM_SUMMARY_PREVIEW_LIMIT = 3;
 const WALLET_SYNC_INTERVAL_MS = 180_000;
+const LOCAL_DATA_CATEGORIES = [
+  'Settings: Hermes endpoint, model, bearer token if provided, privacy preset, coach mode, voice/OCR toggles, paired-window metadata, personal rules, and public wallet watchlist.',
+  'Memory: journal notes, warning feedback, postmortem outcomes, and saved compact postmortem summaries.',
+  'Trade context: imported CSV rows and read-only public wallet trade records cached for local risk checks.',
+  'Diagnostics: recent request timing, endpoint diagnostics, selected-window name, and sanitized question preview.',
+  'Session-only context: live monitoring signals and the latest screenshot preview; journal entries store capture status, not screenshot images.'
+];
 const OCR_REGION_MIN_SIZE = 0.02;
 const OCR_REGION_STEP = 0.01;
 
@@ -1594,7 +1602,29 @@ export function App(): ReactElement {
   }, []);
 
   const clearDiagnosticsHistory = useCallback(() => {
+    if (requestDiagnostics.length === 0) {
+      return;
+    }
+
+    if (!confirmLocalDataAction('Clear local request diagnostics history?')) {
+      return;
+    }
+
     setRequestDiagnostics(clearRequestDiagnostics(localStorage));
+  }, [requestDiagnostics.length]);
+
+  const resetLocalSettingsToDefaults = useCallback(() => {
+    if (!confirmLocalDataAction('Reset local settings to defaults? Journal, trade history, and diagnostics stay on this device.')) {
+      return;
+    }
+
+    const nextSettings = clearLocalSettings(localStorage);
+    setSettings(nextSettings);
+    setSelectedSource(undefined);
+    setScreenshotDataUrl(undefined);
+    setConnectionReport(undefined);
+    setError('');
+    setJournalSavedMessage('Local settings reset to defaults.');
   }, []);
 
   const formatTiming = useCallback((value?: number): string => {
@@ -1754,6 +1784,10 @@ export function App(): ReactElement {
   }, [editingFeedbackAction, editingFeedbackId, editingFeedbackNotes]);
 
   const deleteWarningFeedbackEntry = useCallback((entryId: string) => {
+    if (!confirmLocalDataAction('Delete this local warning feedback record?')) {
+      return;
+    }
+
     const nextEntries = deleteWarningFeedback(localStorage, entryId);
     setWarningFeedbackEntries(nextEntries);
     if (editingFeedbackId === entryId) {
@@ -1879,6 +1913,10 @@ export function App(): ReactElement {
 
   const deletePostmortemOutcome = useCallback(
     (outcomeId: string) => {
+      if (!confirmLocalDataAction('Clear this local postmortem outcome?')) {
+        return;
+      }
+
       const nextOutcomeRecords = deletePostmortemOutcomeRecord(localStorage, outcomeId);
       setPostmortemOutcomeRecords(nextOutcomeRecords);
       if (editingPostmortemEventId) {
@@ -1965,10 +2003,19 @@ export function App(): ReactElement {
   }, [tradeCsvInput]);
 
   const clearImportedTradeRecords = useCallback(() => {
+    if (importedTradeRecords.length === 0) {
+      setTradeCsvMessage('No imported trade-history records to clear.');
+      return;
+    }
+
+    if (!confirmLocalDataAction('Clear imported CSV trade-history records?')) {
+      return;
+    }
+
     const nextRecords = writeImportedTradeRecords(localStorage, []);
     setImportedTradeRecords(nextRecords);
     setTradeCsvMessage('Cleared imported trade-history records.');
-  }, []);
+  }, [importedTradeRecords.length]);
 
   const syncObservedWalletHistory = useCallback(
     async (source: 'manual' | 'background' = 'background') => {
@@ -2216,6 +2263,15 @@ export function App(): ReactElement {
   }, []);
 
   const clearLocalMemory = useCallback(() => {
+    if (journalEntries.length === 0 && warningFeedbackEntries.length === 0) {
+      setJournalSavedMessage('No local memory records to clear.');
+      return;
+    }
+
+    if (!confirmLocalDataAction('Clear local journal notes and warning feedback records?')) {
+      return;
+    }
+
     setJournalEntries(clearJournalEntries(localStorage));
     setWarningFeedbackEntries(clearWarningFeedbackEntries(localStorage));
     setLastRequestMonitoringMetadata(undefined);
@@ -2229,7 +2285,7 @@ export function App(): ReactElement {
     setFrictionNoteText('');
     setJournalSavedMessage('Local memory cleared.');
     setError('');
-  }, []);
+  }, [journalEntries.length, warningFeedbackEntries.length]);
 
   const dismissMonitorSignal = useCallback((signal: MonitoringSignal) => {
     setMonitorSignals((current) =>
@@ -2525,6 +2581,43 @@ export function App(): ReactElement {
               <span className="label">Data-sharing scope</span>
               <strong>{connectionScope.title}</strong>
               <small>{connectionScope.description}</small>
+            </div>
+            <div className="privacy-indicator scope-local local-data-controls">
+              <span className="label">Local data on this device</span>
+              <strong>
+                {journalEntries.length} journal · {warningFeedbackEntries.length} feedback · {importedTradeRecords.length} imported ·{' '}
+                {walletTradeRecords.length} wallet · {requestDiagnostics.length} diagnostics
+              </strong>
+              <ul className="warning-list">
+                {LOCAL_DATA_CATEGORIES.map((category) => (
+                  <li key={category}>{category}</li>
+                ))}
+              </ul>
+              <small>
+                These controls only affect data in this local browser profile. They do not delete data from Hermes, wallets,
+                exchanges, or remote services.
+              </small>
+              <div className="button-row">
+                <button type="button" className="ghost" onClick={resetLocalSettingsToDefaults}>
+                  Reset local settings
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={clearLocalMemory}
+                  disabled={journalEntries.length === 0 && warningFeedbackEntries.length === 0}
+                >
+                  Clear journal + feedback
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={clearDiagnosticsHistory}
+                  disabled={requestDiagnostics.length === 0}
+                >
+                  Clear diagnostics
+                </button>
+              </div>
             </div>
 
             <label htmlFor="privacy-preset">Privacy preset</label>
@@ -3772,19 +3865,23 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {(journalEntries.length > 0 || warningFeedbackEntries.length > 0) ? (
-        <section className="message" aria-label="Local memory controls">
-          <div className="section-heading compact">
-            <span className="label">Local memory</span>
-            <button type="button" className="ghost" onClick={clearLocalMemory}>
-              Clear local memory
-            </button>
-          </div>
-          <p>
-            {journalEntries.length} journal notes · {warningFeedbackEntries.length} warning feedback records saved locally.
-          </p>
-        </section>
-      ) : null}
+      <section className="message" aria-label="Local memory controls">
+        <div className="section-heading compact">
+          <span className="label">Local memory</span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={clearLocalMemory}
+            disabled={journalEntries.length === 0 && warningFeedbackEntries.length === 0}
+          >
+            Clear local memory
+          </button>
+        </div>
+        <p>
+          {journalEntries.length} journal notes · {warningFeedbackEntries.length} warning feedback records saved locally on this
+          device.
+        </p>
+      </section>
 
       {memoryContext.matchedPatterns.length > 0 ? (
         <section className="message memory" aria-label="Personal memory match">
@@ -4284,6 +4381,10 @@ function readError(error: unknown): string {
   }
 
   return 'Unexpected Hermes Coach error.';
+}
+
+function confirmLocalDataAction(message: string): boolean {
+  return window.confirm(`${message}\n\nThis only changes data stored in this browser profile on this device.`);
 }
 
 function createRequestContextId(): string {

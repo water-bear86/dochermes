@@ -175,6 +175,11 @@ export function writeLocalSettings(storage: Pick<Storage, 'setItem'>, settings: 
   storage.setItem(LOCAL_SETTINGS_KEY, serializeLocalSettings(settings));
 }
 
+export function clearLocalSettings(storage: Pick<Storage, 'removeItem'>): LocalSettings {
+  storage.removeItem(LOCAL_SETTINGS_KEY);
+  return DEFAULT_LOCAL_SETTINGS;
+}
+
 function parseConnectionSettings(
   rawConnection: unknown,
   legacyGatewayUrl: unknown

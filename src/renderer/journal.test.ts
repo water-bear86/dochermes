@@ -348,6 +348,16 @@ describe('clearJournalEntries', () => {
     expect(clearJournalEntries(storage)).toEqual([]);
     expect(storage.getItem(JOURNAL_KEY)).toBeNull();
   });
+
+  it('only removes the journal key when clearing local journal entries', () => {
+    const storage = new MapBackedStorage();
+    storage.setItem(JOURNAL_KEY, '[]');
+    storage.setItem('hermes.settings.v1', '{"keepAlwaysOnTop":true}');
+
+    expect(clearJournalEntries(storage)).toEqual([]);
+    expect(storage.getItem(JOURNAL_KEY)).toBeNull();
+    expect(storage.getItem('hermes.settings.v1')).toBe('{"keepAlwaysOnTop":true}');
+  });
 });
 
 class MapBackedStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {

@@ -6,6 +6,8 @@ import {
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_VOICE_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
+  LOCAL_SETTINGS_KEY,
+  clearLocalSettings,
   parseLocalSettings,
   serializeLocalSettings
 } from './localSettings';
@@ -518,3 +520,43 @@ describe('serializeLocalSettings', () => {
     });
   });
 });
+
+describe('clearLocalSettings', () => {
+  it('removes local settings from storage and returns defaults', () => {
+    const storage = new MapBackedStorage();
+    storage.setItem(
+      LOCAL_SETTINGS_KEY,
+      JSON.stringify({
+        connection: {
+          connectionKind: 'hosted',
+          endpointMode: 'openai-chat',
+          baseUrl: 'https://hermes.example.com',
+          modelId: 'remote-model',
+          bearerToken: 'secret'
+        },
+        keepAlwaysOnTop: false
+      })
+    );
+    storage.setItem('hermes.journal.v1', '[]');
+
+    expect(clearLocalSettings(storage)).toEqual(DEFAULT_LOCAL_SETTINGS);
+    expect(storage.getItem(LOCAL_SETTINGS_KEY)).toBeNull();
+    expect(storage.getItem('hermes.journal.v1')).toBe('[]');
+  });
+});
+
+class MapBackedStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+}
