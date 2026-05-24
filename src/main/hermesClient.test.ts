@@ -1025,6 +1025,78 @@ describe('probeHermesConnection', () => {
     expect(report).toContain('access_token=***');
   });
 
+  it('adds recovery suggestions for local gateway network failures', () => {
+    const report = createDebugReport(
+      {
+        status: 'disconnected',
+        summary: 'The local Hermes server was unreachable.',
+        attempts: [
+          {
+            url: 'http://localhost:8642/v1/chat/completions',
+            method: 'POST',
+            ok: false,
+            status: 0,
+            label: 'text ping',
+            detail: 'connect ECONNREFUSED 127.0.0.1:8642',
+            errorKind: 'network'
+          }
+        ]
+      },
+      defaultConnection()
+    );
+
+    expect(report).toContain('Recovery suggestions:');
+    expect(report).toContain('Start Hermes gateway, then run Test gateway again.');
+    expect(report).toContain('Confirm the Gateway URL points at the Hermes API server, usually http://localhost:8642.');
+  });
+
+  it('adds recovery suggestions for auth and adapter mismatch reports without leaking tokens', () => {
+    const authReport = createDebugReport(
+      {
+        status: 'auth-error',
+        summary: 'Hermes bearer token is missing or rejected.',
+        attempts: [
+          {
+            url: 'https://hermes.example.test/v1/chat/completions',
+            method: 'POST',
+            ok: false,
+            status: 401,
+            label: 'text ping',
+            detail: 'Bearer hosted-secret was rejected',
+            errorKind: 'auth'
+          }
+        ]
+      },
+      defaultConnection({
+        connectionKind: 'hosted',
+        baseUrl: 'https://hermes.example.test',
+        bearerToken: 'hosted-secret'
+      })
+    );
+    const adapterReport = createDebugReport(
+      {
+        status: 'incompatible',
+        summary: 'Hermes gateway adapter mismatch.',
+        attempts: [
+          {
+            url: 'http://localhost:8642/v1/chat/completions',
+            method: 'POST',
+            ok: false,
+            status: 404,
+            label: 'text ping',
+            detail: 'not found',
+            errorKind: 'incompatible'
+          }
+        ]
+      },
+      defaultConnection()
+    );
+
+    expect(authReport).toContain('Re-enter the bearer token or rotate it if it may have been shared.');
+    expect(authReport).not.toContain('hosted-secret');
+    expect(adapterReport).toContain('Set Adapter mode to Auto or Hermes API server unless you are intentionally using legacy /coach.');
+  });
+
   it('does not claim dashboard confusion when port 9119 is unreachable', async () => {
     const result = await probeHermesConnection(defaultConnection(), async () => {
       throw new Error('fetch failed');

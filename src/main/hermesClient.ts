@@ -416,7 +416,57 @@ export function createDebugReport(
     );
   }
 
+  const suggestions = buildRecoverySuggestions(report, connection);
+  if (suggestions.length > 0) {
+    lines.push('', 'Recovery suggestions:', ...suggestions.map((suggestion) => `- ${suggestion}`));
+  }
+
   return lines.join('\n');
+}
+
+function buildRecoverySuggestions(
+  report: Pick<HermesConnectionReport, 'status' | 'attempts'>,
+  connection: HermesConnectionSettings
+): string[] {
+  const suggestions: string[] = [];
+
+  if (
+    report.attempts.some((attempt) => attempt.errorKind === 'network' && isLocalUrl(attempt.url)) ||
+    (report.status === 'disconnected' && connection.connectionKind === 'local')
+  ) {
+    suggestions.push('Start Hermes gateway, then run Test gateway again.');
+    suggestions.push('Confirm the Gateway URL points at the Hermes API server, usually http://localhost:8642.');
+  } else if (report.attempts.some((attempt) => attempt.errorKind === 'network')) {
+    suggestions.push('Confirm the endpoint host is reachable from this machine.');
+    suggestions.push('Use HTTPS for hosted or remote custom gateways.');
+  }
+
+  if (report.status === 'auth-error' || report.attempts.some((attempt) => attempt.errorKind === 'auth')) {
+    suggestions.push('Re-enter the bearer token or rotate it if it may have been shared.');
+    suggestions.push('Hosted tokens are only saved for hosted gateways; custom gateway tokens stay explicit.');
+  }
+
+  if (report.status === 'model-error' || report.attempts.some((attempt) => attempt.errorKind === 'model')) {
+    suggestions.push('Configure provider and model routing inside Hermes, then leave DocHermes route/profile at hermes-agent unless your gateway requires another token.');
+  }
+
+  if (
+    report.status === 'incompatible' ||
+    report.attempts.some((attempt) => attempt.errorKind === 'incompatible' || attempt.errorKind === 'unexpected-shape')
+  ) {
+    suggestions.push('Set Adapter mode to Auto or Hermes API server unless you are intentionally using legacy /coach.');
+    suggestions.push('If a browser dashboard is on this URL, switch to the Hermes API server URL instead.');
+  }
+
+  if (report.attempts.some((attempt) => attempt.errorKind === 'invalid-json')) {
+    suggestions.push('Check that the URL points to JSON API responses, not an HTML dashboard, proxy login page, or error page.');
+  }
+
+  if (report.attempts.some((attempt) => attempt.errorKind === 'timeout')) {
+    suggestions.push('Check whether Hermes is still starting up, overloaded, or pointed at a slow remote tunnel.');
+  }
+
+  return unique(suggestions);
 }
 
 function buildUserPromptText(input: BuildHermesPayloadInput): string {

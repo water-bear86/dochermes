@@ -53,6 +53,8 @@ POST /v1/chat/completions
 
 If you are using a custom adapter, make sure the configured endpoint mode matches that adapter. The old prototype `/coach` route is not the default Hermes API Server route.
 
+The copyable gateway debug report includes a `Recovery suggestions` section. Use that first when triaging common local failures such as a stopped gateway, wrong port, dashboard URL, adapter mismatch, bad bearer token, invalid JSON, timeout, or text-only/image-capability mismatch.
+
 ## Hosted Auth Errors
 
 Hosted Hermes endpoints should require bearer auth. If you see `401`, `403`, `auth required`, or `bad token`:
