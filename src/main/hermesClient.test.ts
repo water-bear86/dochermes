@@ -392,23 +392,23 @@ describe('probeHermesConnection', () => {
     expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.errorKind).toBe('auth');
   });
 
-  it('reports endpoint mode mismatch when the configured OpenAI route is unavailable', async () => {
+  it('reports gateway adapter mismatch when the configured OpenAI route is unavailable', async () => {
     const connection = defaultConnection({ endpointMode: 'openai-chat' });
     const result = await probeHermesConnection(connection, async (url) => {
       return String(url).endsWith('/v1/chat/completions') ? textResponse('not found', 404) : jsonResponse({});
     });
 
     expect(result.status).toBe('incompatible');
-    expect(result.summary).toContain('endpoint mode mismatch');
+    expect(result.summary).toContain('gateway adapter mismatch');
     expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.errorKind).toBe('incompatible');
-    expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.detail).toContain('endpoint mode mismatch');
+    expect(result.attempts.find((attempt) => attempt.label === 'text ping')?.detail).toContain('gateway adapter mismatch');
 
     await expect(
       askHermes(
         askInput({ connection }),
         async () => textResponse('not found', 404)
       )
-    ).rejects.toThrowError(/endpoint mode mismatch/i);
+    ).rejects.toThrowError(/gateway adapter mismatch/i);
   });
 
   it('marks hosted auth failures and masks bearer tokens in debug reports', async () => {
@@ -429,7 +429,7 @@ describe('probeHermesConnection', () => {
     expect(createDebugReport(result, defaultConnection({ bearerToken: 'super-secret-token' }))).toContain('Bearer ***');
   });
 
-  it('classifies ask failures for auth and model rejections', async () => {
+  it('classifies ask failures for auth and gateway route/profile rejections', async () => {
     await expect(
       askHermes(
         askInput(),
@@ -442,7 +442,7 @@ describe('probeHermesConnection', () => {
         askInput({ connection: defaultConnection({ modelId: 'missing-model' }) }),
         async () => jsonResponse({ error: { message: 'model missing-model not found' } }, 400)
       )
-    ).rejects.toThrowError(/configured model id/i);
+    ).rejects.toThrowError(/configured gateway route\/profile/i);
   });
 
   it('classifies local ask network failures separately from timeouts', async () => {
@@ -924,7 +924,7 @@ describe('probeHermesConnection', () => {
     expect(result.imageCapable).toBe(false);
   });
 
-  it('reports model errors separately from unreachable servers', async () => {
+  it('reports gateway route/profile errors separately from unreachable servers', async () => {
     const result = await probeHermesConnection(defaultConnection({ modelId: 'missing-model' }), async (url) => {
       if (String(url).endsWith('/v1/chat/completions')) {
         return jsonResponse({ error: { message: 'model missing-model not found' } }, 400);
@@ -934,10 +934,11 @@ describe('probeHermesConnection', () => {
     });
 
     expect(result.status).toBe('model-error');
-    expect(result.summary).toContain('model');
+    expect(result.summary).toContain('gateway route/profile');
+    expect(result.summary).not.toContain('model ID');
   });
 
-  it('reports model errors when model discovery excludes the configured model', async () => {
+  it('reports gateway route/profile errors when discovery excludes the configured token', async () => {
     const result = await probeHermesConnection(defaultConnection({ modelId: 'missing-model' }), async (url) => {
       if (String(url).endsWith('/v1/models')) {
         return jsonResponse({ data: [{ id: 'hermes-agent' }] });
@@ -948,6 +949,7 @@ describe('probeHermesConnection', () => {
 
     expect(result.status).toBe('model-error');
     expect(result.models).toEqual(['hermes-agent']);
+    expect(result.summary).toContain('gateway route/profile');
   });
 
   it('parses direct text responses from custom endpoints', async () => {
@@ -1017,6 +1019,9 @@ describe('probeHermesConnection', () => {
     expect(report).not.toContain('hosted-secret');
     expect(report).not.toContain('user:pass');
     expect(report).not.toContain('access_token=abc');
+    expect(report).toContain('Gateway route/profile: hermes-agent');
+    expect(report).not.toContain('Model:');
+    expect(report).not.toContain('Endpoint mode:');
     expect(report).toContain('access_token=***');
   });
 

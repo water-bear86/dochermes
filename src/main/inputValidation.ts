@@ -18,6 +18,7 @@ import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDO
 export const MAX_SCREENSHOT_BYTES = 12_000_000;
 const PNG_DATA_URL_RE = /^data:image\/png;base64,([A-Za-z0-9+/=]*)$/;
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const DEFAULT_HERMES_GATEWAY_ROUTE = 'hermes-agent';
 const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
   preset: 'balanced',
   redaction: {
@@ -120,15 +121,18 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
   }
 
   if (!isEndpointMode(record.endpointMode)) {
-    throw new Error('Hermes endpoint mode is invalid.');
+    throw new Error('Hermes gateway adapter mode is invalid.');
   }
 
   if (typeof record.baseUrl !== 'string' || !record.baseUrl.trim()) {
-    throw new Error('Hermes base URL is required.');
+    throw new Error('Hermes gateway URL is required.');
   }
 
   const baseUrl = record.baseUrl.trim();
-  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : '';
+  const modelId =
+    typeof record.modelId === 'string' && record.modelId.trim()
+      ? record.modelId.trim()
+      : DEFAULT_HERMES_GATEWAY_ROUTE;
 
   try {
     const parsed = new URL(baseUrl);
@@ -136,11 +140,7 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
       throw new Error();
     }
   } catch {
-    throw new Error('Hermes base URL must be a valid http or https URL.');
-  }
-
-  if (!modelId) {
-    throw new Error('Hermes model ID is required.');
+    throw new Error('Hermes gateway URL must be a valid http or https URL.');
   }
 
   if (typeof record.bearerToken !== 'string') {

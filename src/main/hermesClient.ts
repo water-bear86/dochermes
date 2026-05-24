@@ -240,13 +240,13 @@ export async function askHermes(input: AskHermesInput, fetchImpl: FetchLike = fe
 
     if (kind === 'model') {
       throw new Error(
-        `Hermes rejected the configured model id "${input.connection.modelId}" while using this endpoint (${response.status}).${detailSuffix}`
+        `Hermes rejected the configured gateway route/profile "${input.connection.modelId}" while using this endpoint (${response.status}). Check the Hermes harness provider and model configuration.${detailSuffix}`
       );
     }
 
     if (kind === 'incompatible') {
       throw new Error(
-        `Hermes endpoint mode mismatch: the configured OpenAI-compatible route is not available (${response.status}).${detailSuffix}`
+        `Hermes gateway adapter mismatch: the configured OpenAI-compatible route is not available (${response.status}).${detailSuffix}`
       );
     }
 
@@ -316,7 +316,7 @@ export async function probeHermesConnection(
         imageCapable: false,
         models,
         attempts,
-        summary: 'Hermes model discovery did not include the configured model ID.',
+        summary: 'Hermes gateway discovery did not include the configured gateway route/profile.',
         debugReport: ''
       };
       result.debugReport = createDebugReport(result, candidateConnection);
@@ -402,9 +402,9 @@ export function createDebugReport(
     `Status: ${report.status}`,
     `Summary: ${report.summary}`,
     `Connection kind: ${connection.connectionKind}`,
-    `Endpoint mode: ${connection.endpointMode}`,
+    `Adapter mode: ${connection.endpointMode}`,
     `Base URL: ${maskUrl(connection.baseUrl)}`,
-    `Model: ${connection.modelId || '(none)'}`,
+    `Gateway route/profile: ${connection.modelId || '(none)'}`,
     authLine,
     'Attempts:'
   ];
@@ -963,7 +963,7 @@ function describeAttemptDetail(input: {
 }): string {
   if (input.errorKind === 'incompatible') {
     const suffix = input.detail ? ` ${input.detail}` : '';
-    return `endpoint mode mismatch: configured route is not available (${input.status}).${suffix}`;
+    return `gateway adapter mismatch: configured route is not available (${input.status}).${suffix}`;
   }
 
   if (input.errorKind === 'auth') {
@@ -1044,19 +1044,19 @@ function summarizeFailure(status: HermesConnectionReport['status'], attempts: Pr
   }
 
   if (status === 'model-error') {
-    return 'Hermes rejected the configured model. Check the model ID or use model discovery.';
+    return 'Hermes rejected the configured gateway route/profile. Check the Hermes harness provider and model configuration.';
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'invalid-json')) {
-    return 'Hermes returned invalid JSON. Check that the base URL points to the API server, not a dashboard or proxy error page.';
+    return 'Hermes returned invalid JSON. Check that the gateway URL points to the API server, not a dashboard or proxy error page.';
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'unexpected-shape')) {
-    return 'Hermes returned an unexpected response shape. Check the endpoint mode and gateway response schema.';
+    return 'Hermes returned an unexpected response shape. Check the adapter mode and gateway response schema.';
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'timeout')) {
-    return 'Hermes did not respond before the request timeout. Check the Hermes endpoint and network connection.';
+    return 'Hermes did not respond before the request timeout. Check the Hermes gateway URL and network connection.';
   }
 
   if (attempts.some((attempt) => attempt.errorKind === 'network')) {
@@ -1072,7 +1072,7 @@ function summarizeFailure(status: HermesConnectionReport['status'], attempts: Pr
   }
 
   if (status === 'incompatible') {
-    return 'Hermes endpoint mode mismatch: a server responded, but it did not expose the configured chat-completions route.';
+    return 'Hermes gateway adapter mismatch: a server responded, but it did not expose the configured chat-completions route.';
   }
 
   return 'No compatible Hermes API server responded.';
@@ -1113,7 +1113,7 @@ function normalizeBaseUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
 
   if (!trimmed) {
-    throw new Error('Hermes base URL is required.');
+    throw new Error('Hermes gateway URL is required.');
   }
 
   const url = new URL(trimmed);

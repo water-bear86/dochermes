@@ -8,7 +8,7 @@ DocHermes is an advisory sidecar only. During every smoke pass, verify that the 
 
 - Install dependencies with `npm install`.
 - Start the app with `npm run dev`, or launch the packaged beta build.
-- Optional: start a local Hermes API Server compatible with `POST /v1/chat/completions`.
+- Optional: start a local Hermes gateway compatible with `POST /v1/chat/completions`.
 - Have a harmless trading, chart, or test window available for explicit capture selection.
 - Keep one public wallet address and one small CSV sample ready if testing local memory import paths.
 
@@ -17,7 +17,7 @@ DocHermes is an advisory sidecar only. During every smoke pass, verify that the 
 | Area | Result | Notes |
 | --- | --- | --- |
 | Launch app | Not run | |
-| Configure local Hermes endpoint | Not run | |
+| Configure local Hermes gateway | Not run | |
 | Ask with screenshot allowed | Not run | |
 | Maximum privacy ask path | Not run | |
 | Voice toggle | Not run | |
@@ -27,7 +27,7 @@ DocHermes is an advisory sidecar only. During every smoke pass, verify that the 
 | Wallet sync disabled by default | Not run | |
 | Advisory/privacy boundary | Not run | |
 
-Use `Pass`, `Fail`, or `Blocked` in the Result column. Record the app version, operating system, Hermes endpoint, and any copied debug report in Notes.
+Use `Pass`, `Fail`, or `Blocked` in the Result column. Record the app version, operating system, Hermes gateway URL, and any copied debug report in Notes.
 
 ## 1. Launch App
 
@@ -42,22 +42,21 @@ Expected:
 - The coach panel starts in an advisory posture and does not present trading execution controls.
 - Capture still requires explicit user window selection.
 
-## 2. Configure Local Hermes Endpoint
+## 2. Configure Local Hermes Gateway
 
 1. Open Local settings.
-2. Set Connection to `Local Hermes`.
-3. Set Endpoint mode to `Auto` or `Hermes API Server`.
-4. Set Hermes base URL to `http://localhost:8642`.
-5. Set Model ID to the local Hermes model, usually `hermes-agent`.
-6. Leave Bearer token empty for a private local endpoint.
-7. Click `Test connection`.
+2. Set Hermes gateway to `Local gateway`.
+3. Set Gateway URL to `http://localhost:8642`.
+4. Leave Bearer token empty for a private local gateway.
+5. Click `Test gateway`.
 
 Expected:
 
 - The connection report clearly shows connected, degraded, or disconnected status.
 - A connected local API reports text capability and, when supported, image capability.
 - The debug report masks secrets and remains copyable.
-- The configured path remains OpenAI-compatible through `/v1/chat/completions`; do not require a custom `/coach` route unless explicitly testing legacy mode.
+- DocHermes does not ask the beta user to select a model/provider; that configuration stays inside Hermes.
+- The configured path remains OpenAI-compatible through `/v1/chat/completions` by default; do not require a custom `/coach` route unless explicitly testing legacy mode.
 
 ## 3. Ask With Screenshot Allowed
 
@@ -187,5 +186,4 @@ Before signing off a beta smoke pass, verify:
 - No feature creates, signs, routes, or submits trades.
 - Hosted or public Hermes use is opt-in and clearly disclosed when screenshots may leave the machine.
 - Local settings and journal data remain local unless compact summaries are explicitly configured for Hermes requests.
-- Any failure is recorded with the exact step, app state, endpoint mode, and copied debug report when available.
-
+- Any failure is recorded with the exact step, app state, adapter mode, and copied debug report when available.

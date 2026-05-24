@@ -249,6 +249,28 @@ small {
   margin-top: 10px;
 }
 
+.settings-wide {
+  width: 100%;
+}
+
+.nested-settings-grid {
+  margin-top: 8px;
+}
+
+.advanced-settings {
+  border: 1px solid #343b38;
+  border-radius: 8px;
+  padding: 10px;
+  background: #101312;
+}
+
+.advanced-settings summary {
+  cursor: pointer;
+  color: #d8dacd;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .privacy-indicator {
   border: 1px solid #374238;
   border-radius: 8px;
@@ -260,6 +282,11 @@ small {
 .privacy-indicator small {
   display: block;
   margin-top: 4px;
+}
+
+.privacy-indicator .label {
+  display: block;
+  margin-bottom: 4px;
 }
 
 .privacy-indicator.scope-local {
@@ -354,6 +381,7 @@ textarea:focus {
 
 .connection-report.auth-error,
 .connection-report.disconnected,
+.connection-report.model-error,
 .connection-report.incompatible {
   border-color: #6b3838;
 }

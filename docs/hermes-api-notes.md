@@ -1,10 +1,12 @@
 # Hermes API integration notes
 
-These notes capture the current recommended Hermes endpoint for DocHermes.
+These notes capture the current recommended Hermes gateway boundary for DocHermes.
+
+DocHermes connects to Hermes. Hermes owns provider selection, model selection, provider credentials, and any routing to local or hosted inference systems.
 
 ## Recommended endpoint
 
-DocHermes should target Hermes API Server's OpenAI-compatible chat endpoint:
+DocHermes should target the Hermes API Server gateway. In the default compatibility adapter, that resolves to:
 
 ```text
 POST /v1/chat/completions
@@ -16,13 +18,13 @@ Local default once Hermes API Server is running:
 http://localhost:8642/v1/chat/completions
 ```
 
-Hosted/Railway-style endpoint shape:
+Hosted/Railway-style gateway shape:
 
 ```text
 https://<your-hermes-api-domain>/v1/chat/completions
 ```
 
-If the API server is exposed publicly, requests must use bearer auth:
+If the gateway is exposed publicly, requests must use bearer auth:
 
 ```http
 Authorization: Bearer <API_SERVER_KEY>
@@ -67,7 +69,7 @@ Instead of this custom payload:
 }
 ```
 
-send OpenAI-compatible multimodal chat JSON:
+send OpenAI-compatible multimodal chat JSON. The `model` value is a Hermes gateway compatibility token, not a provider/model picker in DocHermes:
 
 ```json
 {
@@ -118,20 +120,20 @@ That makes `/v1/chat/completions` the cleanest near-term integration target.
 
 `src/main/hermesClient.ts` now converts DocHermes' capture/question structure into the OpenAI-compatible multimodal chat format above when `auto` or `openai-chat` mode is active.
 
-The settings default to the base URL:
+The settings default to the gateway URL:
 
 ```text
 http://localhost:8642
 ```
 
-DocHermes appends `/v1/chat/completions` for the Hermes API Server adapter. For a Railway-hosted Hermes API server, use the public API-server domain as the base URL plus bearer auth.
+DocHermes appends `/v1/chat/completions` for the Hermes API Server adapter. For a Railway-hosted Hermes gateway, use the public API-server domain as the gateway URL plus bearer auth.
 
 The compatibility layer also supports:
 
 - Local candidate probing for `localhost` and `127.0.0.1` on known Hermes ports.
 - `auto`, `openai-chat`, `legacy-coach`, and `custom` endpoint modes.
 - Legacy `/coach` fallback when explicitly configured or discovered during auto probing.
-- Model discovery through `/v1/models` and model-rejection diagnostics.
+- Gateway route/profile discovery through `/v1/models` when Hermes exposes it, with route/profile rejection diagnostics.
 - Text and screenshot/image pings for connection testing.
 - Masked debug reports that redact bearer tokens, URL userinfo, and common token query parameters.
 
@@ -139,7 +141,7 @@ When a connection test discovers a working candidate endpoint, DocHermes records
 
 ## Privacy note
 
-For trading screenshots, local Hermes API Server is preferred for privacy and latency:
+For trading screenshots, a local Hermes gateway is preferred for privacy and latency:
 
 ```text
 http://localhost:8642/v1/chat/completions

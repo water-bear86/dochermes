@@ -153,6 +153,8 @@ describe('diagnostic reporting', () => {
     const report = buildDiagnosticReport(payload);
 
     expect(report).toContain('Request: req-secret');
+    expect(report).toContain('Gateway route/profile: hermes-agent');
+    expect(report).not.toContain('Model:');
     expect(report).toContain('Redaction: on');
     expect(report).toContain('Image input: screenshot image');
     expect(report).toContain('***');

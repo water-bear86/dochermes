@@ -127,8 +127,7 @@ describe('main ipc validation', () => {
       'Selected window kind is invalid.',
       (input: typeof baseInput) => ({ ...input, selectedWindow: { ...input.selectedWindow, kind: 'monitor' as const } })
     ],
-    ['invalid base URL', 'Hermes base URL must be a valid http or https URL.', (input: typeof baseInput) => ({ ...input, connection: { ...input.connection, baseUrl: 'ftp://example.com' } })],
-    ['missing model id', 'Hermes model ID is required.', (input: typeof baseInput) => ({ ...input, connection: { ...input.connection, modelId: '   ' } })]
+    ['invalid gateway URL', 'Hermes gateway URL must be a valid http or https URL.', (input: typeof baseInput) => ({ ...input, connection: { ...input.connection, baseUrl: 'ftp://example.com' } })]
   ])(
     'rejects malformed ask payload: %s', async (_label, expectedMessage, buildInput) => {
       const invalidInput = buildInput(baseInput);
@@ -138,4 +137,26 @@ describe('main ipc validation', () => {
       expect(askHermesMock).not.toHaveBeenCalled();
     }
   );
+
+  it('normalizes blank compatibility route/profile values before asking Hermes', async () => {
+    const handler = getHermesAskHandler();
+
+    await expect(
+      handler(undefined, {
+        ...baseInput,
+        connection: {
+          ...baseInput.connection,
+          modelId: '   '
+        }
+      })
+    ).resolves.toBe('ok');
+
+    expect(askHermesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: expect.objectContaining({
+          modelId: 'hermes-agent'
+        })
+      })
+    );
+  });
 });

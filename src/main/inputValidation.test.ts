@@ -47,20 +47,22 @@ describe('assertHermesConnection', () => {
 
   it('rejects non-http/https endpoints', () => {
     expect(() => assertHermesConnection({ ...VALID_BASE_CONNECTION, baseUrl: 'ftp://example.com' })).toThrow(
-      'Hermes base URL must be a valid http or https URL.'
+      'Hermes gateway URL must be a valid http or https URL.'
     );
   });
 
-  it('rejects missing model ID', () => {
-    expect(() => assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: '   ' })).toThrow(
-      'Hermes model ID is required.'
-    );
+  it('defaults a missing gateway route/profile token for compatibility adapters', () => {
+    expect(assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: '   ' })).toEqual({
+      ...VALID_BASE_CONNECTION,
+      modelId: 'hermes-agent'
+    });
   });
 
-  it('rejects non-string model ID', () => {
-    expect(() => assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: 123 as unknown as string })).toThrow(
-      'Hermes model ID is required.'
-    );
+  it('defaults a non-string gateway route/profile token for compatibility adapters', () => {
+    expect(assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: 123 as unknown as string })).toEqual({
+      ...VALID_BASE_CONNECTION,
+      modelId: 'hermes-agent'
+    });
   });
 
   it('rejects non-string bearer token', () => {

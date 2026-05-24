@@ -233,11 +233,11 @@ function buildDiagnosticSessionEvent(diagnostic: HermesRequestDiagnostic): Postm
   const details: string[] = [
     `Status: ${diagnostic.status}`,
     timingText,
-    `Connection: ${diagnostic.connection.endpointMode} · model ${diagnostic.connection.modelId}`
+    `Connection: ${diagnostic.connection.endpointMode} · route/profile ${diagnostic.connection.modelId}`
   ];
   const provenance = [
-    `Hermes endpoint kind ${diagnostic.connection.connectionKind}`,
-    `Endpoint mode ${diagnostic.connection.endpointMode}`
+    `Hermes gateway kind ${diagnostic.connection.connectionKind}`,
+    `Adapter mode ${diagnostic.connection.endpointMode}`
   ];
   const riskSignals: string[] = [`Request ${diagnostic.status}`];
 

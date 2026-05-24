@@ -245,10 +245,10 @@ const POSTMORTEM_OUTCOME_TAG_OPTIONS: Array<{ value: PostmortemOutcomeTag; label
 const POSTMORTEM_SUMMARY_PREVIEW_LIMIT = 3;
 const WALLET_SYNC_INTERVAL_MS = 180_000;
 const LOCAL_DATA_CATEGORIES = [
-  'Settings: Hermes endpoint, model, bearer token if provided, privacy preset, coach mode, voice/OCR toggles, paired-window metadata, personal rules, and public wallet watchlist.',
+  'Settings: Hermes gateway URL, bearer token if provided, privacy preset, coach mode, voice/OCR toggles, paired-window metadata, personal rules, and public wallet watchlist.',
   'Memory: journal notes, warning feedback, postmortem outcomes, and saved compact postmortem summaries.',
   'Trade context: imported CSV rows and read-only public wallet trade records cached for local risk checks.',
-  'Diagnostics: recent request timing, endpoint diagnostics, selected-window name, and sanitized question preview.',
+  'Diagnostics: recent request timing, gateway diagnostics, selected-window name, and sanitized question preview.',
   'Session-only context: live monitoring signals and the latest screenshot preview; journal entries store capture status, not screenshot images.'
 ];
 const OCR_REGION_MIN_SIZE = 0.02;
@@ -2250,7 +2250,7 @@ export function App(): ReactElement {
       case 'auth-error':
         return 'Hermes check-in: auth issue';
       case 'model-error':
-        return 'Hermes check-in: model mismatch';
+        return 'Hermes check-in: gateway route issue';
       case 'incompatible':
         return 'Hermes check-in: incompatible';
       default:
@@ -2547,7 +2547,7 @@ export function App(): ReactElement {
         </div>
         {settingsOpen ? (
           <div className="settings-grid">
-            <label htmlFor="connection-kind">Connection</label>
+            <label htmlFor="connection-kind">Hermes gateway</label>
             <select
               id="connection-kind"
               value={settings.connection.connectionKind}
@@ -2557,26 +2557,105 @@ export function App(): ReactElement {
                 })
               }
             >
-              <option value="local">Local Hermes</option>
-              <option value="hosted">Hosted/remote Hermes</option>
-              <option value="custom">Advanced/custom endpoint</option>
+              <option value="local">Local gateway</option>
+              <option value="hosted">Hosted gateway</option>
+              <option value="custom">Custom gateway</option>
             </select>
 
-            <label htmlFor="endpoint-mode">Endpoint mode</label>
-            <select
-              id="endpoint-mode"
-              value={settings.connection.endpointMode}
+            <small className="subtle-note settings-wide">
+              DocHermes connects to the Hermes gateway only. Configure all agent routing inside Hermes.
+            </small>
+
+            <label htmlFor="gateway">Gateway URL</label>
+            <input
+              id="gateway"
+              value={settings.connection.baseUrl}
               onChange={(event) =>
                 updateConnection({
-                  endpointMode: event.target.value as HermesEndpointMode
+                  baseUrl: event.target.value
                 })
               }
-            >
-              <option value="auto">Auto</option>
-              <option value="openai-chat">Hermes API Server</option>
-              <option value="legacy-coach">Legacy /coach</option>
-              <option value="custom">Exact custom endpoint</option>
-            </select>
+              spellCheck={false}
+            />
+
+            <label htmlFor="bearer-token">Bearer token</label>
+            <input
+              id="bearer-token"
+              type="password"
+              value={settings.connection.bearerToken}
+              placeholder="Only if your Hermes gateway requires one"
+              onChange={(event) =>
+                updateConnection({
+                  bearerToken: event.target.value
+                })
+              }
+              spellCheck={false}
+            />
+
+            <div className="button-row settings-wide">
+              <button type="button" onClick={testConnection} disabled={testingConnection}>
+                {testingConnection ? 'Testing...' : 'Test gateway'}
+              </button>
+            </div>
+            {connectionReport ? (
+              <div className={`connection-report ${connectionReport.status} settings-wide`}>
+                <strong>{connectionReport.summary}</strong>
+                <small>
+                  Status: {connectionReport.status}
+                  {connectionReport.activeAdapter ? ` / ${connectionReport.activeAdapter}` : ''}
+                </small>
+                <div className="capability-row">
+                  <span>{connectionReport.textCapable ? 'Text route OK' : 'Text route failed'}</span>
+                  <span>{connectionReport.imageCapable ? 'Image route OK' : 'Image route failed'}</span>
+                  <span>
+                    {connectionReport.models.length > 0
+                      ? `${connectionReport.models.length} discovered route/profile${connectionReport.models.length === 1 ? '' : 's'}`
+                      : 'Route discovery unknown'}
+                  </span>
+                </div>
+                <textarea readOnly value={connectionReport.debugReport} aria-label="Copyable Hermes gateway debug report" />
+                <button type="button" onClick={copyDebugReport}>
+                  {copiedReport ? 'Copied' : 'Copy debug report'}
+                </button>
+              </div>
+            ) : null}
+
+            <details className="advanced-settings settings-wide">
+              <summary>Advanced gateway compatibility</summary>
+              <div className="settings-grid nested-settings-grid">
+                <label htmlFor="endpoint-mode">Adapter mode</label>
+                <select
+                  id="endpoint-mode"
+                  value={settings.connection.endpointMode}
+                  onChange={(event) =>
+                    updateConnection({
+                      endpointMode: event.target.value as HermesEndpointMode
+                    })
+                  }
+                >
+                  <option value="auto">Auto</option>
+                  <option value="openai-chat">Hermes API server</option>
+                  <option value="legacy-coach">Legacy /coach</option>
+                  <option value="custom">Exact custom endpoint</option>
+                </select>
+
+                <label htmlFor="gateway-route-profile">Route/profile token</label>
+                <input
+                  id="gateway-route-profile"
+                  value={settings.connection.modelId}
+                  onChange={(event) =>
+                    updateConnection({
+                      modelId: event.target.value
+                    })
+                  }
+                  spellCheck={false}
+                />
+                <small className="subtle-note settings-wide">
+                  This is a compatibility token for gateways that require an OpenAI-style model field. The active provider and
+                  model still live in Hermes.
+                </small>
+              </div>
+            </details>
             <div className={`privacy-indicator ${connectionScope.className}`}>
               <span className="label">Data-sharing scope</span>
               <strong>{connectionScope.title}</strong>
@@ -2855,44 +2934,6 @@ export function App(): ReactElement {
             <small className="subtle-note">
               Wallet records (read-only): {walletTradeRecords.length}
             </small>
-
-            <label htmlFor="gateway">Hermes base URL</label>
-            <input
-              id="gateway"
-              value={settings.connection.baseUrl}
-              onChange={(event) =>
-                updateConnection({
-                  baseUrl: event.target.value
-                })
-              }
-              spellCheck={false}
-            />
-
-            <label htmlFor="model-id">Model ID</label>
-            <input
-              id="model-id"
-              value={settings.connection.modelId}
-              onChange={(event) =>
-                updateConnection({
-                  modelId: event.target.value
-                })
-              }
-              spellCheck={false}
-            />
-
-            <label htmlFor="bearer-token">Bearer token</label>
-            <input
-              id="bearer-token"
-              type="password"
-              value={settings.connection.bearerToken}
-              placeholder="Required for hosted/public Hermes"
-              onChange={(event) =>
-                updateConnection({
-                  bearerToken: event.target.value
-                })
-              }
-              spellCheck={false}
-            />
 
             <label className="check-row" htmlFor="keep-on-top">
               <input
@@ -3371,27 +3412,6 @@ export function App(): ReactElement {
             >
               Recalibrate OCR regions
             </button>
-            <button type="button" onClick={testConnection} disabled={testingConnection}>
-              {testingConnection ? 'Testing...' : 'Test connection'}
-            </button>
-            {connectionReport ? (
-              <div className={`connection-report ${connectionReport.status}`}>
-                <strong>{connectionReport.summary}</strong>
-                <small>
-                  Status: {connectionReport.status}
-                  {connectionReport.activeAdapter ? ` / ${connectionReport.activeAdapter}` : ''}
-                </small>
-                <div className="capability-row">
-                  <span>{connectionReport.textCapable ? 'Text OK' : 'Text failed'}</span>
-                  <span>{connectionReport.imageCapable ? 'Image OK' : 'Image failed'}</span>
-                  <span>{connectionReport.models.length > 0 ? `${connectionReport.models.length} models` : 'Models unknown'}</span>
-                </div>
-                <textarea readOnly value={connectionReport.debugReport} aria-label="Copyable Hermes debug report" />
-                <button type="button" onClick={copyDebugReport}>
-                  {copiedReport ? 'Copied' : 'Copy debug report'}
-                </button>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </section>

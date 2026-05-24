@@ -1,56 +1,120 @@
 # DocHermes
 
-DocHermes is a desktop risk coach add-on for trading workflows. It is not a trading bot, wallet, exchange client, or order router.
+DocHermes is a desktop risk and execution coach for trading workflows.
 
-The app is designed to stay operating-system, trading-platform, chain, exchange, wallet, and strategy agnostic. The local requirements are:
+It is designed to sit beside an existing trading platform, watch only the window the user explicitly selects, send context to a Hermes gateway, and return structured coaching before a trader acts.
 
-- A compatible Hermes instance, usually local Hermes API Server.
-- A trading platform or trading window the user can explicitly select for screenshot capture.
-- Optional local preference state for armed/pause and future local watch toggles.
+## Status: Not Ready To Install
+
+DocHermes is currently an active prototype.
+
+Do not install this as a production trading tool yet. Do not use it as the basis for live trading decisions. There is no packaged release, no stable installer, and no production support guarantee.
+
+This repository is public so the product direction, architecture, and implementation work can be reviewed early.
+
+## What DocHermes Is
+
+DocHermes is intended to become:
+
+- A downloadable desktop companion.
+- A professional risk copilot that stays on top of a trading workflow.
+- A window-paired coach that captures only after the user selects a trading window.
+- A model-agnostic client that connects to the Hermes gateway.
+- A local-memory layer for journals, trade notes, postmortems, and behavior patterns.
+- A guardrail layer for sizing discipline, cooldowns, source quality, liquidity risk, and repeat-mistake detection.
+
+The intended flow:
+
+```text
+Signal appears
+-> User asks DocHermes or captures the selected trading window
+-> DocHermes sends screenshot/context to Hermes
+-> Hermes returns risk and execution guidance
+-> User decides whether to act in their existing trading platform
+-> DocHermes stores local notes/outcomes for future coaching
+```
+
+## What DocHermes Is Not
+
+DocHermes is not:
+
+- A trading bot.
+- A wallet.
+- An exchange client.
+- An order router.
+- A signing tool.
+- A source of financial advice.
+- A system that asks for seed phrases, private keys, approvals, withdrawals, or wallet control.
+
+The application has no trade execution capability. It does not place orders, route swaps, sign transactions, or control wallets.
+
+## Design Principles
+
+DocHermes should remain:
+
+- Operating-system agnostic where practical.
+- Trading-platform agnostic.
+- Chain, exchange, wallet, and strategy agnostic.
+- Model/provider agnostic.
+- Explicit about what data leaves the machine.
+- Advisory by default.
+
+DocHermes connects to Hermes. Hermes owns provider selection, model selection, provider credentials, and inference routing.
 
 ## Current Prototype
 
-The current prototype provides:
+The current prototype includes:
 
 - Electron desktop app.
 - Always-on-top compact coach window.
-- Tray/menu-bar controls (show/hide, capture, settings, arm/pause, etc.).
-- Explicit window picker before capture.
+- Tray/menu-bar controls for show/hide, capture, settings, arm/pause, and quit.
+- Explicit trading-window picker before capture.
 - Screenshot preview.
 - Text question input.
-- Hermes connection settings for local, hosted, or advanced/custom endpoints.
-- OpenAI-compatible Hermes API Server adapter for `POST /v1/chat/completions`.
-- Legacy `/coach` adapter support when explicitly selected or discovered during auto probing.
-- Bearer auth and configurable model ID.
-- Connection test UI with text/image capability checks and copyable masked diagnostics.
-- Successful connection tests apply the discovered effective adapter/base URL to future asks.
-- Local settings for panel always-on-top, armed/pause, and live monitoring toggles.
-- Local OCR monitoring with selectable analysis region (`full-window`, `order-panel`, `chart-order-panel`) and manual recalibration.
-- User-assisted OCR region overlay editor (drag-to-place on preview + normalized region controls).
-- Local data-sharing controls for memory context (use local history for risk checks, send compact summary, raw records disabled by default).
-- Read-only observed wallet address list with explicit private-key/seed warning.
-- Read-only CSV trade-history import into normalized local memory summaries.
-- Read-only wallet history sync loop for observed addresses (background refresh + manual sync, no signing/trading permissions).
-- Paired-window preference that persists across restarts so you can resume from the same trading window.
-- Local journal save with question, response, user notes, selected-window metadata, and screenshot metadata.
-- Compact personal-memory context built from local journal entries.
-- Basic local pattern matching for early-entry risk and confirmation behavior.
-- Hermes response display.
-- Optional browser extension scaffold for DOM-first context extraction that can be copied into clipboard monitoring.
+- Hermes gateway settings for local, hosted, or custom gateways.
+- Connection testing with text/image route checks and copyable masked diagnostics.
+- Local settings for always-on-top, armed/pause, voice, OCR, monitoring, privacy, and guardrail behavior.
+- Privacy presets, including maximum privacy mode that withholds screenshots, window metadata, memory context, and monitoring context from Hermes.
+- Local journal save with question, response, notes, selected-window metadata, and screenshot metadata.
+- Local memory summaries and basic pattern matching.
+- Trade notes and postmortem helpers.
+- Read-only CSV trade-history import.
+- Read-only public wallet observation cache for local risk checks.
+- OCR monitoring and region calibration for local pre-checks.
+- Optional browser extension scaffold for DOM-first context extraction.
 
-Capture is user initiated. The app does not run hidden background capture and has no execution capability.
+Capture is user initiated. The journal stores screenshot metadata instead of screenshot image bytes.
 
-The journal intentionally stores screenshot metadata instead of image bytes. That keeps the first local memory loop useful without silently retaining sensitive trading screenshots.
+## Hermes Gateway
 
-When the coach is armed, clipboard changes are scanned for token/candidate patterns and surfaced as live monitoring signals.
+DocHermes talks to a Hermes gateway, not directly to a provider model.
 
-If OCR watch is enabled, selected-window captures are preprocessed locally (resize + grayscale/contrast + threshold), then parsed for order context signals.
+Default local gateway URL:
 
-If observed wallet addresses are configured, DocHermes can run a read-only wallet-history sync in the background without blocking pre-trade checks. Wallet sync results are normalized into the same local trade-memory model used by journal and CSV imports. Unsupported address/provider formats are surfaced explicitly and are not treated as fatal.
+```text
+http://localhost:8642
+```
 
-When a new question resembles prior notes, the renderer sends a compact `memoryContext` object with the Hermes request. This is intentionally summarized before transmission so the app does not dump the full local journal into every prompt.
+Default compatibility route:
 
-## Local Development
+```text
+POST /v1/chat/completions
+```
+
+The UI exposes gateway setup as:
+
+- Hermes gateway type.
+- Gateway URL.
+- Optional bearer token.
+- Test gateway.
+
+Advanced compatibility settings exist for gateways that require a specific adapter mode or OpenAI-style route/profile token. Normal users should not need to configure a model inside DocHermes.
+
+See [Hermes API integration notes](docs/hermes-api-notes.md) for payload details.
+
+## Local Development Only
+
+This is for contributors and reviewers. It is not an install path for end users.
 
 Install dependencies:
 
@@ -58,7 +122,7 @@ Install dependencies:
 npm install
 ```
 
-Run the app:
+Run the app in development mode:
 
 ```bash
 npm run dev
@@ -72,49 +136,32 @@ npm run typecheck
 npm run build
 ```
 
-## Hermes Connection
+## Project Direction
 
-Default local base URL:
+Near-term work is focused on:
 
-```text
-http://localhost:8642
-```
+- Hardening the desktop companion loop.
+- Making Hermes gateway setup harder to misconfigure.
+- Improving first-run clarity.
+- Preserving strict privacy boundaries.
+- Strengthening local memory and postmortem flows.
+- Keeping the product advisory-only while guardrail and policy modes mature.
 
-Default model ID:
+Longer term, DocHermes should support:
 
-```text
-hermes-agent
-```
+- Advisory mode: recommendations only.
+- Guardrail mode: warnings when user-defined rules are violated.
+- Policy mode: explicit override required before proceeding outside rules.
+- Better context extraction through optional browser DOM helpers.
+- Voice input and optional spoken replies.
+- A packaged desktop release.
 
-In `auto` or `openai-chat` mode, DocHermes sends OpenAI-compatible multimodal chat requests to:
+## Safety Boundary
 
-```text
-POST /v1/chat/completions
-```
+DocHermes is a risk and execution coach. It should help traders slow down, size better, review prior behavior, and avoid repeating preventable mistakes.
 
-The settings panel can also test:
+It must not become a trade executor.
 
-- `GET /health`
-- `GET /v1/capabilities`
-- `GET /v1/models`
-- text ping to `POST /v1/chat/completions`
-- image ping to `POST /v1/chat/completions`
-- legacy `/coach` ping when auto mode needs a fallback
+## License
 
-Hosted/public Hermes instances can use bearer auth. Debug reports mask bearer tokens and common token query parameters.
-
-Bearer tokens are stored locally in the Electron app's local settings for this prototype. Do not use shared machines for hosted Hermes credentials.
-
-Legacy `/coach` remains available through `legacy-coach` mode for custom adapters, but it is no longer the default.
-
-See [Hermes API integration notes](docs/hermes-api-notes.md) for the recommended payload shape and migration notes.
-
-## Optional Browser Extension
-
-An optional browser-side extractor is available at:
-
-```text
-extensions/dochermes-context
-```
-
-Load this folder as an unpacked extension in Chromium-based browsers. The extension popup can extract page context (pair/chain/size/leverage/direction/type/address hints) and copy it as structured text for DocHermes clipboard monitoring.
+DocHermes is licensed under the MIT License. See [LICENSE](LICENSE).

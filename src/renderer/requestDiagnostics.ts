@@ -124,7 +124,7 @@ export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
     `Question: ${entry.questionPreview}`,
     `Window: ${entry.selectedWindowName} (${entry.selectedWindowKind})`,
     `Connection: ${entry.connection.connectionKind}/${entry.connection.endpointMode}`,
-    `Model: ${entry.connection.modelId}`,
+    `Gateway route/profile: ${entry.connection.modelId}`,
     `Base: ${redactUrl(entry.connection.baseUrl)}`
   ];
 
