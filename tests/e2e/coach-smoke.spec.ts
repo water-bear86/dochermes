@@ -4,9 +4,11 @@ import type { Page } from 'playwright';
 import {
   collectRendererFailures,
   firstCoachWindow,
+  installCoachRequestTestBridge,
   installHermesGatewayTestBridge,
   launchDocHermes
 } from './electronHarness';
+import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../../src/shared/privacy';
 import { findAvailablePort, startFakeHermesServer, type FakeHermesFixture } from './fakeHermesServer';
 
 type GatewayTestSettings = {
@@ -42,6 +44,81 @@ test.describe('Hermes Coach Electron smoke', () => {
       await expect(page.getByLabel(/private key/i)).toHaveCount(0);
       await expect(page.getByText(/seed phrase/i)).toHaveCount(0);
 
+      expect(rendererFailures).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('walks through first-run setup without granting execution capability', async () => {
+    const app = await launchDocHermes();
+
+    try {
+      const page = await firstCoachWindow(app);
+      const rendererFailures = collectRendererFailures(page, { ignoreSandboxedPreloadFailure: true });
+
+      await expect(page.getByRole('heading', { name: 'Set up Hermes Coach' })).toBeVisible();
+      await expect(page.getByText('Advisory boundary')).toBeVisible();
+      await expect(page.getByText(/never controls funds/i)).toBeVisible();
+
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(page.getByText('Hermes gateway', { exact: true })).toBeVisible();
+      await expect(page.getByText(/model agnostic/i)).toBeVisible();
+
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(page.getByText('Trading window', { exact: true })).toBeVisible();
+      await expect(page.getByText(/does not grant trade execution/i)).toBeVisible();
+
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+
+      await page.getByRole('button', { name: 'Finish setup' }).click();
+      await expect(page.getByRole('heading', { name: 'Hermes Coach', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /place order|buy|sell|route order|sign|withdraw/i })).toHaveCount(0);
+
+      expect(rendererFailures).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('sends placeholder-only maximum privacy requests without capturing the real window', async () => {
+    const app = await launchDocHermes();
+
+    try {
+      const page = await firstCoachWindow(app);
+      const rendererFailures = collectRendererFailures(page, { ignoreSandboxedPreloadFailure: true });
+      await configureMaximumPrivacyRequestApp(page);
+
+      await page.getByLabel('Question').fill('Should I enter this trade right now?');
+      await page.getByRole('button', { name: 'Capture and ask' }).click();
+
+      await expect(page.getByText('E2E Hermes response: placeholder request received.')).toBeVisible();
+      await expect(page.getByText(/Withheld from Hermes: Real screenshot/)).toBeVisible();
+
+      const calls = await page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __dochermesBridgeCalls?: {
+            captureCount: number;
+            asks: unknown[];
+          };
+        };
+
+        return testWindow.__dochermesBridgeCalls;
+      });
+
+      expect(calls?.captureCount).toBe(0);
+      expect(calls?.asks).toHaveLength(1);
+      expect(calls?.asks[0]).toMatchObject({
+        screenshotDataUrl: MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL,
+        selectedWindow: MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER,
+        privacy: {
+          preset: 'maximum'
+        }
+      });
+      expect(JSON.stringify(calls?.asks[0])).not.toContain('E2E Trading Terminal');
+      expect(JSON.stringify(calls?.asks[0])).not.toContain('memoryContext');
+      expect(JSON.stringify(calls?.asks[0])).not.toContain('monitoringContext');
       expect(rendererFailures).toEqual([]);
     } finally {
       await app.close();
@@ -192,6 +269,50 @@ async function configureGatewayTestApp(page: Page, settings: GatewayTestSettings
       connectionKind: settings.connectionKind
     }
   );
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Hermes Coach', exact: true })).toBeVisible();
+}
+
+async function configureMaximumPrivacyRequestApp(page: Page): Promise<void> {
+  await page.waitForLoadState('domcontentloaded');
+  await installCoachRequestTestBridge(page);
+
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'hermes.settings.v1',
+      JSON.stringify({
+        connection: {
+          connectionKind: 'local',
+          endpointMode: 'auto',
+          baseUrl: 'http://127.0.0.1:8642',
+          modelId: 'hermes-agent',
+          bearerToken: ''
+        },
+        privacy: {
+          preset: 'maximum',
+          redaction: {
+            redactAddresses: true,
+            redactBalances: true,
+            redactUsernames: true,
+            redactAmounts: true
+          }
+        },
+        friction: {
+          enabled: false,
+          strictness: 'standard'
+        },
+        setup: {
+          completedAt: '2026-05-23T00:00:00.000Z'
+        },
+        pairedWindow: {
+          id: 'window:e2e-trading-terminal',
+          name: 'E2E Trading Terminal',
+          kind: 'window'
+        }
+      })
+    );
+  });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Hermes Coach', exact: true })).toBeVisible();

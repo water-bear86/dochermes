@@ -7,7 +7,7 @@ import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
 import { probeHermesConnection } from '../../src/main/hermesClient';
-import type { HermesConnectionSettings } from '../../src/shared/types';
+import type { AskHermesInput, HermesConnectionSettings, WindowSourceOption } from '../../src/shared/types';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -115,4 +115,72 @@ export async function installHermesGatewayTestBridge(page: Page): Promise<void> 
       onMonitorStatus: unsubscribe
     };
   });
+}
+
+export async function installCoachRequestTestBridge(page: Page): Promise<void> {
+  const source: WindowSourceOption = {
+    id: 'window:e2e-trading-terminal',
+    name: 'E2E Trading Terminal',
+    kind: 'window',
+    thumbnailDataUrl: 'data:image/png;base64,QUFBQQ=='
+  };
+
+  await page.addInitScript((inputSource) => {
+    const testWindow = window as typeof window & {
+      hermesCoach?: Record<string, unknown>;
+      __dochermesBridgeCalls?: {
+        captureCount: number;
+        asks: AskHermesInput[];
+      };
+    };
+    const noop = async (): Promise<void> => undefined;
+    const unsubscribe = (): (() => void) => () => undefined;
+    const calls = {
+      captureCount: 0,
+      asks: [] as AskHermesInput[]
+    };
+
+    testWindow.__dochermesBridgeCalls = calls;
+    testWindow.hermesCoach = {
+      listWindowSources: async () => [inputSource],
+      validateSelectedWindow: async (sourceId: string) => sourceId === inputSource.id,
+      captureWindowSource: async () => {
+        calls.captureCount += 1;
+        return 'data:image/png;base64,QUFBQQ==';
+      },
+      setWatchClipboard: noop,
+      setWatchOCR: noop,
+      setMonitorSource: noop,
+      setOcrContextMode: noop,
+      setOcrRegionProfile: noop,
+      recalibrateOCR: noop,
+      setVoiceSettings: noop,
+      askHermes: async (request: AskHermesInput) => {
+        calls.asks.push(request);
+        return 'E2E Hermes response: placeholder request received.';
+      },
+      testHermesConnection: async () => ({
+        status: 'connected',
+        activeAdapter: 'openai-chat',
+        textCapable: true,
+        imageCapable: true,
+        models: ['hermes-agent'],
+        attempts: [],
+        summary: 'E2E Hermes test bridge connected.',
+        debugReport: 'E2E Hermes test bridge connected.'
+      }),
+      saveHostedHermesToken: async () => ({ available: true, hasToken: true, updatedAt: new Date().toISOString() }),
+      getHostedHermesTokenStatus: async () => ({ available: true, hasToken: false }),
+      clearHostedHermesToken: async () => ({ available: true, hasToken: false, reason: 'not-found' }),
+      setAlwaysOnTop: noop,
+      setArmedMode: noop,
+      appInfo: async () => ({ name: 'DocHermes E2E', platform: 'test' }),
+      onOpenWindowPicker: unsubscribe,
+      onOpenSettings: unsubscribe,
+      onArmCoach: unsubscribe,
+      onVoiceHotkey: unsubscribe,
+      onMonitorSignal: unsubscribe,
+      onMonitorStatus: unsubscribe
+    };
+  }, source);
 }
