@@ -158,6 +158,7 @@ describe('diagnostic reporting', () => {
     const payload = createRequestDiagnostic({
       ...BASE_DIAGNOSTIC_INPUT,
       id: 'req-secret',
+      selectedWindowId: 'window:private-account',
       connection: {
         ...BASE_DIAGNOSTIC_INPUT.connection,
         connectionKind: 'hosted',
@@ -197,6 +198,10 @@ describe('diagnostic reporting', () => {
     expect(report).toContain('Trade summary: withheld');
     expect(report).toContain('***');
     expect(report).not.toContain('Trading Terminal');
+    expect(payload.selectedWindowName).toBe('Window title withheld');
+    expect(payload.selectedWindowId).toBe('Window id withheld');
+    expect(payload.connection.baseUrl).not.toContain('sk-abc123');
+    expect(payload.connection.resolvedEndpoint).not.toContain('Bearer%20secret');
     expect(report).not.toContain('sk-abc123');
     expect(report).not.toContain('Bearer%20secret');
     expect(sanitizeQuestionPreview('')).toBe('[empty request]');

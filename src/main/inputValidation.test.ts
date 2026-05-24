@@ -51,6 +51,26 @@ describe('assertHermesConnection', () => {
     );
   });
 
+  it('allows plain HTTP only for loopback gateway URLs', () => {
+    expect(() =>
+      assertHermesConnection({
+        ...VALID_BASE_CONNECTION,
+        connectionKind: 'custom',
+        endpointMode: 'custom',
+        baseUrl: 'http://127.0.0.1:8787/hermes'
+      })
+    ).not.toThrow();
+
+    expect(() =>
+      assertHermesConnection({
+        ...VALID_BASE_CONNECTION,
+        connectionKind: 'custom',
+        endpointMode: 'custom',
+        baseUrl: 'http://coach.example/hermes'
+      })
+    ).toThrow('Remote Hermes gateway URLs must use https. Plain http is only allowed for localhost development.');
+  });
+
   it('defaults a missing gateway route/profile token for compatibility adapters', () => {
     expect(assertHermesConnection({ ...VALID_BASE_CONNECTION, modelId: '   ' })).toEqual({
       ...VALID_BASE_CONNECTION,

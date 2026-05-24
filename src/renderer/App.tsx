@@ -71,7 +71,14 @@ import {
   writeLocalSettings
 } from './localSettings';
 import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
-import { buildPrivacyAwareAskHermesInput, shouldCaptureWindowForPrivacy } from './requestPolicy';
+import {
+  buildPrivacyAwareAskHermesInput,
+  canBypassRemoteConsent,
+  shouldCaptureWindowForPrivacy,
+  summarizePrivacyRequestPolicy,
+  type RemoteConsentBypassReason
+} from './requestPolicy';
+import { buildFrictionCard, type FrictionCard } from './frictionCards';
 import { buildSessionRiskAssessment } from './sessionRisk';
 import {
   parseTradeSize,
@@ -199,13 +206,6 @@ type LastRequestContext = {
   selectedWindowId: string;
   selectedWindowName: string;
   selectedWindowKind: WindowSourceOption['kind'];
-};
-
-type FrictionCard = {
-  id: string;
-  question: string;
-  warnings: string[];
-  prompts: string[];
 };
 
 const HERMES_HEALTH_POLL_MS = 60_000;
@@ -384,14 +384,15 @@ export function App(): ReactElement {
   const askWithSourceRef = useRef<(
     source: WindowSourceOption | undefined,
     options: {
-      skipRemoteConsent?: boolean;
+      remoteConsentBypassReason?: RemoteConsentBypassReason;
       skipPolicyCheck?: boolean;
+      skipFrictionCheck?: boolean;
     },
     rawQuestion?: string
   ) => Promise<void>>(null);
   const bridge = window.hermesCoach;
   const hasHostedTokenBridge = Boolean(bridge);
-  const usesSecureHostedTokenStore = settings.connection.connectionKind !== 'local';
+  const usesSecureHostedTokenStore = settings.connection.connectionKind === 'hosted';
 
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
@@ -1305,14 +1306,16 @@ export function App(): ReactElement {
     async (
       source: WindowSourceOption | undefined,
       options: {
-        skipRemoteConsent?: boolean;
+        remoteConsentBypassReason?: RemoteConsentBypassReason;
         skipPolicyCheck?: boolean;
+        skipFrictionCheck?: boolean;
       } = {},
       rawQuestion?: string
     ) => {
       const questionText = (rawQuestion ?? questionRef.current).trim();
-      const skipRemoteConsent = options.skipRemoteConsent ?? false;
+      const skipRemoteConsent = canBypassRemoteConsent(options.remoteConsentBypassReason);
       const skipPolicyCheck = options.skipPolicyCheck ?? false;
+      const skipFrictionCheck = options.skipFrictionCheck ?? false;
 
       if (!questionText) {
         setError('Ask a question before sending a capture to Hermes.');
@@ -1418,6 +1421,21 @@ export function App(): ReactElement {
         return;
       }
 
+      if (!skipFrictionCheck) {
+        const nextFrictionCard = buildFrictionCard({
+          question: questionText,
+          localWarnings: requestLocalWarnings,
+          matchedPatternCount: requestMemoryContext.matchedPatterns.length,
+          frictionEnabled: settings.friction.enabled,
+          frictionStrictness: settings.friction.strictness
+        });
+
+        if (nextFrictionCard) {
+          setFrictionCard(nextFrictionCard);
+          return;
+        }
+      }
+
       const analysisStartedAt = performance.now();
       const nextPreview = buildHermesRequestPreview({
         connection: settings.connection,
@@ -1457,6 +1475,19 @@ export function App(): ReactElement {
       let failure: HermesRequestDiagnostic['failure'];
       let diagnosticError: string | undefined;
       const requestContext = inferDataSharingScope(settings.connection);
+      let requestPrivacySummary: HermesRequestDiagnostic['request']['privacySummary'] | undefined =
+        summarizePrivacyRequestPolicy({
+          connection: settings.connection,
+          question: questionText,
+          screenshotDataUrl: '',
+          selectedWindow: source,
+          memoryContext: {
+            ...requestMemoryContextForHermes,
+            personalRules: requestPersonalRuleContext
+          },
+          monitoringContext: monitoringSnapshot,
+          privacy: settings.privacy
+        });
 
       let stage: Exclude<HermesRequestDiagnostic['failure'], undefined>['stage'] = 'validation';
 
@@ -1482,7 +1513,7 @@ export function App(): ReactElement {
         setRequestState('asking');
         stage = 'request-build';
         const requestBuildStart = performance.now();
-        const request = buildPrivacyAwareAskHermesInput({
+        const requestDraft = {
           connection: settings.connection,
           question: questionText,
           screenshotDataUrl: capture,
@@ -1493,7 +1524,9 @@ export function App(): ReactElement {
           },
           monitoringContext: monitoringSnapshot,
           privacy: settings.privacy
-        });
+        };
+        requestPrivacySummary = summarizePrivacyRequestPolicy(requestDraft);
+        const request = buildPrivacyAwareAskHermesInput(requestDraft);
         requestBuildMs = Math.round(performance.now() - requestBuildStart);
 
         stage = 'hermes';
@@ -1576,7 +1609,8 @@ export function App(): ReactElement {
           },
           request: {
             redactionEnabled: isTextRedactionEnabled,
-            usedFallbackImage: settings.privacy.preset === 'maximum'
+            usedFallbackImage: settings.privacy.preset === 'maximum',
+            ...(requestPrivacySummary ? { privacySummary: requestPrivacySummary } : {})
           },
           timings: {
             localRiskMs,
@@ -1606,6 +1640,8 @@ export function App(): ReactElement {
       settings.connection,
       settings.coachMode,
       settings.dataSharing,
+      settings.friction.enabled,
+      settings.friction.strictness,
       settings.personalRules,
       settings.privacy,
       settings.riskBudget,
@@ -2240,6 +2276,7 @@ export function App(): ReactElement {
 
     const hasWalletsConfigured = settings.dataSharing.observedWalletAddresses.some((entry) => entry.trim().length > 0);
     if (!hasWalletsConfigured) {
+      void syncObservedWalletHistory('background');
       return undefined;
     }
 
@@ -2332,7 +2369,7 @@ export function App(): ReactElement {
       setFrictionNoteText('');
 
       if (shouldAsk) {
-        void askWithSource(selected, { skipRemoteConsent: true });
+        void askWithSource(selected, { skipFrictionCheck: true });
         setJournalSavedMessage('');
         return;
       }
@@ -2360,7 +2397,7 @@ export function App(): ReactElement {
       setError('');
       persistPolicyDecision('Policy override', policyNoteText.trim() || undefined);
       setPolicyNoteText('');
-      void askWithSource(selected, { skipPolicyCheck: true });
+      void askWithSource(selected, { skipPolicyCheck: true, skipFrictionCheck: true });
     },
     [askWithSource, persistPolicyDecision, policyNoteText]
   );
@@ -2751,7 +2788,7 @@ export function App(): ReactElement {
               spellCheck={false}
             />
 
-            <label htmlFor="bearer-token">Bearer token</label>
+            <label htmlFor="bearer-token">{usesSecureHostedTokenStore ? 'Hosted bearer token' : 'Bearer token'}</label>
             <input
               id="bearer-token"
               type="password"
@@ -2761,7 +2798,9 @@ export function App(): ReactElement {
                   ? hostedTokenStatus?.hasToken
                     ? 'Saved securely. Enter a new token to replace it.'
                     : 'Enter a token, then save it securely'
-                  : 'Only if your local Hermes gateway requires one'
+                  : settings.connection.connectionKind === 'custom'
+                    ? 'Session-only for custom gateways in this beta'
+                    : 'Only if your local Hermes gateway requires one'
               }
               onChange={(event) => {
                 if (usesSecureHostedTokenStore) {
@@ -3719,7 +3758,11 @@ export function App(): ReactElement {
                   setError('Select a trading window first.');
                   return;
                 }
-                void askWithSource(selectedSource, { skipRemoteConsent: true, skipPolicyCheck: true });
+                void askWithSource(selectedSource, {
+                  remoteConsentBypassReason: 'remote-consent-confirmed',
+                  skipPolicyCheck: true,
+                  skipFrictionCheck: true
+                });
               }}
             >
               I understand, send now
@@ -4651,7 +4694,7 @@ function describeHostedTokenStatus(
 
   return {
     title: 'No saved token',
-    detail: 'Enter a hosted/custom bearer token and save it to secure storage.'
+      detail: 'Enter a hosted bearer token and save it to secure storage.'
   };
 }
 
@@ -5133,45 +5176,6 @@ function formatWarningDetectedAt(detectedAt: string): string {
   }
 
   return parsed.toLocaleString();
-}
-
-function buildFrictionCard(input: {
-  question: string;
-  localWarnings: string[];
-  matchedPatternCount: number;
-  frictionEnabled: boolean;
-  frictionStrictness: 'low' | 'standard' | 'high';
-}): FrictionCard | undefined {
-  if (!input.frictionEnabled) {
-    return undefined;
-  }
-
-  const normalized = input.question.toLowerCase();
-  const hasUrgentSignal = /(immediate|right now|all-in|ape|momentum)/.test(normalized);
-  const hasHistoricalRiskSignal = input.matchedPatternCount > 0 || input.localWarnings.length > 0;
-  const hasTradeIntentSignal = /(buy|sell|long|short|entry|take position|enter)/.test(normalized);
-
-  const shouldShow =
-    (input.frictionStrictness === 'low' && hasUrgentSignal) ||
-    (input.frictionStrictness === 'standard' && (hasUrgentSignal || hasHistoricalRiskSignal)) ||
-    (input.frictionStrictness === 'high' && (hasUrgentSignal || hasHistoricalRiskSignal || hasTradeIntentSignal));
-
-  if (!shouldShow) {
-    return undefined;
-  }
-
-  const prompts = [
-    'Why now? What changed in the last 30 seconds that would invalidate this setup?',
-    'What confirms you are wrong before entering? What is your invalidation plan?',
-    'What is the max loss and first action if that threshold is hit?'
-  ];
-
-  return {
-    id: createRequestContextId(),
-    question: input.question.trim(),
-    warnings: [...input.localWarnings],
-    prompts: input.matchedPatternCount > 0 ? [...prompts, 'Do you still have session risk budget for this entry?'] : prompts
-  };
 }
 
 function buildFrictionDecision(actionLabel: string, note?: string): string {

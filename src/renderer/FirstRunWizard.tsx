@@ -42,11 +42,13 @@ export function FirstRunWizard({
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionReport, setConnectionReport] = useState<HermesConnectionReport | undefined>();
   const [wizardError, setWizardError] = useState('');
+  const [tokenStorageMessage, setTokenStorageMessage] = useState('');
 
   const currentStep = STEPS[stepIndex];
   const selectedSourceId = settings.pairedWindow?.id;
   const canGoBack = stepIndex > 0;
   const isLastStep = stepIndex === STEPS.length - 1;
+  const isHostedConnection = settings.connection.connectionKind === 'hosted';
 
   const gatewaySummary = useMemo(() => {
     if (!connectionReport) {
@@ -67,6 +69,7 @@ export function FirstRunWizard({
       }));
       setConnectionReport(undefined);
       setWizardError('');
+      setTokenStorageMessage('');
     },
     [onSettingsChange]
   );
@@ -101,8 +104,19 @@ export function FirstRunWizard({
 
     setIsTestingConnection(true);
     setWizardError('');
+    setTokenStorageMessage('');
 
     try {
+      const token = settings.connection.bearerToken.trim();
+      if (isHostedConnection && token) {
+        const tokenStatus = await bridge.saveHostedHermesToken({ token });
+        if (!tokenStatus.available || !tokenStatus.hasToken) {
+          setWizardError('Secure storage is unavailable. Hosted bearer token was not saved.');
+          return;
+        }
+        setTokenStorageMessage('Hosted bearer token saved to secure storage.');
+      }
+
       const report = await bridge.testHermesConnection(settings.connection);
       setConnectionReport(report);
 
@@ -117,7 +131,7 @@ export function FirstRunWizard({
     } finally {
       setIsTestingConnection(false);
     }
-  }, [bridge, onSettingsChange, settings.connection]);
+  }, [bridge, isHostedConnection, onSettingsChange, settings.connection]);
 
   const selectSource = useCallback(
     (source: WindowSourceOption) => {
@@ -208,7 +222,10 @@ export function FirstRunWizard({
                   <select
                     value={settings.connection.connectionKind}
                     onChange={(event) =>
-                      updateConnection({ connectionKind: event.target.value as HermesConnectionKind })
+                      updateConnection({
+                        connectionKind: event.target.value as HermesConnectionKind,
+                        ...(event.target.value === 'local' ? {} : { bearerToken: '' })
+                      })
                     }
                   >
                     {CONNECTION_KIND_OPTIONS.map((option) => (
@@ -228,15 +245,23 @@ export function FirstRunWizard({
                   />
                 </label>
                 <label className="wizard-wide-field">
-                  Bearer token
+                  {isHostedConnection ? 'Hosted bearer token' : 'Bearer token'}
                   <input
                     type="password"
                     value={settings.connection.bearerToken}
                     onChange={(event) => updateConnection({ bearerToken: event.target.value })}
                     placeholder="Optional"
                   />
+                  <small>
+                    {isHostedConnection
+                      ? 'Saved to secure storage when you test the gateway.'
+                      : settings.connection.connectionKind === 'custom'
+                        ? 'Custom bearer tokens are session-only in this beta.'
+                        : 'Optional for local development gateways.'}
+                  </small>
                 </label>
               </div>
+              {tokenStorageMessage ? <p className="wizard-helper">{tokenStorageMessage}</p> : null}
               <div className={`wizard-check ${connectionReport ? connectionReport.status : ''}`}>
                 <div>
                   <strong>{connectionReport ? `Gateway ${connectionReport.status}` : 'Gateway not tested'}</strong>

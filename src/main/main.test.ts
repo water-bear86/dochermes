@@ -231,11 +231,11 @@ describe('main ipc validation', () => {
     );
   });
 
-  it('injects a securely stored custom token when testing the gateway after reload', async () => {
+  it('does not inject a securely stored hosted token into custom gateways', async () => {
     const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
     const testConnection = getIpcHandler('hermes:test-connection');
 
-    await saveToken(undefined, { token: 'custom-secret-token' });
+    await saveToken(undefined, { token: 'hosted-secret-token' });
     await testConnection(undefined, {
       ...baseInput.connection,
       connectionKind: 'custom',
@@ -247,7 +247,7 @@ describe('main ipc validation', () => {
     expect(probeHermesConnectionMock).toHaveBeenCalledWith(
       expect.objectContaining({
         connectionKind: 'custom',
-        bearerToken: 'custom-secret-token'
+        bearerToken: ''
       })
     );
   });

@@ -3,7 +3,7 @@
   "productName": "DocHermes",
   "version": "0.1.0",
   "description": "A platform-agnostic desktop risk coach add-on for trading workflows.",
-  "author": "Angus Durrie",
+  "author": "Angus Durrie <chefaholism@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/water-bear86/dochermes",
   "appId": "com.dochermes.app",

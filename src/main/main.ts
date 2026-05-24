@@ -325,7 +325,7 @@ function readHostedHermesToken(): string | undefined {
 }
 
 function withStoredHostedToken(connection: HermesConnectionSettings): HermesConnectionSettings {
-  if (connection.connectionKind === 'local' || connection.bearerToken.trim()) {
+  if (connection.connectionKind !== 'hosted' || connection.bearerToken.trim()) {
     return connection;
   }
 

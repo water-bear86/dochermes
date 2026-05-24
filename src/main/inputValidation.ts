@@ -134,13 +134,19 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
       ? record.modelId.trim()
       : DEFAULT_HERMES_GATEWAY_ROUTE;
 
+  let parsed: URL;
   try {
-    const parsed = new URL(baseUrl);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error();
-    }
+    parsed = new URL(baseUrl);
   } catch {
     throw new Error('Hermes gateway URL must be a valid http or https URL.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Hermes gateway URL must be a valid http or https URL.');
+  }
+
+  if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+    throw new Error('Remote Hermes gateway URLs must use https. Plain http is only allowed for localhost development.');
   }
 
   if (typeof record.bearerToken !== 'string') {
@@ -153,6 +159,11 @@ export function assertHermesConnection(input: unknown): HermesConnectionSettings
     modelId,
     bearerToken: record.bearerToken.trim()
   };
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '[::1]' || normalized === '::1';
 }
 
 function assertMaximumPrivacyRequest(record: AskHermesInput): void {

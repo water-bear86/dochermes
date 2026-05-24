@@ -59,6 +59,16 @@ jobs:
       - name: Build package
         run: npm run --if-present ${{ matrix.platform.dist-script }}
 
+      - name: Validate Linux packages
+        if: matrix.platform.name == 'Linux'
+        shell: bash
+        run: |
+          test -n "$(find dist -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          gzip -t dist/*.tar.gz
+          dpkg-deb --info dist/*.deb >/dev/null
+
       - name: Generate checksums
         if: hashFiles('dist/**') != ''
         run: ${{ matrix.platform.checksum-command }}

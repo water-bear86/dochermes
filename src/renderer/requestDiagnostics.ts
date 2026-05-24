@@ -62,14 +62,15 @@ export function createRequestDiagnostic(input: Readonly<RequestDiagnosticInput>)
     questionPreview: input.questionPreview,
     selectedWindowName:
       input.request.privacySummary?.windowTitle === 'withheld' ? 'Window title withheld' : input.selectedWindowName,
+    selectedWindowId:
+      input.request.privacySummary?.windowTitle === 'withheld' ? 'Window id withheld' : input.selectedWindowId,
     selectedWindowKind: input.selectedWindowKind,
-    selectedWindowId: input.selectedWindowId,
     connection: {
       connectionKind: input.connection.connectionKind,
       endpointMode: input.connection.endpointMode,
-      baseUrl: input.connection.baseUrl,
+      baseUrl: redactUrl(input.connection.baseUrl),
       modelId: input.connection.modelId,
-      ...(input.connection.resolvedEndpoint ? { resolvedEndpoint: input.connection.resolvedEndpoint } : {}),
+      ...(input.connection.resolvedEndpoint ? { resolvedEndpoint: redactUrl(input.connection.resolvedEndpoint) } : {}),
       ...(input.connection.resolvedAdapter ? { resolvedAdapter: input.connection.resolvedAdapter } : {})
     },
     ...(input.requestContext ? { requestContext: { ...input.requestContext } } : {}),
