@@ -46,6 +46,10 @@ export interface VoiceSettings {
   speakReplies: boolean;
 }
 
+export interface SetupSettings {
+  completedAt?: string;
+}
+
 export interface PersonalRule {
   id: string;
   text: string;
@@ -359,6 +363,7 @@ export interface LocalSettings {
   ocrContextMode: OcrContextMode;
   ocrRegionProfile: OcrRegionProfileSettings;
   voice: VoiceSettings;
+  setup: SetupSettings;
   pairedWindow?: WindowSourceRef;
 }
 

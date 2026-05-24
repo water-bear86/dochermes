@@ -17,6 +17,27 @@ describe('parseLocalSettings', () => {
     expect(parseLocalSettings(null)).toEqual(DEFAULT_LOCAL_SETTINGS);
   });
 
+  it('defaults first-run setup to incomplete', () => {
+    expect(parseLocalSettings(null).setup).toEqual({});
+  });
+
+  it('parses old settings without setup as incomplete', () => {
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          connection: {
+            connectionKind: 'local',
+            endpointMode: 'auto',
+            baseUrl: 'http://localhost:8642',
+            modelId: 'hermes-agent',
+            bearerToken: ''
+          },
+          keepAlwaysOnTop: false
+        })
+      ).setup
+    ).toEqual({});
+  });
+
   it('keeps valid gateway, privacy, and panel preferences from storage', () => {
     expect(
       parseLocalSettings(
@@ -81,6 +102,9 @@ describe('parseLocalSettings', () => {
             enabled: true,
             hotkey: 'alt-space',
             speakReplies: true
+          },
+          setup: {
+            completedAt: '2026-05-23T12:00:00.000Z'
           },
           pairedWindow: {
             id: 'window:42',
@@ -152,6 +176,9 @@ describe('parseLocalSettings', () => {
         hotkey: 'alt-space',
         speakReplies: true
       },
+      setup: {
+        completedAt: '2026-05-23T12:00:00.000Z'
+      },
       pairedWindow: {
         id: 'window:42',
         name: 'Trading Terminal',
@@ -199,7 +226,8 @@ describe('parseLocalSettings', () => {
       watchOCR: false,
       ocrContextMode: 'full-window',
       ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
-      voice: DEFAULT_VOICE_SETTINGS
+      voice: DEFAULT_VOICE_SETTINGS,
+      setup: {}
     });
   });
 
@@ -241,7 +269,8 @@ describe('parseLocalSettings', () => {
       watchOCR: false,
       ocrContextMode: 'full-window',
       ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
-      voice: DEFAULT_VOICE_SETTINGS
+      voice: DEFAULT_VOICE_SETTINGS,
+      setup: {}
     });
 
     expect(
@@ -281,7 +310,8 @@ describe('parseLocalSettings', () => {
       watchOCR: false,
       ocrContextMode: 'full-window',
       ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
-      voice: DEFAULT_VOICE_SETTINGS
+      voice: DEFAULT_VOICE_SETTINGS,
+      setup: {}
     });
   });
 
@@ -460,6 +490,9 @@ describe('serializeLocalSettings', () => {
           ocrContextMode: 'chart-order-panel',
           ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
           voice: DEFAULT_VOICE_SETTINGS,
+          setup: {
+            completedAt: '2026-05-23T12:00:00.000Z'
+          },
           pairedWindow: {
             id: 'window:1',
             name: 'Trading Window',
@@ -512,6 +545,9 @@ describe('serializeLocalSettings', () => {
         observedWalletAddresses: ['wallet-one', 'wallet-two']
       },
       voice: DEFAULT_VOICE_SETTINGS,
+      setup: {
+        completedAt: '2026-05-23T12:00:00.000Z'
+      },
       pairedWindow: {
         id: 'window:1',
         name: 'Trading Window',
@@ -539,7 +575,10 @@ describe('clearLocalSettings', () => {
     );
     storage.setItem('hermes.journal.v1', '[]');
 
-    expect(clearLocalSettings(storage)).toEqual(DEFAULT_LOCAL_SETTINGS);
+    const clearedSettings = clearLocalSettings(storage);
+
+    expect(clearedSettings).toEqual(DEFAULT_LOCAL_SETTINGS);
+    expect(clearedSettings.setup).toEqual({});
     expect(storage.getItem(LOCAL_SETTINGS_KEY)).toBeNull();
     expect(storage.getItem('hermes.journal.v1')).toBe('[]');
   });

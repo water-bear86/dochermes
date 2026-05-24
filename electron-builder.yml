@@ -1,0 +1,55 @@
+appId: com.dochermes.app
+productName: DocHermes
+copyright: Copyright (c) 2026 Angus Durrie
+
+directories:
+  output: dist
+
+files:
+  - out/**/*
+  - package.json
+  - LICENSE
+  - "!src/**/*"
+  - "!tests/**/*"
+  - "!docs/**/*"
+  - "!README*"
+  - "!.github/**/*"
+  - "!electron.vite.config.*"
+  - "!tsconfig*.json"
+  - "!vite.config.*"
+
+asar: true
+publish: null
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+
+mac:
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64

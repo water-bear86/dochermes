@@ -1,21 +1,28 @@
 {
   "name": "dochermes",
+  "productName": "DocHermes",
   "version": "0.1.0",
   "description": "A platform-agnostic desktop risk coach add-on for trading workflows.",
+  "author": "Angus Durrie",
   "license": "MIT",
+  "homepage": "https://github.com/water-bear86/dochermes",
+  "appId": "com.dochermes.app",
   "type": "module",
   "main": "out/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "fake:hermes": "node scripts/fake-hermes-server.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^39.2.6",
-    "electron-vite": "^4.0.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "tesseract.js": "^7.0.0"
@@ -24,6 +31,10 @@
     "@types/node": "^25.0.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^4.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
     "vitest": "^4.0.15"

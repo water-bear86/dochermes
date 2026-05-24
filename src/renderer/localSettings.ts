@@ -14,6 +14,7 @@ import type {
   VoiceHotkey,
   OcrContextMode,
   OcrRegionProfileSettings,
+  SetupSettings,
   PrivacyPreset,
   PrivacyRedactionSettings,
   PrivacySettings
@@ -49,6 +50,8 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   hotkey: 'space',
   speakReplies: false
 };
+
+export const DEFAULT_SETUP_SETTINGS: SetupSettings = {};
 
 export const DEFAULT_OCR_REGION_PROFILE: OcrRegionProfileSettings = {
   overlayEnabled: true,
@@ -107,7 +110,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   watchOCR: false,
   ocrContextMode: 'full-window',
   ocrRegionProfile: DEFAULT_OCR_REGION_PROFILE,
-  voice: DEFAULT_VOICE_SETTINGS
+  voice: DEFAULT_VOICE_SETTINGS,
+  setup: DEFAULT_SETUP_SETTINGS
 };
 
 export function parseLocalSettings(rawValue: string | null): LocalSettings {
@@ -140,6 +144,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       ocrContextMode: parseOcrContextMode(parsed.ocrContextMode),
       ocrRegionProfile: parseOcrRegionProfile(parsed.ocrRegionProfile),
       voice: parseVoiceSettings(parsed.voice),
+      setup: parseSetupSettings(parsed.setup),
       ...(pairedWindow ? { pairedWindow } : {})
     };
   } catch {
@@ -149,20 +154,21 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 
 export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
-      connection: settings.connection,
-      privacy: settings.privacy,
-      friction: settings.friction,
-      coachMode: settings.coachMode,
-      dataSharing: settings.dataSharing,
-      personalRules: settings.personalRules,
-      riskBudget: settings.riskBudget,
-      keepAlwaysOnTop: settings.keepAlwaysOnTop,
-      armed: settings.armed,
-      watchClipboard: settings.watchClipboard,
-      watchOCR: settings.watchOCR,
-      ocrContextMode: settings.ocrContextMode,
-      ocrRegionProfile: settings.ocrRegionProfile,
-      voice: settings.voice,
+    connection: settings.connection,
+    privacy: settings.privacy,
+    friction: settings.friction,
+    coachMode: settings.coachMode,
+    dataSharing: settings.dataSharing,
+    personalRules: settings.personalRules,
+    riskBudget: settings.riskBudget,
+    keepAlwaysOnTop: settings.keepAlwaysOnTop,
+    armed: settings.armed,
+    watchClipboard: settings.watchClipboard,
+    watchOCR: settings.watchOCR,
+    ocrContextMode: settings.ocrContextMode,
+    ocrRegionProfile: settings.ocrRegionProfile,
+    voice: settings.voice,
+    setup: settings.setup,
     pairedWindow: settings.pairedWindow
   });
 }
@@ -540,6 +546,17 @@ function parseVoiceSettings(rawVoice: unknown): VoiceSettings {
     hotkey: parseVoiceHotkey(candidate.hotkey),
     speakReplies: typeof candidate.speakReplies === 'boolean' ? candidate.speakReplies : DEFAULT_VOICE_SETTINGS.speakReplies
   };
+}
+
+function parseSetupSettings(rawSetup: unknown): SetupSettings {
+  if (!rawSetup || typeof rawSetup !== 'object') {
+    return DEFAULT_SETUP_SETTINGS;
+  }
+
+  const candidate = rawSetup as Partial<SetupSettings>;
+  const completedAt = typeof candidate.completedAt === 'string' ? candidate.completedAt.trim() : '';
+
+  return completedAt ? { completedAt } : DEFAULT_SETUP_SETTINGS;
 }
 
 function parseVoiceHotkey(value: unknown): VoiceHotkey {

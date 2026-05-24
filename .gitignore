@@ -1,6 +1,9 @@
 node_modules/
 out/
 dist/
+release/
+.agents/
+skills-lock.json
 .DS_Store
 *.log
 .env

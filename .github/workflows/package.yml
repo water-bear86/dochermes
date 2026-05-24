@@ -1,0 +1,60 @@
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Windows
+            runner: windows-latest
+            dist-script: dist:win
+            checksum-command: Get-ChildItem -Path dist -File -Recurse | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path.Replace((Resolve-Path .).Path + [System.IO.Path]::DirectorySeparatorChar, '').Replace('\', '/'))" } | Set-Content -Path dist/SHA256SUMS.txt
+          - name: macOS
+            runner: macos-latest
+            dist-script: dist:mac
+            checksum-command: find dist -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 shasum -a 256 > dist/SHA256SUMS.txt
+          - name: Linux
+            runner: ubuntu-latest
+            dist-script: dist:linux
+            checksum-command: find dist -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS.txt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run --if-present ${{ matrix.platform.dist-script }}
+
+      - name: Generate checksums
+        if: hashFiles('dist/**') != ''
+        run: ${{ matrix.platform.checksum-command }}
+
+      - name: Upload dist artifacts
+        if: hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dochermes-${{ matrix.platform.name }}-${{ github.ref_name }}
+          path: dist/**
+          if-no-files-found: ignore
