@@ -1,6 +1,7 @@
 appId: com.dochermes.app
 productName: DocHermes
 copyright: Copyright (c) 2026 Angus Durrie
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 directories:
   output: dist
@@ -22,6 +23,7 @@ asar: true
 publish: null
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
@@ -31,6 +33,7 @@ win:
         - x64
 
 mac:
+  icon: build/icon.icns
   identity: null
   target:
     - target: dmg
@@ -43,6 +46,8 @@ mac:
         - arm64
 
 linux:
+  icon: build/icon.png
+  category: Utility
   target:
     - target: AppImage
       arch:

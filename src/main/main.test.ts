@@ -5,6 +5,15 @@ import path from 'node:path';
 
 const ipcHandlers = new Map<string, (event: unknown, input: unknown) => Promise<unknown> | unknown>();
 const askHermesMock = vi.fn(async () => 'ok');
+const probeHermesConnectionMock = vi.fn(async () => ({
+  status: 'connected',
+  textCapable: true,
+  imageCapable: true,
+  models: [],
+  attempts: [],
+  summary: 'ok',
+  debugReport: 'ok'
+}));
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dochermes-main-test-'));
 const safeStorageMock = {
   isEncryptionAvailable: vi.fn(() => true),
@@ -38,7 +47,7 @@ vi.mock('electron', () => {
 
 vi.mock('./hermesClient', () => ({
   askHermes: askHermesMock,
-  probeHermesConnection: vi.fn()
+  probeHermesConnection: probeHermesConnectionMock
 }));
 
 vi.mock('./coachWindow', () => ({
@@ -113,6 +122,15 @@ beforeAll(async () => {
 
 beforeEach(() => {
   askHermesMock.mockClear().mockResolvedValue('ok');
+  probeHermesConnectionMock.mockClear().mockResolvedValue({
+    status: 'connected',
+    textCapable: true,
+    imageCapable: true,
+    models: [],
+    attempts: [],
+    summary: 'ok',
+    debugReport: 'ok'
+  });
   safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
   safeStorageMock.encryptString.mockClear();
   safeStorageMock.decryptString.mockClear();
@@ -184,6 +202,70 @@ describe('main ipc validation', () => {
         connection: expect.objectContaining({
           modelId: 'hermes-agent'
         })
+      })
+    );
+  });
+
+  it('injects a securely stored hosted token when asking Hermes after reload', async () => {
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+    const handler = getHermesAskHandler();
+
+    await saveToken(undefined, { token: 'hosted-secret-token' });
+    await handler(undefined, {
+      ...baseInput,
+      connection: {
+        ...baseInput.connection,
+        connectionKind: 'hosted',
+        baseUrl: 'https://hermes.example.com',
+        bearerToken: ''
+      }
+    });
+
+    expect(askHermesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: expect.objectContaining({
+          connectionKind: 'hosted',
+          bearerToken: 'hosted-secret-token'
+        })
+      })
+    );
+  });
+
+  it('injects a securely stored custom token when testing the gateway after reload', async () => {
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+    const testConnection = getIpcHandler('hermes:test-connection');
+
+    await saveToken(undefined, { token: 'custom-secret-token' });
+    await testConnection(undefined, {
+      ...baseInput.connection,
+      connectionKind: 'custom',
+      endpointMode: 'custom',
+      baseUrl: 'https://hermes.example.com/v1/chat/completions',
+      bearerToken: ''
+    });
+
+    expect(probeHermesConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionKind: 'custom',
+        bearerToken: 'custom-secret-token'
+      })
+    );
+  });
+
+  it('does not replace local gateway bearer tokens with securely stored hosted tokens', async () => {
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+    const testConnection = getIpcHandler('hermes:test-connection');
+
+    await saveToken(undefined, { token: 'hosted-secret-token' });
+    await testConnection(undefined, {
+      ...baseInput.connection,
+      bearerToken: 'local-token'
+    });
+
+    expect(probeHermesConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionKind: 'local',
+        bearerToken: 'local-token'
       })
     );
   });

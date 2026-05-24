@@ -148,6 +148,7 @@ Useful beta docs:
 - [Tester feedback template](docs/beta/tester-feedback-template.md)
 - [Manual QA checklist](docs/beta/manual-qa-checklist.md)
 - [Release notes template](docs/beta/release-notes-template.md)
+- [Beta release runbook](docs/beta/release-runbook.md)
 
 ## Project Direction
 

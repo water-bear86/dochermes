@@ -63,6 +63,8 @@ export interface PersonalRuleMatch {
   ruleId: string;
   text: string;
   policyLevel: PersonalRulePolicyLevel;
+  requiresPolicyOverride?: boolean;
+  policyOverrideReason?: string;
   warningText: string;
   source: string;
   detail: string;

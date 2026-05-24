@@ -9,6 +9,7 @@ import type {
   HermesConnectionReport,
   HermesEndpointMode,
   HermesConnectionStatus,
+  HostedHermesTokenStatus,
   DataSharingScope,
   LocalSettings,
   CoachMode,
@@ -63,7 +64,9 @@ import {
   DEFAULT_OCR_REGION_PROFILE,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
+  LOCAL_SETTINGS_KEY,
   clearLocalSettings,
+  readMigratableBearerToken,
   readLocalSettings,
   writeLocalSettings
 } from './localSettings';
@@ -302,6 +305,10 @@ export function App(): ReactElement {
   const [connectionReport, setConnectionReport] = useState<HermesConnectionReport | undefined>();
   const [testingConnection, setTestingConnection] = useState(false);
   const [copiedReport, setCopiedReport] = useState(false);
+  const [hostedTokenStatus, setHostedTokenStatus] = useState<HostedHermesTokenStatus | undefined>();
+  const [hostedTokenDraft, setHostedTokenDraft] = useState('');
+  const [hostedTokenBusy, setHostedTokenBusy] = useState(false);
+  const [hostedTokenMessage, setHostedTokenMessage] = useState('');
   const [error, setError] = useState('');
   const [requestState, setRequestState] = useState<RequestState>('idle');
   const [pickerMode, setPickerMode] = useState<PickerMode>('pair');
@@ -371,6 +378,9 @@ export function App(): ReactElement {
   const questionRef = useRef('');
   const previewImageRef = useRef<HTMLImageElement | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionResult | null>(null);
+  const migratableBearerTokenRef = useRef<string | undefined>(
+    readMigratableBearerToken(localStorage.getItem(LOCAL_SETTINGS_KEY))
+  );
   const askWithSourceRef = useRef<(
     source: WindowSourceOption | undefined,
     options: {
@@ -380,6 +390,8 @@ export function App(): ReactElement {
     rawQuestion?: string
   ) => Promise<void>>(null);
   const bridge = window.hermesCoach;
+  const hasHostedTokenBridge = Boolean(bridge);
+  const usesSecureHostedTokenStore = settings.connection.connectionKind !== 'local';
 
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
@@ -416,6 +428,10 @@ export function App(): ReactElement {
   );
   const diagnosticSummary = useMemo(() => summarizeDiagnostics(requestDiagnostics), [requestDiagnostics]);
   const connectionScope = useMemo(() => inferDataSharingScope(settings.connection), [settings.connection]);
+  const hostedTokenStatusText = useMemo(
+    () => describeHostedTokenStatus(hostedTokenStatus, hasHostedTokenBridge),
+    [hasHostedTokenBridge, hostedTokenStatus]
+  );
   const sourceQualityAssessment = useMemo(
     () => buildSourceQualityAssessment({ question, monitorSignals, journalEntries: historyEntriesForRiskChecks }),
     [question, historyEntriesForRiskChecks, monitorSignals]
@@ -616,6 +632,105 @@ export function App(): ReactElement {
       }
     }));
   }, []);
+
+  const refreshHostedTokenStatus = useCallback(async () => {
+    if (!bridge || !hasHostedTokenBridge) {
+      setHostedTokenStatus({
+        available: false,
+        hasToken: false,
+        reason: 'safe-storage-unavailable'
+      });
+      return;
+    }
+
+    try {
+      setHostedTokenStatus(await bridge.getHostedHermesTokenStatus());
+    } catch (nextError) {
+      setHostedTokenStatus({
+        available: false,
+        hasToken: false,
+        reason: 'safe-storage-unavailable'
+      });
+      setError(readError(nextError));
+    }
+  }, [bridge, hasHostedTokenBridge]);
+
+  const saveHostedToken = useCallback(async () => {
+    const token = hostedTokenDraft.trim();
+    if (!token) {
+      setHostedTokenMessage('Enter a bearer token before saving.');
+      return;
+    }
+
+    if (!bridge || !hasHostedTokenBridge) {
+      setHostedTokenStatus({
+        available: false,
+        hasToken: false,
+        reason: 'safe-storage-unavailable'
+      });
+      setHostedTokenMessage('Secure storage is unavailable in this runtime.');
+      return;
+    }
+
+    setHostedTokenBusy(true);
+    setHostedTokenMessage('');
+
+    try {
+      const nextStatus = await bridge.saveHostedHermesToken({ token });
+      setHostedTokenStatus(nextStatus);
+      if (nextStatus.available && nextStatus.hasToken) {
+        setSettings((current) => ({
+          ...current,
+          connection: {
+            ...current.connection,
+            bearerToken: token
+          }
+        }));
+        setHostedTokenDraft('');
+        setHostedTokenMessage('Bearer token saved to secure storage.');
+      } else {
+        setHostedTokenMessage('Secure storage is unavailable. Token was not saved.');
+      }
+    } catch (nextError) {
+      setHostedTokenMessage(readError(nextError));
+    } finally {
+      setHostedTokenBusy(false);
+    }
+  }, [bridge, hasHostedTokenBridge, hostedTokenDraft]);
+
+  const clearHostedToken = useCallback(async () => {
+    if (!bridge || !hasHostedTokenBridge) {
+      setHostedTokenStatus({
+        available: false,
+        hasToken: false,
+        reason: 'safe-storage-unavailable'
+      });
+      setHostedTokenMessage('Secure storage is unavailable in this runtime.');
+      return;
+    }
+
+    setHostedTokenBusy(true);
+    setHostedTokenMessage('');
+
+    try {
+      const nextStatus = await bridge.clearHostedHermesToken();
+      setHostedTokenStatus(nextStatus);
+      setHostedTokenDraft('');
+      setConnectionReport(undefined);
+      setSettings((current) => ({
+        ...current,
+        connection: {
+          ...current.connection,
+          bearerToken: ''
+        }
+      }));
+      setHostedTokenMessage('Bearer token cleared from secure storage.');
+    } catch (nextError) {
+      setHostedTokenMessage(readError(nextError));
+    } finally {
+      setHostedTokenBusy(false);
+    }
+  }, [bridge, hasHostedTokenBridge]);
 
   const updateRiskBudget = useCallback((updates: Partial<LocalSettings['riskBudget']>) => {
     setSettings((current) => ({
@@ -956,6 +1071,37 @@ export function App(): ReactElement {
     }));
     setActiveOcrRegionKey('orderPanel');
   }, []);
+
+  useEffect(() => {
+    void refreshHostedTokenStatus();
+  }, [refreshHostedTokenStatus]);
+
+  useEffect(() => {
+    const migratableToken = migratableBearerTokenRef.current;
+    if (!migratableToken || !usesSecureHostedTokenStore || !bridge || !hasHostedTokenBridge) {
+      return;
+    }
+
+    migratableBearerTokenRef.current = undefined;
+    void (async () => {
+      try {
+        const nextStatus = await bridge.saveHostedHermesToken({ token: migratableToken });
+        setHostedTokenStatus(nextStatus);
+        if (nextStatus.available && nextStatus.hasToken) {
+          setSettings((current) => ({
+            ...current,
+            connection: {
+              ...current.connection,
+              bearerToken: migratableToken
+            }
+          }));
+          setHostedTokenMessage('Existing bearer token moved to secure storage.');
+        }
+      } catch (nextError) {
+        setHostedTokenMessage(readError(nextError));
+      }
+    })();
+  }, [bridge, hasHostedTokenBridge, usesSecureHostedTokenStore]);
 
   const beginOcrOverlayDrag = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2574,11 +2720,15 @@ export function App(): ReactElement {
             <select
               id="connection-kind"
               value={settings.connection.connectionKind}
-              onChange={(event) =>
+              onChange={(event) => {
+                const connectionKind = event.target.value as HermesConnectionKind;
+                setHostedTokenDraft('');
+                setHostedTokenMessage('');
                 updateConnection({
-                  connectionKind: event.target.value as HermesConnectionKind
-                })
-              }
+                  connectionKind,
+                  ...(connectionKind === 'local' ? {} : { bearerToken: '' })
+                });
+              }}
             >
               <option value="local">Local gateway</option>
               <option value="hosted">Hosted gateway</option>
@@ -2605,15 +2755,56 @@ export function App(): ReactElement {
             <input
               id="bearer-token"
               type="password"
-              value={settings.connection.bearerToken}
-              placeholder="Only if your Hermes gateway requires one"
-              onChange={(event) =>
+              value={usesSecureHostedTokenStore ? hostedTokenDraft : settings.connection.bearerToken}
+              placeholder={
+                usesSecureHostedTokenStore
+                  ? hostedTokenStatus?.hasToken
+                    ? 'Saved securely. Enter a new token to replace it.'
+                    : 'Enter a token, then save it securely'
+                  : 'Only if your local Hermes gateway requires one'
+              }
+              onChange={(event) => {
+                if (usesSecureHostedTokenStore) {
+                  setHostedTokenDraft(event.target.value);
+                  setHostedTokenMessage('');
+                  return;
+                }
+
                 updateConnection({
                   bearerToken: event.target.value
-                })
-              }
+                });
+              }}
               spellCheck={false}
             />
+
+            {usesSecureHostedTokenStore ? (
+              <div className={`token-storage-card ${hostedTokenStatus?.available ? 'available' : 'unavailable'} settings-wide`}>
+                <div>
+                  <span className="label">Token storage</span>
+                  <strong>{hostedTokenStatusText.title}</strong>
+                  <small>{hostedTokenStatusText.detail}</small>
+                  {hostedTokenMessage ? <small>{hostedTokenMessage}</small> : null}
+                </div>
+                <div className="button-row">
+                  <button type="button" onClick={saveHostedToken} disabled={hostedTokenBusy || !hostedTokenDraft.trim()}>
+                    {hostedTokenBusy ? 'Saving...' : 'Save token'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={clearHostedToken}
+                    disabled={
+                      hostedTokenBusy ||
+                      (!hostedTokenStatus?.hasToken &&
+                        !settings.connection.bearerToken &&
+                        hostedTokenStatus?.reason !== 'corrupt-token-store')
+                    }
+                  >
+                    Clear token
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <div className="button-row settings-wide">
               <button type="button" onClick={testConnection} disabled={testingConnection}>
@@ -4424,6 +4615,44 @@ function readError(error: unknown): string {
   }
 
   return 'Unexpected Hermes Coach error.';
+}
+
+function describeHostedTokenStatus(
+  status: HostedHermesTokenStatus | undefined,
+  hasBridge: boolean
+): { title: string; detail: string } {
+  if (!hasBridge || status?.available === false) {
+    return {
+      title: 'Secure storage unavailable',
+      detail: 'Bearer tokens will not be written to local settings in this runtime.'
+    };
+  }
+
+  if (!status) {
+    return {
+      title: 'Checking secure storage',
+      detail: 'Token storage status has not loaded yet.'
+    };
+  }
+
+  if (status.reason === 'corrupt-token-store') {
+    return {
+      title: 'Stored token needs attention',
+      detail: 'Clear the saved token and save it again.'
+    };
+  }
+
+  if (status.hasToken) {
+    return {
+      title: 'Saved securely',
+      detail: status.updatedAt ? `Last updated ${new Date(status.updatedAt).toLocaleString()}.` : 'A bearer token is saved.'
+    };
+  }
+
+  return {
+    title: 'No saved token',
+    detail: 'Enter a hosted/custom bearer token and save it to secure storage.'
+  };
 }
 
 function confirmLocalDataAction(message: string): boolean {

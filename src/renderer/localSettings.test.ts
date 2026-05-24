@@ -9,6 +9,7 @@ import {
   LOCAL_SETTINGS_KEY,
   clearLocalSettings,
   parseLocalSettings,
+  readMigratableBearerToken,
   serializeLocalSettings
 } from './localSettings';
 
@@ -38,7 +39,7 @@ describe('parseLocalSettings', () => {
     ).toEqual({});
   });
 
-  it('keeps valid gateway, privacy, and panel preferences from storage', () => {
+  it('keeps valid gateway, privacy, and panel preferences from storage without retaining hosted bearer tokens', () => {
     expect(
       parseLocalSettings(
         JSON.stringify({
@@ -119,7 +120,7 @@ describe('parseLocalSettings', () => {
         endpointMode: 'openai-chat',
         baseUrl: 'https://hermes.example.com',
         modelId: 'hermes-agent',
-        bearerToken: 'secret'
+        bearerToken: ''
       },
       privacy: {
         preset: 'full',
@@ -185,6 +186,22 @@ describe('parseLocalSettings', () => {
         kind: 'window'
       }
     });
+  });
+
+  it('keeps local gateway bearer tokens in local settings', () => {
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          connection: {
+            connectionKind: 'local',
+            endpointMode: 'auto',
+            baseUrl: 'http://localhost:8642',
+            modelId: 'hermes-agent',
+            bearerToken: 'local-dev-token'
+          }
+        })
+      ).connection.bearerToken
+    ).toBe('local-dev-token');
   });
 
   it('migrates old gatewayUrl settings into explicit legacy mode', () => {
@@ -554,6 +571,96 @@ describe('serializeLocalSettings', () => {
         kind: 'window'
       }
     });
+  });
+
+  it('strips hosted and custom bearer tokens before writing settings to storage', () => {
+    const hosted = JSON.parse(
+      serializeLocalSettings({
+        ...DEFAULT_LOCAL_SETTINGS,
+        connection: {
+          connectionKind: 'hosted',
+          endpointMode: 'openai-chat',
+          baseUrl: 'https://hermes.example.com',
+          modelId: 'hermes-agent',
+          bearerToken: 'hosted-secret'
+        }
+      })
+    );
+    const custom = JSON.parse(
+      serializeLocalSettings({
+        ...DEFAULT_LOCAL_SETTINGS,
+        connection: {
+          connectionKind: 'custom',
+          endpointMode: 'custom',
+          baseUrl: 'https://custom.example.com/v1/chat/completions',
+          modelId: 'hermes-agent',
+          bearerToken: 'custom-secret'
+        }
+      })
+    );
+
+    expect(hosted.connection.bearerToken).toBe('');
+    expect(custom.connection.bearerToken).toBe('');
+    expect(JSON.stringify(hosted)).not.toContain('hosted-secret');
+    expect(JSON.stringify(custom)).not.toContain('custom-secret');
+  });
+
+  it('keeps local bearer tokens when writing local gateway settings to storage', () => {
+    const serialized = JSON.parse(
+      serializeLocalSettings({
+        ...DEFAULT_LOCAL_SETTINGS,
+        connection: {
+          connectionKind: 'local',
+          endpointMode: 'auto',
+          baseUrl: 'http://localhost:8642',
+          modelId: 'hermes-agent',
+          bearerToken: 'local-dev-token'
+        }
+      })
+    );
+
+    expect(serialized.connection.bearerToken).toBe('local-dev-token');
+  });
+});
+
+describe('readMigratableBearerToken', () => {
+  it('returns an existing hosted or custom plaintext bearer token for secure migration', () => {
+    expect(
+      readMigratableBearerToken(
+        JSON.stringify({
+          connection: {
+            connectionKind: 'hosted',
+            bearerToken: 'hosted-secret'
+          }
+        })
+      )
+    ).toBe('hosted-secret');
+
+    expect(
+      readMigratableBearerToken(
+        JSON.stringify({
+          connection: {
+            connectionKind: 'custom',
+            bearerToken: 'custom-secret'
+          }
+        })
+      )
+    ).toBe('custom-secret');
+  });
+
+  it('does not migrate local bearer tokens or malformed settings', () => {
+    expect(
+      readMigratableBearerToken(
+        JSON.stringify({
+          connection: {
+            connectionKind: 'local',
+            bearerToken: 'local-dev-token'
+          }
+        })
+      )
+    ).toBeUndefined();
+    expect(readMigratableBearerToken('not json')).toBeUndefined();
+    expect(readMigratableBearerToken(null)).toBeUndefined();
   });
 });
 

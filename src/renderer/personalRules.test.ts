@@ -90,6 +90,56 @@ describe('evaluatePersonalRules', () => {
       text: expect.stringContaining('not enforceable from current inputs')
     });
   });
+
+  it('requires explicit policy override metadata for max size after losses', () => {
+    const result = evaluatePersonalRules({
+      rules: [
+        {
+          id: 'r-4',
+          text: 'After 2 losses never size above 1 SOL',
+          enabled: true,
+          archived: false,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z'
+        }
+      ],
+      question: 'Position size 1.5 SOL',
+      monitorSignals: [],
+      knownLossCount: 2,
+      now: '2026-01-01T00:00:00.000Z'
+    });
+
+    expect(result.warnings[0]).toMatchObject({
+      policyLevel: 'policy',
+      requiresPolicyOverride: true,
+      policyOverrideReason: expect.stringContaining('r-4')
+    });
+  });
+
+  it('treats should-style source and liquidity rules as advisory metadata', () => {
+    const result = evaluatePersonalRules({
+      rules: [
+        {
+          id: 'r-5',
+          text: 'Should avoid low liquidity telegram calls',
+          enabled: true,
+          archived: false,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z'
+        }
+      ],
+      question: 'Buy from telegram, liquidity is thin',
+      monitorSignals: [],
+      knownLossCount: 0,
+      now: '2026-01-01T00:00:00.000Z'
+    });
+
+    expect(result.warnings[0]).toMatchObject({
+      policyLevel: 'advisory',
+      requiresPolicyOverride: false,
+      text: expect.stringContaining('Source/liquidity rule')
+    });
+  });
 });
 
 describe('buildPersonalRuleContext', () => {
@@ -118,7 +168,8 @@ describe('buildPersonalRuleContext', () => {
     expect(context.totalRules).toBe(1);
     expect(context.matchedRules[0]).toMatchObject({
       ruleId: 'r-1',
-      confidence: expect.stringMatching(/low|medium|high/)
+      confidence: expect.stringMatching(/low|medium|high/),
+      requiresPolicyOverride: true
     });
   });
 });

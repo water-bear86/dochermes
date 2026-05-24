@@ -16,12 +16,14 @@ import { extractClipboardSignalsFromText } from './monitoringSignals';
 import { closeOcrWorker, runOcrOnImageDataUrl, type OcrRegion } from './ocr';
 import { captureWindowSource, isSourceAvailable, listWindowSources } from './windowSources';
 import type {
+  AskHermesInput,
+  HermesConnectionSettings,
+  HostedHermesTokenSaveInput,
+  HostedHermesTokenStatus,
   MonitoringSignal,
   MonitoringStatus,
   OcrContextMode,
   OcrRegionProfileSettings,
-  HostedHermesTokenSaveInput,
-  HostedHermesTokenStatus,
   VoiceSettings
 } from '../shared/types';
 
@@ -306,6 +308,45 @@ function getHostedHermesTokenStatus(): HostedHermesTokenStatus {
   }
 }
 
+function readHostedHermesToken(): string | undefined {
+  if (!isSafeStorageAvailable()) {
+    return undefined;
+  }
+
+  try {
+    const raw = fs.readFileSync(hostedHermesTokenPath(), 'utf8');
+    const record = parseHostedHermesTokenRecord(raw);
+    const token = safeStorage.decryptString(Buffer.from(record.ciphertextBase64, 'base64')).trim();
+
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function withStoredHostedToken(connection: HermesConnectionSettings): HermesConnectionSettings {
+  if (connection.connectionKind === 'local' || connection.bearerToken.trim()) {
+    return connection;
+  }
+
+  const storedToken = readHostedHermesToken();
+  if (!storedToken) {
+    return connection;
+  }
+
+  return {
+    ...connection,
+    bearerToken: storedToken
+  };
+}
+
+function withStoredHostedTokenForAsk(input: AskHermesInput): AskHermesInput {
+  return {
+    ...input,
+    connection: withStoredHostedToken(input.connection)
+  };
+}
+
 function saveHostedHermesToken(input: unknown): HostedHermesTokenStatus {
   const { token } = assertHostedHermesTokenSaveInput(input);
 
@@ -364,11 +405,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('hermes:ask', async (_event, input: unknown) => {
-    return askHermes(assertAskHermesInput(input));
+    return askHermes(withStoredHostedTokenForAsk(assertAskHermesInput(input)));
   });
 
   ipcMain.handle('hermes:test-connection', async (_event, input: unknown) => {
-    return probeHermesConnection(assertHermesConnection(input));
+    return probeHermesConnection(withStoredHostedToken(assertHermesConnection(input)));
   });
 
   ipcMain.handle('hosted-hermes-token:save', (_event, input: unknown) => saveHostedHermesToken(input));

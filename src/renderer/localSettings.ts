@@ -154,7 +154,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
 
 export function serializeLocalSettings(settings: LocalSettings): string {
   return JSON.stringify({
-    connection: settings.connection,
+    connection: serializeConnectionSettings(settings.connection),
     privacy: settings.privacy,
     friction: settings.friction,
     coachMode: settings.coachMode,
@@ -186,19 +186,49 @@ export function clearLocalSettings(storage: Pick<Storage, 'removeItem'>): LocalS
   return DEFAULT_LOCAL_SETTINGS;
 }
 
+export function readMigratableBearerToken(rawValue: string | null): string | undefined {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as {
+      connection?: {
+        connectionKind?: unknown;
+        bearerToken?: unknown;
+      };
+    };
+    const connection = parsed.connection;
+    if (!connection || typeof connection !== 'object') {
+      return undefined;
+    }
+
+    if (connection.connectionKind !== 'hosted' && connection.connectionKind !== 'custom') {
+      return undefined;
+    }
+
+    const token = typeof connection.bearerToken === 'string' ? connection.bearerToken.trim() : '';
+    return token ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseConnectionSettings(
   rawConnection: unknown,
   legacyGatewayUrl: unknown
 ): HermesConnectionSettings {
   if (rawConnection && typeof rawConnection === 'object') {
     const connection = rawConnection as Partial<HermesConnectionSettings>;
+    const connectionKind = parseConnectionKind(connection.connectionKind);
 
     return {
-      connectionKind: parseConnectionKind(connection.connectionKind),
+      connectionKind,
       endpointMode: parseEndpointMode(connection.endpointMode),
       baseUrl: parseNonEmptyString(connection.baseUrl, DEFAULT_HERMES_CONNECTION.baseUrl),
       modelId: parseNonEmptyString(connection.modelId, DEFAULT_HERMES_CONNECTION.modelId),
-      bearerToken: typeof connection.bearerToken === 'string' ? connection.bearerToken : ''
+      bearerToken:
+        connectionKind === 'local' && typeof connection.bearerToken === 'string' ? connection.bearerToken : ''
     };
   }
 
@@ -207,6 +237,17 @@ function parseConnectionSettings(
   }
 
   return DEFAULT_HERMES_CONNECTION;
+}
+
+function serializeConnectionSettings(connection: HermesConnectionSettings): HermesConnectionSettings {
+  if (connection.connectionKind === 'local') {
+    return connection;
+  }
+
+  return {
+    ...connection,
+    bearerToken: ''
+  };
 }
 
 function parseConnectionKind(value: unknown): HermesConnectionKind {

@@ -2,6 +2,16 @@ name: Package
 
 on:
   workflow_dispatch:
+    inputs:
+      create_draft_release:
+        description: Create a GitHub draft prerelease from the packaged artifacts.
+        required: false
+        type: boolean
+        default: false
+      tag_name:
+        description: Existing beta tag to release, for example v0.1.0-beta.1. Required when creating a draft release manually.
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -34,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -55,6 +67,90 @@ jobs:
         if: hashFiles('dist/**') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: dochermes-${{ matrix.platform.name }}-${{ github.ref_name }}
+          name: dochermes-${{ matrix.platform.name }}-${{ inputs.tag_name || github.ref_name }}
           path: dist/**
           if-no-files-found: ignore
+
+  draft-prerelease:
+    name: Draft beta prerelease
+    needs: package
+    runs-on: ubuntu-latest
+    if: (startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')) || inputs.create_draft_release == true
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag_name="${GITHUB_REF_NAME}"
+          else
+            tag_name="${{ inputs.tag_name }}"
+          fi
+
+          if [[ -z "${tag_name}" ]]; then
+            echo "tag_name is required when create_draft_release is true." >&2
+            exit 1
+          fi
+
+          if [[ ! "${tag_name}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "Beta prerelease tags must look like v0.1.0-beta.1." >&2
+            exit 1
+          fi
+
+          git rev-parse "${tag_name}^{commit}" >/dev/null
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dochermes-*-${{ steps.release.outputs.tag_name }}
+          path: release-artifacts
+
+      - name: Check release artifacts
+        shell: bash
+        run: |
+          find release-artifacts -type f | sort
+          test -n "$(find release-artifacts -type f -name 'SHA256SUMS.txt' -print -quit)"
+          for checksum in release-artifacts/*/SHA256SUMS.txt; do
+            artifact_dir="$(basename "$(dirname "${checksum}")")"
+            mv "${checksum}" "release-artifacts/${artifact_dir}-SHA256SUMS.txt"
+          done
+
+      - name: Write draft release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          # DocHermes beta prerelease
+
+          This is a draft prerelease for invited beta validation only.
+
+          The attached artifacts are unsigned beta builds produced by GitHub Actions. DocHermes is not ready for normal install, production trading, or production support.
+
+          DocHermes is advisory only. It does not control wallets, sign messages, route orders, place trades, submit transactions, approve withdrawals, or hold private keys.
+
+          Do not include bearer tokens, private keys, seed phrases, exchange credentials, unsanitized screenshots, or private account data in bug reports.
+
+          Checksums are attached as platform-specific `*-SHA256SUMS.txt` files.
+          EOF
+
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+        shell: bash
+        run: |
+          mapfile -d '' files < <(find release-artifacts -type f -print0 | sort -z)
+
+          gh release create "${RELEASE_TAG}" "${files[@]}" \
+            --draft \
+            --prerelease \
+            --title "DocHermes ${RELEASE_TAG} beta" \
+            --notes-file release-notes.md

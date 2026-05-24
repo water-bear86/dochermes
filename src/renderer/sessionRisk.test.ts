@@ -209,6 +209,37 @@ describe('buildSessionRiskAssessment', () => {
     expect(result.warnings.some((warning) => warning.text.startsWith('Cooldown active after recent loss'))).toBe(true);
   });
 
+  it('adds policy override metadata to cooldown warnings after a loss streak', () => {
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T12:20:00.000Z'),
+      question: 'Buy 1 SOL',
+      journalEntries: [
+        makeEntry({
+          id: '1',
+          createdAt: '2026-05-21T11:45:00.000Z',
+          notes: 'Exited -3% loss'
+        }),
+        makeEntry({
+          id: '2',
+          createdAt: '2026-05-21T12:05:00.000Z',
+          notes: 'Closed -4% loss'
+        })
+      ],
+      riskBudget: {
+        ...defaultBudget,
+        cooldownMinutesAfterLoss: 45
+      }
+    });
+
+    const streakCooldown = result.warnings.find((warning) => warning.text.includes('loss streak cooldown'));
+
+    expect(streakCooldown).toMatchObject({
+      policyLevel: 'policy',
+      requiresPolicyOverride: true,
+      policyOverrideReason: expect.stringContaining('2-loss streak')
+    });
+  });
+
   it('warns on oversized position size versus session median', () => {
     const result = buildSessionRiskAssessment({
       now: () => new Date('2026-05-21T09:30:00.000Z'),
@@ -243,6 +274,37 @@ describe('buildSessionRiskAssessment', () => {
     expect(result.status.candidateSize).toBe('3 sol');
     expect(result.status.medianSize).toBe('1');
     expect(result.warnings.some((warning) => warning.text.includes('Trade size may be oversized'))).toBe(true);
+  });
+
+  it('tightens max position size after recent losses as a guardrail', () => {
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T10:00:00.000Z'),
+      question: 'Buy 2.5 SOL',
+      journalEntries: [
+        makeEntry({
+          id: '1',
+          createdAt: '2026-05-21T09:00:00.000Z',
+          question: 'Buy 1 SOL',
+          notes: 'Closed -2% loss'
+        }),
+        makeEntry({
+          id: '2',
+          createdAt: '2026-05-21T09:20:00.000Z',
+          question: 'Buy 1 SOL',
+          notes: 'Closed +1%'
+        })
+      ],
+      riskBudget: defaultBudget
+    });
+
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          policyLevel: 'guardrail',
+          text: expect.stringContaining('Post-loss size guardrail')
+        })
+      ])
+    );
   });
 
   it('warns when size rule is active but no same-unit baseline exists', () => {
@@ -378,5 +440,42 @@ describe('buildSessionRiskAssessment', () => {
 
     expect(result.warnings.some((warning) => warning.text.includes('Trade size may be oversized'))).toBe(true);
     expect(result.warnings.some((warning) => warning.policyLevel === 'policy')).toBe(true);
+  });
+
+  it('flags low-liquidity constrained source exposure as policy metadata only', () => {
+    const result = buildSessionRiskAssessment({
+      now: () => new Date('2026-05-21T10:30:00.000Z'),
+      question: 'Buy 0.5 SOL from this thin pool',
+      journalEntries: [],
+      riskBudget: {
+        ...defaultBudget,
+        sourceConstraints: {
+          ...defaultBudget.sourceConstraints,
+          'dex-link': {
+            enabled: true,
+            maxSizeMultiplier: 1
+          }
+        }
+      },
+      sourceFindings: [
+        {
+          category: 'dex-link',
+          confidence: 'high',
+          provenance: 'Question text',
+          reason: 'DEX link references low liquidity pool'
+        }
+      ]
+    });
+
+    const sourceExposure = result.warnings.find((warning) => warning.text.includes('Low-liquidity source exposure'));
+
+    expect(sourceExposure).toMatchObject({
+      policyLevel: 'policy',
+      requiresPolicyOverride: true,
+      evidence: {
+        source: 'Source exposure guardrail',
+        confidence: 'high'
+      }
+    });
   });
 });

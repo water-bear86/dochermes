@@ -56,6 +56,8 @@ interface TiltSensitivityPreset {
 export interface SessionRiskWarningCandidate {
   text: string;
   policyLevel: SessionRiskPolicyLevel;
+  requiresPolicyOverride?: boolean;
+  policyOverrideReason?: string;
   evidence: {
     source: string;
     detail: string;
@@ -118,6 +120,7 @@ export function buildSessionRiskAssessment(input: {
   const knownLossPercent = losses.reduce((total, next) => total + next.value, 0);
   const hasLossData = losses.length > 0;
   const lastLossAt = losses.length > 0 ? losses[losses.length - 1].occurredAt : undefined;
+  const currentLossStreak = countCurrentLossStreak(sessionEntries);
   const cooldownMinutesLeft = computeCooldownMinutesLeft({ lastLossAt, now, cooldownMinutes: riskBudget.cooldownMinutesAfterLoss });
   const candidateSize = parseTradeSize(input.question);
   const candidateSourceSize = candidateSize ? `${candidateSize.value} ${candidateSize.unit}` : undefined;
@@ -155,7 +158,10 @@ export function buildSessionRiskAssessment(input: {
     addTradeBudgetWarning(warnings, riskBudget, tradeCount, nextTradeNumber);
     addLossWarning(warnings, riskBudget, knownLossPercent, hasLossData);
     addCooldownWarning(warnings, riskBudget, cooldownMinutesLeft);
+    addLossStreakCooldownWarning(warnings, riskBudget, cooldownMinutesLeft, currentLossStreak);
     addSizeMultiplierWarning(warnings, riskBudget, candidateSize, medianSize, nextTradeNumber, sizeLimitPolicy);
+    addPostLossSizeWarning(warnings, candidateSize, medianSize, recentLosses, currentLossStreak, tiltProfile);
+    addSourceExposureWarning(warnings, riskBudget, input.sourceFindings);
     addRapidTradeWarning(warnings, riskBudget, rapidTrades, tiltProfile);
     addRepeatedContractWarning(warnings, riskBudget, repeatedContractWarningEvidence, tiltProfile);
     addTiltWarning(warnings, riskBudget, isUrgentQuestion, recentLosses, tiltProfile, candidateSize, medianSize);
@@ -306,6 +312,33 @@ function addCooldownWarning(
   }
 }
 
+function addLossStreakCooldownWarning(
+  warnings: SessionRiskWarningCandidate[],
+  budget: SessionBudgetSettings,
+  cooldownMinutesLeft: number | undefined,
+  currentLossStreak: number
+): void {
+  if (!isPositiveInteger(budget.cooldownMinutesAfterLoss) || cooldownMinutesLeft === undefined || cooldownMinutesLeft <= 0) {
+    return;
+  }
+
+  if (currentLossStreak < 2) {
+    return;
+  }
+
+  warnings.push({
+    policyLevel: 'policy',
+    requiresPolicyOverride: true,
+    policyOverrideReason: `${currentLossStreak}-loss streak is inside the configured cooldown window.`,
+    text: `loss streak cooldown active: ${currentLossStreak} consecutive logged losses and ${Math.ceil(cooldownMinutesLeft)}m remaining.`,
+    evidence: {
+      source: 'Session risk budget',
+      detail: 'This is advisory policy metadata only; DocHermes does not execute, route, sign, or block trades.',
+      confidence: 'high'
+    }
+  });
+}
+
 function addRapidTradeWarning(
   warnings: SessionRiskWarningCandidate[],
   budget: SessionBudgetSettings,
@@ -416,6 +449,81 @@ function addSizeMultiplierWarning(
       }
     });
   }
+}
+
+function addPostLossSizeWarning(
+  warnings: SessionRiskWarningCandidate[],
+  candidateSize: TradeSize | undefined,
+  medianSize: number | undefined,
+  recentLossCount: number,
+  currentLossStreak: number,
+  tiltProfile: TiltSensitivityPreset
+): void {
+  if (!candidateSize || medianSize === undefined || recentLossCount < 1) {
+    return;
+  }
+
+  const maxAfterLoss = medianSize * tiltProfile.sizeAfterLossMultiplier;
+  if (candidateSize.value <= maxAfterLoss) {
+    return;
+  }
+
+  const policyLevel: SessionRiskPolicyLevel = currentLossStreak >= 2 ? 'policy' : 'guardrail';
+  warnings.push({
+    policyLevel,
+    ...(policyLevel === 'policy'
+      ? {
+          requiresPolicyOverride: true,
+          policyOverrideReason: `${currentLossStreak}-loss streak plus size expansion above post-loss baseline.`
+        }
+      : {}),
+    text: `Post-loss size guardrail: ${candidateSize.value}${candidateSize.unit} exceeds ${round2(maxAfterLoss)}${candidateSize.unit} after ${recentLossCount} recent loss${recentLossCount === 1 ? '' : 'es'}.`,
+    evidence: {
+      source: 'Behavioral check',
+      detail: `Median ${candidateSize.unit} size today is ${round2(medianSize)}; post-loss multiplier cap is ${formatMultiplier(
+        tiltProfile.sizeAfterLossMultiplier
+      )}.`,
+      confidence: currentLossStreak >= 2 ? 'high' : 'medium'
+    }
+  });
+}
+
+function addSourceExposureWarning(
+  warnings: SessionRiskWarningCandidate[],
+  budget: SessionBudgetSettings,
+  sourceFindings: SourceQualityFinding[] | undefined
+): void {
+  if (!sourceFindings || sourceFindings.length === 0) {
+    return;
+  }
+
+  const constrainedFindings = sourceFindings.filter((finding) => budget.sourceConstraints[finding.category]?.enabled);
+  const findings = constrainedFindings.length > 0 ? constrainedFindings : sourceFindings;
+  const riskyFinding = findings.find(isLowLiquidityOrSourceExposure);
+  if (!riskyFinding) {
+    return;
+  }
+
+  const constrained = Boolean(budget.sourceConstraints[riskyFinding.category]?.enabled);
+  const policyLevel: SessionRiskPolicyLevel = constrained && riskyFinding.confidence === 'high' ? 'policy' : 'guardrail';
+
+  warnings.push({
+    policyLevel,
+    ...(policyLevel === 'policy'
+      ? {
+          requiresPolicyOverride: true,
+          policyOverrideReason: `${riskyFinding.category} source is constrained and matched low-liquidity/source exposure.`
+        }
+      : {}),
+    text: `Low-liquidity source exposure: ${riskyFinding.category} signal matched local risk constraints.`,
+    evidence: {
+      source: 'Source exposure guardrail',
+      detail: `${riskyFinding.reason}. Provenance: ${riskyFinding.provenance}.`,
+      confidence: riskyFinding.confidence,
+      provenance: riskyFinding.provenance,
+      detectedAt: riskyFinding.detectedAt
+    }
+  });
 }
 
 function addTiltWarning(
@@ -634,6 +742,28 @@ function parseLossPercent(entry: JournalEntry): number | undefined {
   }
 
   return undefined;
+}
+
+function countCurrentLossStreak(entries: JournalEntry[]): number {
+  let streak = 0;
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (parseLossPercent(entry) === undefined) {
+      break;
+    }
+
+    streak += 1;
+  }
+
+  return streak;
+}
+
+function isLowLiquidityOrSourceExposure(finding: SourceQualityFinding): boolean {
+  const text = `${finding.category} ${finding.reason} ${finding.provenance}`.toLowerCase();
+  return /\b(low liquidity|thin liquidity|illiquid|thin pool|low volume|shallow|telegram|discord|social|dex-link|token-address|unknown)\b/.test(
+    text
+  );
 }
 
 interface TradeSize {

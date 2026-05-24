@@ -10,6 +10,8 @@ import type {
 export interface PersonalRuleWarningCandidate {
   text: string;
   policyLevel: PersonalRulePolicyLevel;
+  requiresPolicyOverride: boolean;
+  policyOverrideReason?: string;
   evidence: {
     source: string;
     detail: string;
@@ -70,6 +72,10 @@ export function evaluatePersonalRules(input: EvaluatePersonalRulesInput): Person
     warnings.push({
       text: detection.text,
       policyLevel,
+      requiresPolicyOverride: policyLevel === 'policy',
+      ...(policyLevel === 'policy'
+        ? { policyOverrideReason: `Policy rule ${rule.id} requires explicit override before treating this as acceptable.` }
+        : {}),
       ruleId: rule.id,
       evidence: {
         source: 'Personal rule engine',
@@ -99,6 +105,8 @@ export function buildPersonalRuleContext(input: {
         ruleId: warning.ruleId,
         text: warning.text,
         policyLevel: warning.policyLevel,
+        requiresPolicyOverride: warning.requiresPolicyOverride,
+        ...(warning.policyOverrideReason ? { policyOverrideReason: warning.policyOverrideReason } : {}),
         warningText: warning.text,
         source: warning.evidence.source,
         detail: warning.evidence.detail,
@@ -238,6 +246,24 @@ function detectRuleWarning(
     };
   }
 
+  if (isSourceLiquidityRule(text)) {
+    const matchedTerms = extractSourceLiquidityTerms(text).filter((term) => normalizedQuestion.includes(term));
+    const liquidityMentioned = /\b(low liquidity|thin liquidity|illiquid|thin pool|low volume|shallow)\b/i.test(
+      normalizedQuestion
+    );
+
+    if (matchedTerms.length > 0 || liquidityMentioned) {
+      return {
+        text: 'Source/liquidity rule matched this trade question.',
+        detail: `Rule "${rule.text}" matched ${matchedTerms.length > 0 ? matchedTerms.join(', ') : 'liquidity wording'} in the question.`,
+        confidence: matchedTerms.length > 0 && liquidityMentioned ? 'high' : 'medium',
+        detectedAt: new Date(now).toISOString()
+      };
+    }
+
+    return undefined;
+  }
+
   if (/wait for confirmation/.test(text) && !/(confirm|confirmation|invalidation)/.test(normalizedQuestion)) {
     return {
       text: `Rule "${rule.text}" suggests confirmation before acting.`,
@@ -270,6 +296,16 @@ function parseLossThreshold(ruleText: string): number {
 
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function isSourceLiquidityRule(ruleText: string): boolean {
+  return /\b(liquidity|illiquid|thin pool|low volume|source|telegram|discord|social|dex|call|caller)\b/i.test(ruleText);
+}
+
+function extractSourceLiquidityTerms(ruleText: string): string[] {
+  return ['telegram', 'discord', 'social', 'dex', 'low liquidity', 'thin liquidity', 'illiquid', 'thin pool'].filter((term) =>
+    ruleText.includes(term)
+  );
 }
 
 function parseQuestionTradeSize(question: string): TradeSize | undefined {

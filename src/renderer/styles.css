@@ -304,6 +304,34 @@ small {
   background: #2a2016;
 }
 
+.token-storage-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #374238;
+  border-radius: 8px;
+  padding: 10px;
+  background: #111514;
+}
+
+.token-storage-card.available {
+  border-color: #41684f;
+}
+
+.token-storage-card.unavailable {
+  border-color: #7b5a38;
+  background: #2a2117;
+}
+
+.token-storage-card .label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.token-storage-card small {
+  display: block;
+  margin-top: 4px;
+}
+
 label {
   color: #c7c8bd;
   font-size: 12px;
