@@ -5,6 +5,8 @@ import type {
   CoachBridgeApi,
   HermesConnectionReport,
   HermesConnectionSettings,
+  HostedHermesTokenSaveInput,
+  HostedHermesTokenStatus,
   MonitoringSignal,
   MonitoringStatus,
   WindowSourceOption
@@ -31,6 +33,12 @@ const api: CoachBridgeApi & {
   askHermes: (input: AskHermesInput) => ipcRenderer.invoke('hermes:ask', input) as Promise<string>,
   testHermesConnection: (connection: HermesConnectionSettings) =>
     ipcRenderer.invoke('hermes:test-connection', connection) as Promise<HermesConnectionReport>,
+  saveHostedHermesToken: (input: HostedHermesTokenSaveInput) =>
+    ipcRenderer.invoke('hosted-hermes-token:save', input) as Promise<HostedHermesTokenStatus>,
+  getHostedHermesTokenStatus: () =>
+    ipcRenderer.invoke('hosted-hermes-token:status') as Promise<HostedHermesTokenStatus>,
+  clearHostedHermesToken: () =>
+    ipcRenderer.invoke('hosted-hermes-token:clear') as Promise<HostedHermesTokenStatus>,
   setAlwaysOnTop: (enabled: boolean) => ipcRenderer.invoke('coach:set-always-on-top', enabled) as Promise<void>,
   setArmedMode: (enabled: boolean) => ipcRenderer.invoke('coach:set-armed-mode', enabled) as Promise<void>,
   appInfo: () =>

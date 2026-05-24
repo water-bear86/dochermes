@@ -321,6 +321,22 @@ export interface HermesRequestDiagnostic {
   debugNotes?: string;
 }
 
+export interface HostedHermesTokenSaveInput {
+  token: string;
+}
+
+export type HostedHermesTokenStatusReason =
+  | 'safe-storage-unavailable'
+  | 'not-found'
+  | 'corrupt-token-store';
+
+export interface HostedHermesTokenStatus {
+  available: boolean;
+  hasToken: boolean;
+  updatedAt?: string;
+  reason?: HostedHermesTokenStatusReason;
+}
+
 export interface CoachBridgeApi {
   listWindowSources: () => Promise<WindowSourceOption[]>;
   captureWindowSource: (sourceId: string) => Promise<string>;
@@ -334,6 +350,9 @@ export interface CoachBridgeApi {
   setVoiceSettings: (settings: VoiceSettings) => Promise<void>;
   askHermes: (input: AskHermesInput) => Promise<string>;
   testHermesConnection: (connection: HermesConnectionSettings) => Promise<HermesConnectionReport>;
+  saveHostedHermesToken: (input: HostedHermesTokenSaveInput) => Promise<HostedHermesTokenStatus>;
+  getHostedHermesTokenStatus: () => Promise<HostedHermesTokenStatus>;
+  clearHostedHermesToken: () => Promise<HostedHermesTokenStatus>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
   setArmedMode: (enabled: boolean) => Promise<void>;
   appInfo: () => Promise<{

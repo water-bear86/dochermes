@@ -37,6 +37,40 @@ const confirmationEntry: JournalEntry = {
   }
 };
 
+const oversizedAfterLossEntry: JournalEntry = {
+  id: 'entry-oversized-after-loss',
+  createdAt: '2026-05-18T23:00:00.000Z',
+  question: 'Should I size up after that loss?',
+  response: 'Keep size flat after a loss.',
+  notes: 'After the losing trade I increased allocation, went too big, and took another drawdown.',
+  selectedWindow: {
+    id: 'window:1',
+    name: 'Trading Window',
+    kind: 'window'
+  },
+  screenshot: {
+    captured: true,
+    imageStored: false
+  }
+};
+
+const chasingEntry: JournalEntry = {
+  id: 'entry-chasing',
+  createdAt: '2026-05-19T00:00:00.000Z',
+  question: 'Should I buy this pump?',
+  response: 'Do not chase a moving candle without a pullback.',
+  notes: 'FOMO entry after the move was extended turned into a bad loss.',
+  selectedWindow: {
+    id: 'window:1',
+    name: 'Trading Window',
+    kind: 'window'
+  },
+  screenshot: {
+    captured: true,
+    imageStored: false
+  }
+};
+
 const postmortemSummary: MemoryPostmortemSummary = {
   id: 'summary-1',
   generatedAt: '2026-05-20T12:00:00.000Z',
@@ -67,6 +101,44 @@ describe('buildMemoryContext', () => {
         recommendation: 'Do not enter immediately. Set an alert and reassess after confirmation.'
       }
     ]);
+  });
+
+  it('matches oversized allocation questions after prior loss-size mistakes', () => {
+    const context = buildMemoryContext(
+      [oversizedAfterLossEntry, earlyLossEntry],
+      'I just lost. Should I increase allocation to make it back?'
+    );
+
+    expect(context.matchedPatterns).toEqual([
+      {
+        name: 'oversized-after-loss-risk',
+        evidenceCount: 2,
+        summary: 'Prior notes link losses with oversized allocation or too-big follow-up trades.',
+        recommendation: 'Keep size capped after losses; wait for a clean setup instead of increasing allocation.'
+      }
+    ]);
+  });
+
+  it('matches chasing questions against prior FOMO losses', () => {
+    const context = buildMemoryContext([chasingEntry], 'This token is pumping. Should I chase the breakout now?');
+
+    expect(context.matchedPatterns).toEqual([
+      {
+        name: 'chasing-fomo-risk',
+        evidenceCount: 1,
+        summary: 'Prior notes link chasing fast moves or FOMO entries with poor outcomes.',
+        recommendation: 'Do not chase the move. Define a pullback or confirmation condition before considering entry.'
+      }
+    ]);
+  });
+
+  it('does not match size or FOMO patterns when the current question is unrelated', () => {
+    const context = buildMemoryContext(
+      [oversizedAfterLossEntry, chasingEntry],
+      'Review my saved notes from yesterday'
+    );
+
+    expect(context.matchedPatterns).toEqual([]);
   });
 
   it('keeps recent journal context compact and newest first', () => {

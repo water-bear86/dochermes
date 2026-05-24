@@ -85,6 +85,7 @@ import {
   evaluatePersonalRules,
   type PersonalRuleWarningCandidate
 } from './personalRules';
+import { FirstRunWizard } from './FirstRunWizard';
 
 type SpeechRecognitionResult = {
   continuous: boolean;
@@ -2442,6 +2443,28 @@ export function App(): ReactElement {
       };
     });
   }, [settings.pairedWindow]);
+
+  const completeFirstRunSetup = useCallback(() => {
+    setSettings((current) => ({
+      ...current,
+      setup: {
+        ...current.setup,
+        completedAt: new Date().toISOString()
+      }
+    }));
+    setError('');
+  }, []);
+
+  if (!settings.setup.completedAt) {
+    return (
+      <FirstRunWizard
+        bridge={bridge}
+        settings={settings}
+        onSettingsChange={setSettings}
+        onComplete={completeFirstRunSetup}
+      />
+    );
+  }
 
   return (
     <main className="shell">

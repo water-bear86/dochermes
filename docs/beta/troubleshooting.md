@@ -4,6 +4,33 @@ DocHermes is a read-only trading coach sidecar. It can inspect context you choos
 
 There is no installable DocHermes release yet. Until the packaging issue is complete, beta testing is limited to local development runs or local release-candidate builds made by the project maintainers.
 
+## Quick Support Checklist
+
+- Confirm the tester is not using an unofficial installer.
+- Confirm whether they are using local, hosted, custom, or fake Hermes.
+- Confirm `Test gateway` has been run.
+- Confirm screenshots, logs, and debug reports are sanitized before sharing.
+- Confirm no private keys, seed phrases, exchange credentials, bearer tokens, wallet approvals, or account records are included.
+- Confirm the issue does not involve wallet control, signing, order routing, withdrawals, or trade execution. If it does, treat it as a blocker.
+
+See [tester support checklist](tester-support-checklist.md) and [tester feedback template](tester-feedback-template.md) for support handoffs.
+
+## Local Fake Hermes
+
+For contributors and reviewers, the fake Hermes server can help test gateway setup without a real provider:
+
+```bash
+npm run fake:hermes
+```
+
+Then start DocHermes in development mode:
+
+```bash
+npm run dev
+```
+
+Fake Hermes is only for local UI and request-flow checks. It is not a real coaching model and it is not an end-user install path.
+
 ## Hermes Is Not Running
 
 If DocHermes says Hermes is disconnected, unreachable, or timed out:

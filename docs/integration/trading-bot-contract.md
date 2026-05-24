@@ -56,7 +56,47 @@ The bot should send a compact signal object before execution.
     "tokenAgeMinutes": 42,
     "liquidityUsd": 118000,
     "holderConcentration": "elevated",
-    "recentVolumeTrend": "expanding"
+    "recentVolumeTrend": "expanding",
+    "poolAddress": "optional",
+    "dex": "optional",
+    "priceChange": {
+      "m5Percent": 12.4,
+      "h1Percent": 41.8,
+      "h24Percent": 88.2
+    },
+    "volumeUsd": {
+      "m5": 42000,
+      "h1": 310000,
+      "h24": 1800000
+    },
+    "transactions": {
+      "m5Buys": 43,
+      "m5Sells": 18,
+      "h1Buys": 412,
+      "h1Sells": 190
+    }
+  },
+  "analysisContext": {
+    "technicalIndicators": [
+      {
+        "name": "rsi",
+        "timeframe": "5m",
+        "value": 78.2,
+        "interpretation": "overbought"
+      }
+    ],
+    "sentiment": {
+      "score": 0.35,
+      "label": "moderately-positive",
+      "sources": ["rss-news", "social-summary"]
+    },
+    "providerEvidence": [
+      {
+        "provider": "coingecko",
+        "kind": "pool-data",
+        "observedAt": "2026-05-23T15:00:00.000Z"
+      }
+    ]
   },
   "proposedTrade": {
     "side": "buy",
@@ -71,6 +111,18 @@ The bot should send a compact signal object before execution.
   }
 }
 ```
+
+## Market And Analysis Context
+
+Trading bots and Hermes may enrich a signal with read-only market evidence:
+
+- pool liquidity, reserves, DEX, token age, recent transactions, and volume
+- OHLCV or price-change windows such as 5m, 1h, and 24h
+- technical indicators such as RSI, MACD, moving averages, Bollinger bands, or stochastic signals
+- compact market-sentiment summaries from news or social feeds
+- provider provenance such as CoinGecko, Binance, a DEX API, browser DOM extraction, or the bot's own market data layer
+
+DocHermes should treat this as evidence for coaching, not as execution authority. Provider API keys, raw account exports, unsanitized order books, private trading history, and wallet credentials should not be required in this contract.
 
 ## Coach Assessment Output
 

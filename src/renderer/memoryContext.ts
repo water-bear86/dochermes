@@ -17,8 +17,18 @@ const EARLY_ENTRY_TERMS = ['early', 'immediate', 'immediately', 'enter now', 'ap
 const NEGATIVE_TERMS = ['poor', 'loss', 'lost', 'oversized', 'drawdown', 'bad', 'mistake'];
 const CONFIRMATION_TERMS = ['confirmation', 'confirmed', 'wait', 'waited', 'support'];
 const WIN_TERMS = ['win', 'won', 'profit', 'profitable', 'green', 'worked'];
-const OVERSIZE_TERMS = ['oversized', 'oversize', 'too big', 'overleveraged', 'over-leveraged'];
-const FOMO_TERMS = ['fomo', 'ape', 'chased', 'chase'];
+const LOSS_CONTEXT_TERMS = ['loss', 'lost', 'losing', 'drawdown', 'make it back', 'recover'];
+const SIZE_INTENT_TERMS = ['size', 'sizing', 'allocation', 'position', 'leverage', 'size up', 'increase allocation'];
+const OVERSIZE_TERMS = [
+  'oversized',
+  'oversize',
+  'too big',
+  'overleveraged',
+  'over-leveraged',
+  'increased allocation',
+  'size up'
+];
+const FOMO_TERMS = ['fomo', 'ape', 'chased', 'chase', 'pumping', 'pump', 'breakout', 'moving candle', 'rip'];
 export const EARLY_ENTRY_WARNING_TEXT =
   'This resembles prior early-entry risk patterns; set a confirmation plan before acting.';
 
@@ -125,10 +135,22 @@ function matchPatterns(
   falsePositiveSuppressedQuestions: Set<string>
 ): MemoryPattern[] {
   const currentText = normalize(currentQuestion);
+  return [
+    matchEarlyEntryPattern(entries, currentText, falsePositiveSuppressedQuestions),
+    matchOversizedAfterLossPattern(entries, currentText),
+    matchChasingFomoPattern(entries, currentText)
+  ].filter((pattern): pattern is MemoryPattern => pattern !== undefined);
+}
+
+function matchEarlyEntryPattern(
+  entries: JournalEntry[],
+  currentText: string,
+  falsePositiveSuppressedQuestions: Set<string>
+): MemoryPattern | undefined {
   const asksAboutEarlyEntry = containsAny(currentText, EARLY_ENTRY_TERMS);
 
   if (!asksAboutEarlyEntry) {
-    return [];
+    return undefined;
   }
 
   const earlyLossEvidence = entries.filter((entry) => {
@@ -154,18 +176,66 @@ function matchPatterns(
   const evidenceCount = new Set([...earlyLossEvidence, ...confirmationEvidence].map((entry) => entry.id)).size;
 
   if (evidenceCount === 0) {
-    return [];
+    return undefined;
   }
 
-  return [
-    {
-      name: 'early-entry-risk',
-      evidenceCount,
-      summary:
-        'This resembles prior notes where early entries performed poorly and waiting for confirmation reduced risk.',
-      recommendation: 'Do not enter immediately. Set an alert and reassess after confirmation.'
-    }
-  ];
+  return {
+    name: 'early-entry-risk',
+    evidenceCount,
+    summary: 'This resembles prior notes where early entries performed poorly and waiting for confirmation reduced risk.',
+    recommendation: 'Do not enter immediately. Set an alert and reassess after confirmation.'
+  };
+}
+
+function matchOversizedAfterLossPattern(entries: JournalEntry[], currentText: string): MemoryPattern | undefined {
+  const asksAboutLossSizing =
+    containsAny(currentText, SIZE_INTENT_TERMS) && containsAny(currentText, LOSS_CONTEXT_TERMS);
+
+  if (!asksAboutLossSizing) {
+    return undefined;
+  }
+
+  const evidence = entries.filter((entry) => {
+    const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
+    return containsAny(text, [...OVERSIZE_TERMS, ...SIZE_INTENT_TERMS]) && containsAny(text, NEGATIVE_TERMS);
+  });
+
+  if (evidence.length === 0) {
+    return undefined;
+  }
+
+  return {
+    name: 'oversized-after-loss-risk',
+    evidenceCount: uniqueEntryCount(evidence),
+    summary: 'Prior notes link losses with oversized allocation or too-big follow-up trades.',
+    recommendation: 'Keep size capped after losses; wait for a clean setup instead of increasing allocation.'
+  };
+}
+
+function matchChasingFomoPattern(entries: JournalEntry[], currentText: string): MemoryPattern | undefined {
+  if (!containsAny(currentText, FOMO_TERMS)) {
+    return undefined;
+  }
+
+  const evidence = entries.filter((entry) => {
+    const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
+    return containsAny(text, FOMO_TERMS) && containsAny(text, NEGATIVE_TERMS);
+  });
+
+  if (evidence.length === 0) {
+    return undefined;
+  }
+
+  return {
+    name: 'chasing-fomo-risk',
+    evidenceCount: uniqueEntryCount(evidence),
+    summary: 'Prior notes link chasing fast moves or FOMO entries with poor outcomes.',
+    recommendation: 'Do not chase the move. Define a pullback or confirmation condition before considering entry.'
+  };
+}
+
+function uniqueEntryCount(entries: JournalEntry[]): number {
+  return new Set(entries.map((entry) => entry.id)).size;
 }
 
 function normalize(value: string): string {

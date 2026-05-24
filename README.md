@@ -136,6 +136,19 @@ npm run typecheck
 npm run build
 ```
 
+## Beta Testing Notes
+
+DocHermes does not have an installable beta yet. Current beta work is for maintainers, contributors, and invited testers using local development runs or maintainer-created release-candidate builds.
+
+Useful beta docs:
+
+- [Beta tester support checklist](docs/beta/tester-support-checklist.md)
+- [Known beta limitations](docs/beta/known-limitations.md)
+- [Beta troubleshooting](docs/beta/troubleshooting.md)
+- [Tester feedback template](docs/beta/tester-feedback-template.md)
+- [Manual QA checklist](docs/beta/manual-qa-checklist.md)
+- [Release notes template](docs/beta/release-notes-template.md)
+
 ## Project Direction
 
 Near-term work is focused on:

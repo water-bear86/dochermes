@@ -1,7 +1,16 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const ipcHandlers = new Map<string, (event: unknown, input: unknown) => Promise<unknown> | unknown>();
 const askHermesMock = vi.fn(async () => 'ok');
+const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dochermes-main-test-'));
+const safeStorageMock = {
+  isEncryptionAvailable: vi.fn(() => true),
+  encryptString: vi.fn((value: string) => Buffer.from(`encrypted:${value}`, 'utf8')),
+  decryptString: vi.fn((value: Buffer) => value.toString('utf8').replace(/^encrypted:/, ''))
+};
 
 vi.mock('electron', () => {
   const ipcMain = {
@@ -13,6 +22,8 @@ vi.mock('electron', () => {
   return {
     app: {
       setName: vi.fn(),
+      getName: vi.fn(() => 'Hermes Coach'),
+      getPath: vi.fn(() => userDataDir),
       whenReady: vi.fn(() => Promise.resolve(undefined)),
       on: vi.fn()
     },
@@ -20,7 +31,8 @@ vi.mock('electron', () => {
     clipboard: {
       readText: vi.fn(() => '')
     },
-    ipcMain
+    ipcMain,
+    safeStorage: safeStorageMock
   };
 });
 
@@ -64,6 +76,18 @@ function getHermesAskHandler(): (event: unknown, input: unknown) => Promise<unkn
   return handler as (event: unknown, input: unknown) => Promise<unknown>;
 }
 
+function getIpcHandler<TInput = unknown, TResult = unknown>(
+  channel: string
+): (event?: unknown, input?: TInput) => Promise<TResult> {
+  const handler = ipcHandlers.get(channel);
+
+  if (!handler) {
+    throw new Error(`${channel} IPC handler was not registered`);
+  }
+
+  return handler as (event?: unknown, input?: TInput) => Promise<TResult>;
+}
+
 const baseInput = {
   connection: {
     connectionKind: 'local',
@@ -89,6 +113,10 @@ beforeAll(async () => {
 
 beforeEach(() => {
   askHermesMock.mockClear().mockResolvedValue('ok');
+  safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+  safeStorageMock.encryptString.mockClear();
+  safeStorageMock.decryptString.mockClear();
+  fs.rmSync(path.join(userDataDir, 'hosted-hermes-token.json'), { force: true });
 });
 
 describe('main ipc validation', () => {
@@ -158,5 +186,93 @@ describe('main ipc validation', () => {
         })
       })
     );
+  });
+});
+
+describe('hosted Hermes token IPC', () => {
+  it('saves an encrypted hosted token and only returns token metadata', async () => {
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+    const getStatus = getIpcHandler('hosted-hermes-token:status');
+
+    const saveResult = await saveToken(undefined, { token: 'hosted-secret-token' });
+    const statusResult = await getStatus();
+    const storedPayload = fs.readFileSync(path.join(userDataDir, 'hosted-hermes-token.json'), 'utf8');
+
+    expect(saveResult).toMatchObject({
+      available: true,
+      hasToken: true
+    });
+    expect(statusResult).toMatchObject({
+      available: true,
+      hasToken: true,
+      updatedAt: expect.any(String)
+    });
+    expect(JSON.stringify(saveResult)).not.toContain('hosted-secret-token');
+    expect(JSON.stringify(statusResult)).not.toContain('hosted-secret-token');
+    expect(storedPayload).not.toContain('hosted-secret-token');
+    expect(safeStorageMock.encryptString).toHaveBeenCalledWith('hosted-secret-token');
+  });
+
+  it('clears the hosted token without returning plaintext', async () => {
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+    const clearToken = getIpcHandler('hosted-hermes-token:clear');
+    const getStatus = getIpcHandler('hosted-hermes-token:status');
+
+    await saveToken(undefined, { token: 'hosted-secret-token' });
+
+    const clearResult = await clearToken();
+    const statusResult = await getStatus();
+
+    expect(clearResult).toEqual({
+      available: true,
+      hasToken: false,
+      reason: 'not-found'
+    });
+    expect(statusResult).toEqual({
+      available: true,
+      hasToken: false,
+      reason: 'not-found'
+    });
+    expect(JSON.stringify(clearResult)).not.toContain('hosted-secret-token');
+  });
+
+  it('returns an explicit unavailable status instead of storing plaintext when safeStorage is unavailable', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+    const saveToken = getIpcHandler<{ token: string }>('hosted-hermes-token:save');
+
+    const saveResult = await saveToken(undefined, { token: 'hosted-secret-token' });
+
+    expect(saveResult).toEqual({
+      available: false,
+      hasToken: false,
+      reason: 'safe-storage-unavailable'
+    });
+    expect(fs.existsSync(path.join(userDataDir, 'hosted-hermes-token.json'))).toBe(false);
+    expect(safeStorageMock.encryptString).not.toHaveBeenCalled();
+    expect(JSON.stringify(saveResult)).not.toContain('hosted-secret-token');
+  });
+
+  it('reports corrupt hosted token storage without returning plaintext', async () => {
+    fs.writeFileSync(
+      path.join(userDataDir, 'hosted-hermes-token.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        ciphertextBase64: Buffer.from('not-encrypted-hosted-secret-token', 'utf8').toString('base64')
+      })
+    );
+    safeStorageMock.decryptString.mockImplementationOnce(() => {
+      throw new Error('decrypt failed');
+    });
+    const getStatus = getIpcHandler('hosted-hermes-token:status');
+
+    const statusResult = await getStatus();
+
+    expect(statusResult).toEqual({
+      available: true,
+      hasToken: false,
+      reason: 'corrupt-token-store'
+    });
+    expect(JSON.stringify(statusResult)).not.toContain('hosted-secret-token');
   });
 });

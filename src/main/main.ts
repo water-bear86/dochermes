@@ -1,4 +1,6 @@
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, type Tray } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, safeStorage, type Tray } from 'electron';
 
 import { askHermes, probeHermesConnection } from './hermesClient';
 import { createCoachTray, refreshCoachTrayMenu } from './tray';
@@ -18,6 +20,8 @@ import type {
   MonitoringStatus,
   OcrContextMode,
   OcrRegionProfileSettings,
+  HostedHermesTokenSaveInput,
+  HostedHermesTokenStatus,
   VoiceSettings
 } from '../shared/types';
 
@@ -58,6 +62,13 @@ let isWindowVisible = false;
 const MONITOR_POLL_MS = 1000;
 const MONITOR_SIGNAL_RETENTION_MS = 30_000;
 const MONITOR_SIGNAL_REPEAT_GAP_MS = 10_000;
+const HOSTED_HERMES_TOKEN_FILE = 'hosted-hermes-token.json';
+
+interface HostedHermesTokenRecord {
+  version: 1;
+  updatedAt: string;
+  ciphertextBase64: string;
+}
 
 app.setName('Hermes Coach');
 
@@ -198,6 +209,136 @@ function setVoiceSettings(settings: unknown): void {
   applyVoiceShortcut(activeVoiceSettings);
 }
 
+function unavailableHostedTokenStatus(): HostedHermesTokenStatus {
+  return {
+    available: false,
+    hasToken: false,
+    reason: 'safe-storage-unavailable'
+  };
+}
+
+function missingHostedTokenStatus(): HostedHermesTokenStatus {
+  return {
+    available: true,
+    hasToken: false,
+    reason: 'not-found'
+  };
+}
+
+function corruptHostedTokenStatus(): HostedHermesTokenStatus {
+  return {
+    available: true,
+    hasToken: false,
+    reason: 'corrupt-token-store'
+  };
+}
+
+function isSafeStorageAvailable(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+function hostedHermesTokenPath(): string {
+  return path.join(app.getPath('userData'), HOSTED_HERMES_TOKEN_FILE);
+}
+
+function assertHostedHermesTokenSaveInput(input: unknown): HostedHermesTokenSaveInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Hosted Hermes token save input is required.');
+  }
+
+  const token = (input as { token?: unknown }).token;
+  if (typeof token !== 'string' || !token.trim()) {
+    throw new Error('Hosted Hermes token must be a non-empty string.');
+  }
+
+  return { token };
+}
+
+function parseHostedHermesTokenRecord(raw: string): HostedHermesTokenRecord {
+  const parsed = JSON.parse(raw) as Partial<HostedHermesTokenRecord>;
+
+  if (parsed.version !== 1 || typeof parsed.updatedAt !== 'string' || typeof parsed.ciphertextBase64 !== 'string') {
+    throw new Error('Hosted Hermes token storage is invalid.');
+  }
+
+  return {
+    version: 1,
+    updatedAt: parsed.updatedAt,
+    ciphertextBase64: parsed.ciphertextBase64
+  };
+}
+
+function getHostedHermesTokenStatus(): HostedHermesTokenStatus {
+  if (!isSafeStorageAvailable()) {
+    return unavailableHostedTokenStatus();
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(hostedHermesTokenPath(), 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return missingHostedTokenStatus();
+    }
+
+    return corruptHostedTokenStatus();
+  }
+
+  try {
+    const record = parseHostedHermesTokenRecord(raw);
+    const token = safeStorage.decryptString(Buffer.from(record.ciphertextBase64, 'base64'));
+
+    if (!token) {
+      return corruptHostedTokenStatus();
+    }
+
+    return {
+      available: true,
+      hasToken: true,
+      updatedAt: record.updatedAt
+    };
+  } catch {
+    return corruptHostedTokenStatus();
+  }
+}
+
+function saveHostedHermesToken(input: unknown): HostedHermesTokenStatus {
+  const { token } = assertHostedHermesTokenSaveInput(input);
+
+  if (!isSafeStorageAvailable()) {
+    return unavailableHostedTokenStatus();
+  }
+
+  const updatedAt = new Date().toISOString();
+  const record: HostedHermesTokenRecord = {
+    version: 1,
+    updatedAt,
+    ciphertextBase64: safeStorage.encryptString(token).toString('base64')
+  };
+
+  fs.mkdirSync(path.dirname(hostedHermesTokenPath()), { recursive: true });
+  fs.writeFileSync(hostedHermesTokenPath(), JSON.stringify(record), { encoding: 'utf8', mode: 0o600 });
+
+  return {
+    available: true,
+    hasToken: true,
+    updatedAt
+  };
+}
+
+function clearHostedHermesToken(): HostedHermesTokenStatus {
+  if (!isSafeStorageAvailable()) {
+    return unavailableHostedTokenStatus();
+  }
+
+  fs.rmSync(hostedHermesTokenPath(), { force: true });
+  return missingHostedTokenStatus();
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('app:info', () => ({
     name: app.getName(),
@@ -229,6 +370,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('hermes:test-connection', async (_event, input: unknown) => {
     return probeHermesConnection(assertHermesConnection(input));
   });
+
+  ipcMain.handle('hosted-hermes-token:save', (_event, input: unknown) => saveHostedHermesToken(input));
+
+  ipcMain.handle('hosted-hermes-token:status', () => getHostedHermesTokenStatus());
+
+  ipcMain.handle('hosted-hermes-token:clear', () => clearHostedHermesToken());
 
   ipcMain.handle('coach:set-always-on-top', (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
