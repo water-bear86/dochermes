@@ -1,9 +1,30 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  --dh-paper: #fdfdfd;
+  --dh-paper-soft: #f7f9fd;
+  --dh-blue-paper: #eff4ff;
+  --dh-ink: #000000;
+  --dh-navy: #0b1c30;
+  --dh-muted: #4c4546;
+  --dh-muted-2: #667085;
+  --dh-border: #e2e8f0;
+  --dh-border-strong: #0b1c30;
+  --dh-blue: #0047ab;
+  --dh-blue-2: #0d5fd3;
+  --dh-gold: #ffd700;
+  --dh-gold-soft: #fff6cc;
+  --dh-black: #000000;
+  --dh-white: #ffffff;
+  --dh-red: #a82014;
+  --dh-red-soft: #fff1ef;
+  --dh-shadow: 6px 6px 0 #0b1c30;
+  --dh-font-body: Inter, Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --dh-font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --dh-font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #101214;
-  color: #f4f1e8;
+    var(--dh-font-body);
+  background: var(--dh-paper);
+  color: var(--dh-navy);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -16,7 +37,11 @@ body {
   min-width: 360px;
   min-height: 100vh;
   margin: 0;
-  background: #101214;
+  background:
+    linear-gradient(90deg, rgba(0, 71, 171, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(11, 28, 48, 0.03) 1px, transparent 1px),
+    var(--dh-paper);
+  background-size: 28px 28px;
 }
 
 button,
@@ -1267,6 +1292,432 @@ footer {
   margin-top: auto;
   padding-bottom: 2px;
   text-align: center;
+}
+
+/* DocHermes website skin: paper panels, ink borders, cobalt diagnostics, gold risk marks. */
+.shell {
+  color: var(--dh-navy);
+}
+
+.topbar {
+  border-bottom: 2px solid var(--dh-ink);
+  padding-bottom: 12px;
+}
+
+h1,
+h2,
+.brand-heading {
+  font-family: var(--dh-font-display);
+  color: var(--dh-ink);
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.topbar p,
+footer,
+small {
+  color: var(--dh-muted);
+}
+
+.label,
+.section-label,
+.status,
+.note,
+.capability-row span,
+.payload-row span,
+.source-quality-chip,
+.postmortem-outcome-chip {
+  font-family: var(--dh-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.status {
+  border: 1px solid var(--dh-border);
+  border-radius: 0;
+  color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+  text-align: left;
+}
+
+.control-strip,
+.question-panel,
+.window-picker,
+.preview,
+.settings-panel,
+.message,
+.advanced-settings,
+.privacy-indicator,
+.token-storage-card,
+.connection-report,
+.source-constraint-row,
+.postmortem-event,
+.postmortem-summary-item,
+.wizard-card,
+.wizard-check,
+.wizard-ready-grid div,
+.wizard-steps li,
+.session-risk-grid div {
+  border: 1px solid var(--dh-border-strong);
+  border-radius: 2px;
+  color: var(--dh-navy);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.control-strip:first-of-type,
+.question-panel,
+.window-picker,
+.settings-panel,
+.first-run-panel .wizard-card {
+  box-shadow: var(--dh-shadow);
+}
+
+.compact-strip,
+.advanced-settings,
+.connection-report,
+.wizard-check,
+.wizard-ready-grid div,
+.session-risk-grid div,
+.source-constraint-row,
+.postmortem-event,
+.postmortem-summary-item {
+  box-shadow: none;
+}
+
+.control-strip strong,
+.diagnostic-item strong,
+.wizard-check strong,
+.wizard-ready-grid strong,
+.session-risk-grid p,
+.session-risk-grid strong,
+.postmortem-event-heading,
+.postmortem-summary-item strong,
+.memory-pattern strong {
+  color: var(--dh-ink);
+}
+
+.compact-strip small,
+.section-heading span,
+.subtle-note,
+.source-outcome-hint,
+.journal-actions span,
+.diagnostics-empty,
+.timing,
+.warning-evidence-meta,
+.postmortem-event-subtitle,
+.postmortem-event-provenance,
+.monitor-list-meta,
+.wizard-step-content p,
+.wizard-boundary-list,
+.session-risk-note {
+  color: var(--dh-muted);
+}
+
+button,
+.source-option {
+  border: 1px solid var(--dh-border-strong);
+  border-radius: 2px;
+  color: var(--dh-navy);
+  background: var(--dh-white);
+}
+
+button:hover:not(:disabled),
+.source-option:hover:not(:disabled) {
+  border-color: var(--dh-blue);
+  color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+}
+
+button:disabled {
+  color: #9aa4b2;
+  background: #f4f5f7;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.source-option:focus-visible {
+  outline: 3px solid var(--dh-gold);
+  outline-offset: 2px;
+}
+
+.primary {
+  border-color: var(--dh-blue);
+  color: var(--dh-white);
+  background: var(--dh-blue);
+  font-weight: 800;
+}
+
+.primary:hover:not(:disabled) {
+  border-color: var(--dh-ink);
+  color: var(--dh-white);
+  background: var(--dh-ink);
+}
+
+.ghost {
+  border-color: var(--dh-border);
+  color: var(--dh-muted);
+  background: var(--dh-white);
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: var(--dh-ink);
+  color: var(--dh-ink);
+  background: var(--dh-white);
+}
+
+label {
+  color: var(--dh-navy);
+  font-family: var(--dh-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--dh-border-strong);
+  border-radius: 2px;
+  color: var(--dh-navy);
+  background: var(--dh-white);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--dh-blue);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--dh-blue);
+}
+
+.check-row,
+.source-option span,
+.diagnostics-summary-note,
+.diagnostic-history,
+.monitor-list,
+.trade-history-list,
+.postmortem-event-list,
+.warning-evidence-detail,
+.warning-card-subtitle,
+.warning-evidence-list {
+  color: var(--dh-navy);
+}
+
+.source-list {
+  scrollbar-color: var(--dh-blue) var(--dh-blue-paper);
+}
+
+.source-option {
+  background: var(--dh-paper);
+}
+
+.source-option.selected {
+  border-color: var(--dh-blue);
+  background:
+    linear-gradient(90deg, var(--dh-gold) 0 6px, transparent 6px),
+    var(--dh-blue-paper);
+}
+
+.source-option img,
+.preview img {
+  border: 1px solid var(--dh-border-strong);
+  border-radius: 0;
+  background: var(--dh-blue-paper);
+}
+
+.preview-media::after {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 44px;
+  height: 44px;
+  border-right: 3px solid var(--dh-gold);
+  border-bottom: 3px solid var(--dh-gold);
+  content: "";
+  pointer-events: none;
+}
+
+.privacy-indicator.scope-local,
+.connection-report.connected,
+.wizard-check.connected,
+.wizard-check.degraded,
+.trade-history {
+  border-color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+}
+
+.privacy-indicator.scope-hosted,
+.postmortem {
+  border-color: var(--dh-blue);
+  background: #f5f8ff;
+}
+
+.privacy-indicator.scope-advanced,
+.memory,
+.warning,
+.session-risk-status--low,
+.session-risk-status--medium,
+.token-storage-card.unavailable {
+  border-color: var(--dh-gold);
+  background: var(--dh-gold-soft);
+}
+
+.token-storage-card.available,
+.session-risk-status,
+.session-risk-status--ok,
+.session-risk-status--off {
+  border-color: var(--dh-border-strong);
+  background: var(--dh-white);
+}
+
+.connection-report.auth-error,
+.connection-report.disconnected,
+.connection-report.model-error,
+.connection-report.incompatible,
+.wizard-check.auth-error,
+.wizard-check.disconnected,
+.wizard-check.model-error,
+.wizard-check.incompatible,
+.session-risk-status--high,
+.error {
+  border-color: var(--dh-red);
+  color: var(--dh-red);
+  background: var(--dh-red-soft);
+}
+
+.response {
+  border-color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+}
+
+.warning-list,
+.warning-card-text,
+.memory-pattern strong {
+  color: #7a5800;
+}
+
+.warning-card,
+.diagnostic-item,
+.warning-feedback-item {
+  border-top-color: var(--dh-border-strong);
+}
+
+.warning-evidence,
+.capability-row span,
+.payload-row span,
+.source-quality-chip,
+.postmortem-outcome-chip {
+  border-color: var(--dh-border-strong);
+  border-radius: 0;
+  background: var(--dh-white);
+}
+
+.warning-evidence--low {
+  border-color: var(--dh-gold);
+  background: #fff9db;
+}
+
+.warning-evidence-confidence,
+.diagnostic-item.success strong {
+  color: var(--dh-blue);
+}
+
+.warning-evidence-confidence--low,
+.diagnostic-item.failure strong {
+  color: var(--dh-red);
+}
+
+.postmortem h3 {
+  color: var(--dh-ink);
+  font-family: var(--dh-font-display);
+}
+
+.ocr-region-box {
+  border: 2px solid var(--dh-blue);
+  border-radius: 0;
+  background: rgba(0, 71, 171, 0.16);
+  color: var(--dh-blue);
+}
+
+.ocr-region-box.is-active {
+  border-color: var(--dh-gold);
+  background: rgba(255, 215, 0, 0.22);
+  color: var(--dh-ink);
+}
+
+.ocr-region-box span {
+  border-bottom-right-radius: 0;
+  color: var(--dh-white);
+  background: var(--dh-ink);
+}
+
+.first-run-shell {
+  color: var(--dh-navy);
+}
+
+.wizard-steps li {
+  background: var(--dh-white);
+}
+
+.wizard-steps span {
+  border-color: var(--dh-border-strong);
+  border-radius: 0;
+  color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+}
+
+.wizard-steps li.active {
+  border-color: var(--dh-blue);
+  color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+}
+
+.wizard-steps li.done {
+  border-color: var(--dh-gold);
+  color: var(--dh-ink);
+  background: var(--dh-gold-soft);
+}
+
+.wizard-step-content h2 {
+  color: var(--dh-ink);
+  font-family: var(--dh-font-display);
+  font-size: 22px;
+}
+
+.wizard-actions {
+  border-top: 1px solid var(--dh-border-strong);
+  padding-top: 12px;
+}
+
+.connection-report textarea {
+  font-family: var(--dh-font-mono);
+  color: var(--dh-navy);
+  background: #f8fafc;
+}
+
+footer {
+  color: var(--dh-muted);
+  font-family: var(--dh-font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
 @media (max-width: 640px) {

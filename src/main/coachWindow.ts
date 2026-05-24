@@ -20,7 +20,7 @@ export function createCoachWindow(options: CoachWindowOptions): BrowserWindow {
     show: false,
     title: 'Hermes Coach',
     alwaysOnTop: true,
-    backgroundColor: '#101214',
+    backgroundColor: '#fdfdfd',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
