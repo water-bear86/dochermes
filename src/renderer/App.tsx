@@ -2656,10 +2656,12 @@ export function App(): ReactElement {
           <h1>Hermes Coach</h1>
           <p>Risk and execution coach</p>
         </div>
-        <span className="status">{statusText}</span>
+        <span className="status" role="status" aria-live="polite" aria-atomic="true">
+          {statusText}
+        </span>
       </header>
       <section className="control-strip compact-strip" aria-label="Hermes check-in status">
-        <div>
+        <div role="status" aria-live="polite" aria-atomic="true">
           <span className="label">Hermes gateway</span>
           <strong>{hermesStatusText}</strong>
           <small>{hermesHeartbeat.summary ?? 'No check yet.'}</small>
@@ -2851,7 +2853,12 @@ export function App(): ReactElement {
               </button>
             </div>
             {connectionReport ? (
-              <div className={`connection-report ${connectionReport.status} settings-wide`}>
+              <div
+                className={`connection-report ${connectionReport.status} settings-wide`}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
                 <strong>{connectionReport.summary}</strong>
                 <small>
                   Status: {connectionReport.status}
@@ -4550,7 +4557,7 @@ export function App(): ReactElement {
       ) : null}
 
       {response ? (
-        <section className="message response" aria-label="Hermes response">
+        <section className="message response" aria-label="Hermes response" role="status" aria-live="polite" aria-atomic="true">
           <span className="label">Coach assessment</span>
           <p>{response}</p>
           {requestMetrics ? (

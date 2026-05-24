@@ -174,7 +174,9 @@ export function FirstRunWizard({
           <h1>Set up Hermes Coach</h1>
           <p>Pair the advisor before your first capture</p>
         </div>
-        <span className="status">First run</span>
+        <span className="status" role="status" aria-live="polite" aria-atomic="true">
+          First run
+        </span>
       </header>
 
       <section className="first-run-panel" aria-label="First-run setup wizard">
@@ -262,7 +264,12 @@ export function FirstRunWizard({
                 </label>
               </div>
               {tokenStorageMessage ? <p className="wizard-helper">{tokenStorageMessage}</p> : null}
-              <div className={`wizard-check ${connectionReport ? connectionReport.status : ''}`}>
+              <div
+                className={`wizard-check ${connectionReport ? connectionReport.status : ''}`}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
                 <div>
                   <strong>{connectionReport ? `Gateway ${connectionReport.status}` : 'Gateway not tested'}</strong>
                   <small>{gatewaySummary}</small>

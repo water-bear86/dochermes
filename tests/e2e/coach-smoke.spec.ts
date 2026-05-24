@@ -37,6 +37,8 @@ test.describe('Hermes Coach Electron smoke', () => {
       await expect(page.getByRole('heading', { name: 'Hermes Coach', exact: true })).toBeVisible();
       await expect(page.getByText('Risk and execution coach')).toBeVisible();
       await expect(page.getByLabel('Hermes check-in status')).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: /Window selection required/ })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: /Hermes check-in:/ })).toBeVisible();
       await expect(page.getByLabel('Ask Hermes')).toBeVisible();
 
       await expect(page.getByText('Platform agnostic. Read-only wallet context only. No signing. No order routing.')).toBeVisible();
@@ -58,6 +60,7 @@ test.describe('Hermes Coach Electron smoke', () => {
       const rendererFailures = collectRendererFailures(page, { ignoreSandboxedPreloadFailure: true });
 
       await expect(page.getByRole('heading', { name: 'Set up Hermes Coach' })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'First run' })).toBeVisible();
       await expect(page.getByText('Advisory boundary')).toBeVisible();
       await expect(page.getByText(/never controls funds/i)).toBeVisible();
 
@@ -94,6 +97,7 @@ test.describe('Hermes Coach Electron smoke', () => {
       await page.getByRole('button', { name: 'Capture and ask' }).click();
 
       await expect(page.getByText('E2E Hermes response: placeholder request received.')).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'E2E Hermes response: placeholder request received.' })).toBeVisible();
       await expect(page.getByText(/Withheld from Hermes: Real screenshot/)).toBeVisible();
 
       const calls = await page.evaluate(() => {
