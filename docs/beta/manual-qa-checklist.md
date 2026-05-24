@@ -25,9 +25,15 @@ There is no installable DocHermes release yet. Until packaging is complete, mark
 | Image capability failure is clear | Not run | Text-only fallback should stay usable. |
 | Window capture requires selection | Not run | No hidden full-desktop capture. |
 | macOS Screen Recording path checked | Not run | Required for macOS capture testing. |
+| First-run keyboard path checked | Not run | Complete first-run without a mouse; focus order should be predictable. |
+| Main ask keyboard path checked | Not run | Select window, ask, review response, and save journal with keyboard only. |
+| Screen-reader status pass checked | Not run | Gateway status, selected window, errors, consent, and response should be discoverable. |
 | Windows SmartScreen note checked | Not run | Expected for unsigned beta artifacts. |
 | Linux AppImage permission note checked | Not run | `chmod +x` and sandbox/portal notes are documented. |
 | Privacy boundary checked | Not run | No wallet control, signing, order routing, or trade execution. |
+| Remote-send consent checked | Not run | Hosted/custom gateway requests should show destination, sent data, and local-only data before send. |
+| Token redaction checked | Not run | Debug reports and auth failures should not expose bearer tokens. |
+| Local data controls checked | Not run | Clearing settings, memory, or diagnostics should say what stays local and what is not deleted remotely. |
 | Bug report path checked | Not run | Reports should redact tokens and sensitive account data. |
 
 Use `Pass`, `Fail`, or `Blocked` in the Result column.

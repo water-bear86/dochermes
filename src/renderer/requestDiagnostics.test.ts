@@ -27,7 +27,20 @@ const BASE_DIAGNOSTIC_INPUT = {
   },
   request: {
     redactionEnabled: true,
-    usedFallbackImage: false
+    usedFallbackImage: false,
+    privacySummary: {
+      screenshot: 'sent' as const,
+      memoryContext: 'sent' as const,
+      monitoringContext: 'sent' as const,
+      windowTitle: 'sent' as const,
+      tradeSummary: 'sent' as const,
+      schemaRequiresScreenshot: true,
+      remoteConsentRequired: false,
+      dataSharingScope: 'local-first' as const,
+      connectionKind: 'local' as const,
+      preset: 'balanced' as const,
+      destinationOrigin: 'http://localhost:8642'
+    }
   },
   timings: {
     localRiskMs: 12,
@@ -147,7 +160,26 @@ describe('diagnostic reporting', () => {
       id: 'req-secret',
       connection: {
         ...BASE_DIAGNOSTIC_INPUT.connection,
-        baseUrl: 'https://chatgpt.com/backend-api/codex?token=sk-abc123&api_key=abc'
+        connectionKind: 'hosted',
+        endpointMode: 'openai-chat',
+        baseUrl: 'https://chatgpt.com/backend-api/codex?token=sk-abc123&api_key=abc',
+        resolvedEndpoint: 'https://api.openai.com/v1/responses?authorization=Bearer%20secret'
+      },
+      request: {
+        ...BASE_DIAGNOSTIC_INPUT.request,
+        privacySummary: {
+          screenshot: 'placeholder',
+          memoryContext: 'withheld',
+          monitoringContext: 'withheld',
+          windowTitle: 'withheld',
+          tradeSummary: 'withheld',
+          schemaRequiresScreenshot: true,
+          remoteConsentRequired: true,
+          dataSharingScope: 'hosted',
+          connectionKind: 'hosted',
+          preset: 'maximum',
+          destinationOrigin: 'https://chatgpt.com'
+        }
       }
     });
     const report = buildDiagnosticReport(payload);
@@ -156,10 +188,65 @@ describe('diagnostic reporting', () => {
     expect(report).toContain('Gateway route/profile: hermes-agent');
     expect(report).not.toContain('Model:');
     expect(report).toContain('Redaction: on');
-    expect(report).toContain('Image input: screenshot image');
+    expect(report).toContain('Image input: placeholder');
+    expect(report).toContain('Remote consent: required');
+    expect(report).toContain('Screenshot: placeholder');
+    expect(report).toContain('Memory context: withheld');
+    expect(report).toContain('Monitoring context: withheld');
+    expect(report).toContain('Window title: withheld');
+    expect(report).toContain('Trade summary: withheld');
     expect(report).toContain('***');
+    expect(report).not.toContain('Trading Terminal');
+    expect(report).not.toContain('sk-abc123');
+    expect(report).not.toContain('Bearer%20secret');
     expect(sanitizeQuestionPreview('')).toBe('[empty request]');
     expect(sanitizeQuestionPreview('buy now for 1212')).toBe('buy now for 1212');
+  });
+
+  it('reports sent versus withheld privacy context without leaking raw diagnostic values', () => {
+    const payload = createRequestDiagnostic({
+      ...BASE_DIAGNOSTIC_INPUT,
+      selectedWindowName: 'Private Trading Terminal',
+      connection: {
+        ...BASE_DIAGNOSTIC_INPUT.connection,
+        connectionKind: 'custom',
+        endpointMode: 'custom',
+        baseUrl: 'https://coach.example/hermes?token=secret-token'
+      },
+      requestContext: {
+        dataSharingScope: 'advanced',
+        preset: 'balanced'
+      },
+      request: {
+        ...BASE_DIAGNOSTIC_INPUT.request,
+        privacySummary: {
+          screenshot: 'sent',
+          memoryContext: 'sent',
+          monitoringContext: 'sent',
+          windowTitle: 'sent',
+          tradeSummary: 'withheld',
+          schemaRequiresScreenshot: true,
+          remoteConsentRequired: true,
+          dataSharingScope: 'advanced',
+          connectionKind: 'custom',
+          preset: 'balanced',
+          destinationOrigin: 'https://coach.example'
+        }
+      },
+      debugNotes: 'Request failed with Authorization: Bearer secret-token'
+    });
+
+    const report = buildDiagnosticReport(payload);
+
+    expect(report).toContain('Remote consent: required');
+    expect(report).toContain('Screenshot: sent');
+    expect(report).toContain('Memory context: sent');
+    expect(report).toContain('Monitoring context: sent');
+    expect(report).toContain('Window title: sent');
+    expect(report).toContain('Trade summary: withheld');
+    expect(report).toContain('Schema screenshot: required');
+    expect(report).not.toContain('secret-token');
+    expect(report).not.toContain('Authorization');
   });
 });
 

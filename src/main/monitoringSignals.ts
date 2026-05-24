@@ -2,21 +2,31 @@ import type { MonitoringSignal } from '../shared/types';
 
 type SignalSource = MonitoringSignal['source'];
 
+const EVM_ADDRESS_PATTERN = '0x[a-fA-F0-9]{40}\\b';
+const SOL_ADDRESS_PATTERN = '\\b[1-9A-HJ-NP-Za-km-z]{40,88}\\b';
 const EVM_HASH_RE = /0x[a-fA-F0-9]{64}\b/g;
 const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDRESS_RE = /\b[1-9A-HJ-NP-Za-km-z]{40,88}\b/g;
 const URL_RE = /https?:\/\/[^\s]+/g;
+const LABELED_ADDRESS_RE = new RegExp(
+  `\\b(tokenAddress|token address|asset address|contract address|mint|ca|pairAddress|pair address|pair|poolAddress|pool address|pool)\\b\\s*[:=]?\\s*["']?(${EVM_ADDRESS_PATTERN}|${SOL_ADDRESS_PATTERN})["']?`,
+  'gi'
+);
 const ORDER_PAIR_RE = /\b(?:pair|trading pair)\s*[:=]?\s*([A-Za-z0-9]{2,12})\s*[\/:.-]\s*([A-Za-z0-9]{2,12})\b/i;
 const RAW_PAIR_RE = /\b([A-Z]{2,12})\s*\/\s*([A-Z]{2,12})\b/g;
 const ORDER_SIZE_RE =
-  /\b(?:size|amount|qty|quantity|position size|notional|value|invest(?:ed)?|stake)\s*[:=]?\s*\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(?:(?!size\b|amount\b|qty\b|quantity\b|position size\b|notional\b|value\b|invest(?:ed)?\b|stake\b|buy\b|sell\b|long\b|short\b|market\b|limit\b|stop\b|tp\b|sl\b|leverage\b)([A-Za-z%]{1,12})\b)?/gi;
+  /\b(?:size|amount|qty|quantity|position size|notional|value|invest(?:ed)?|stake)\s*[:=]?\s*["']?\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(?:(?!size\b|amount\b|qty\b|quantity\b|position size\b|notional\b|value\b|invest(?:ed)?\b|stake\b|buy\b|sell\b|long\b|short\b|market\b|limit\b|stop\b|tp\b|sl\b|leverage\b)([A-Za-z%]{1,12})\b)?["']?/gi;
 const LEVERAGE_RE = /\bleverage\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*[xX]\b/g;
 const CHAIN_RE =
   /\b(?:chain|network)\s*[:=]?\s*(ethereum|solana|sol|bsc|base|arbitrum|optimism|polygon|avalanche|avax|fantom|solana|sui|aptos)\b/gi;
 const ORDER_DIR_RE = /\b(buy|sell|long|short)\b/gi;
 const ORDER_TYPE_RE = /\b(market|limit|stop[- ]?loss|take[- ]?profit|tp|sl|stop)\b/gi;
-const ROUTE_RE = /\broute\s*[:=]?\s*([A-Za-z0-9\-_/ .]{2,80})\b/gi;
-const SOURCE_RE = /\bsource\s*[:=]?\s*([A-Za-z0-9\-_/ .]{2,80})\b/gi;
+const ROUTE_RE =
+  /\b(?:routePreview|route preview|route)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|pairAddress|chain|network|liquidityUsd|liquidity|volume|dex|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
+const SOURCE_RE =
+  /\b(?:source(?:\s+label)?|dex)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|pairAddress|chain|network|liquidityUsd|liquidity|volume|dex|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
+const LIQUIDITY_RE = /\b(?:liquidityUsd|liquidity\s+usd|liquidity|liq)\s*[:=]\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
+const VOLUME_RE = /\b(?:volumeUsd|volume\s+(?:m5|h1|h24|24h)|volume|vol)\s*[:=]\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
 
 const KNOWN_CHAINS = new Set<string>([
   'avalanche',
@@ -46,6 +56,17 @@ export function extractMonitoringSignalsFromText(
   }
 
   const signals = new Map<string, Omit<MonitoringSignal, 'detectedAt'>>();
+
+  for (const rawMatch of normalized.matchAll(LABELED_ADDRESS_RE)) {
+    const label = rawMatch[1];
+    const address = rawMatch[2];
+    if (!label || !address) {
+      continue;
+    }
+
+    const kind = isPairAddressLabel(label) ? 'pair-address' : 'token-address';
+    addSignal(address, kind, defaultConfidence, `Detected ${kind} context`);
+  }
 
   for (const rawMatch of normalized.matchAll(EVM_HASH_RE)) {
     addSignal(rawMatch[0], 'evm-tx-hash', defaultConfidence === 'high' ? 'high' : 'medium');
@@ -128,6 +149,7 @@ export function extractMonitoringSignalsFromText(
   for (const rawMatch of normalized.matchAll(ORDER_DIR_RE)) {
     const normalizedDirection = rawMatch[1]?.toLowerCase();
     if (normalizedDirection) {
+      addSignal(normalizedDirection, 'order-side', defaultConfidence, `Detected order side ${normalizedDirection}`);
       addSignal(normalizedDirection, 'order-direction', defaultConfidence, `Detected order direction ${normalizedDirection}`);
     }
   }
@@ -148,6 +170,20 @@ export function extractMonitoringSignalsFromText(
     }
 
     addSignal(source.slice(0, 80), 'source', defaultConfidence, `Detected source context: ${source.slice(0, 80)}`);
+  }
+
+  for (const rawMatch of normalized.matchAll(LIQUIDITY_RE)) {
+    const liquidity = normalizeNumericHint(rawMatch[1]);
+    if (liquidity) {
+      addSignal(liquidity, 'liquidity', defaultConfidence, `Detected read-only liquidity hint: ${liquidity}`);
+    }
+  }
+
+  for (const rawMatch of normalized.matchAll(VOLUME_RE)) {
+    const volume = normalizeNumericHint(rawMatch[1]);
+    if (volume) {
+      addSignal(volume, 'volume', defaultConfidence, `Detected read-only volume hint: ${volume}`);
+    }
   }
 
   const detectedAt = new Date(now).toISOString();
@@ -181,6 +217,10 @@ export function extractMonitoringSignalsFromText(
       message
     });
   }
+}
+
+function isPairAddressLabel(label: string): boolean {
+  return /pair|pool/i.test(label);
 }
 
 export function extractClipboardSignalsFromText(text: string, now: number): MonitoringSignal[] {
@@ -261,6 +301,11 @@ function canonicalChain(value: string): string | undefined {
   }
 
   return normalized === 'sol' ? 'solana' : normalized;
+}
+
+function normalizeNumericHint(value?: string): string | undefined {
+  const normalized = value?.replace(/\s+/g, '').trim();
+  return normalized || undefined;
 }
 
 function sanitizeUrlCandidate(rawUrl: string): string {

@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 import type { AskHermesInput, MemoryContext, MonitoringContextPayload, PrivacyPreset } from '../shared/types';
-import { buildPrivacyAwareAskHermesInput, canBypassRemoteConsent, shouldCaptureWindowForPrivacy } from './requestPolicy';
+import {
+  buildPrivacyAwareAskHermesInput,
+  buildRemoteConsentMetadata,
+  canBypassRemoteConsent,
+  requiresRemoteConsent,
+  summarizePrivacyRequestPolicy,
+  shouldCaptureWindowForPrivacy
+} from './requestPolicy';
 
 describe('shouldCaptureWindowForPrivacy', () => {
   it('does not capture a real window when maximum privacy is selected', () => {
@@ -20,6 +27,67 @@ describe('canBypassRemoteConsent', () => {
     expect(canBypassRemoteConsent('remote-consent-confirmed')).toBe(true);
     expect(canBypassRemoteConsent('friction-action')).toBe(false);
     expect(canBypassRemoteConsent(undefined)).toBe(false);
+  });
+});
+
+describe('remote consent metadata', () => {
+  it('requires consent for hosted endpoints even when the URL is loopback', () => {
+    const input = askInput({ privacyPreset: 'balanced', connectionKind: 'hosted', baseUrl: 'http://localhost:8642?token=secret' });
+
+    expect(requiresRemoteConsent(input.connection)).toBe(true);
+
+    const metadata = buildRemoteConsentMetadata(input);
+    expect(metadata.requiresRemoteConsent).toBe(true);
+    expect(metadata.dataSharingScope).toBe('hosted');
+    expect(metadata.destinationOrigin).toBe('http://localhost:8642');
+    expect(metadata.payloadClasses).toContain('Screenshot image');
+    expect(JSON.stringify(metadata)).not.toContain('secret');
+  });
+
+  it('requires consent for custom remote endpoints but not custom loopback endpoints', () => {
+    const customRemote = askInput({ privacyPreset: 'balanced', connectionKind: 'custom', baseUrl: 'https://coach.example/api?api_key=secret' });
+    const customLocal = askInput({ privacyPreset: 'balanced', connectionKind: 'custom', baseUrl: 'http://127.0.0.1:8787/hermes' });
+
+    expect(requiresRemoteConsent(customRemote.connection)).toBe(true);
+    expect(buildRemoteConsentMetadata(customRemote).dataSharingScope).toBe('advanced');
+    expect(requiresRemoteConsent(customLocal.connection)).toBe(false);
+    expect(buildRemoteConsentMetadata(customLocal).dataSharingScope).toBe('local-first');
+  });
+});
+
+describe('summarizePrivacyRequestPolicy', () => {
+  it.each(['local', 'hosted', 'custom'] as const)('withholds real context and sends only schema placeholder imagery for maximum privacy over %s', (connectionKind) => {
+    const input = askInput({
+      privacyPreset: 'maximum',
+      connectionKind,
+      baseUrl: connectionKind === 'custom' ? 'https://coach.example/hermes?token=secret' : undefined
+    });
+
+    const summary = summarizePrivacyRequestPolicy(input);
+
+    expect(summary.screenshot).toBe('placeholder');
+    expect(summary.schemaRequiresScreenshot).toBe(true);
+    expect(summary.windowTitle).toBe('withheld');
+    expect(summary.memoryContext).toBe('withheld');
+    expect(summary.monitoringContext).toBe('withheld');
+    expect(summary.tradeSummary).toBe('withheld');
+    expect(JSON.stringify(summary)).not.toContain('secret');
+    expect(JSON.stringify(summary)).not.toContain('Private Trading Terminal');
+  });
+
+  it.each(['balanced', 'full'] as const)('summarizes sent context for %s privacy without leaking raw values', (preset) => {
+    const input = askInput({ privacyPreset: preset, connectionKind: 'hosted', baseUrl: 'https://hosted.example/hermes?token=secret' });
+
+    const summary = summarizePrivacyRequestPolicy(input);
+
+    expect(summary.screenshot).toBe('sent');
+    expect(summary.windowTitle).toBe('sent');
+    expect(summary.memoryContext).toBe('sent');
+    expect(summary.monitoringContext).toBe('sent');
+    expect(summary.tradeSummary).toBe('sent');
+    expect(summary.remoteConsentRequired).toBe(true);
+    expect(JSON.stringify(summary)).not.toContain('secret');
+    expect(JSON.stringify(summary)).not.toContain('0x1234');
   });
 });
 
@@ -47,7 +115,15 @@ describe('buildPrivacyAwareAskHermesInput', () => {
   });
 });
 
-function askInput({ privacyPreset }: { privacyPreset: PrivacyPreset }): AskHermesInput {
+function askInput({
+  privacyPreset,
+  connectionKind = 'local',
+  baseUrl
+}: {
+  privacyPreset: PrivacyPreset;
+  connectionKind?: AskHermesInput['connection']['connectionKind'];
+  baseUrl?: string;
+}): AskHermesInput {
   const memoryContext: MemoryContext = {
     matchedPatterns: [
       {
@@ -65,7 +141,16 @@ function askInput({ privacyPreset }: { privacyPreset: PrivacyPreset }): AskHerme
         notes: 'Private trading note.',
         selectedWindowName: 'Private Trading Terminal'
       }
-    ]
+    ],
+    tradeHistorySummary: {
+      totalTrades: 3,
+      importedTrades: 2,
+      walletTrades: 1,
+      tradesLastHour: 1,
+      tradesLastDay: 3,
+      recentLossStreak: 2,
+      sizeSignals: [{ unit: 'SOL', medianSize: 1.2, maxSize: 3, sampleCount: 3 }]
+    }
   };
   const monitoringContext: MonitoringContextPayload = {
     localWarnings: ['Local duplicate-entry warning.'],
@@ -82,11 +167,11 @@ function askInput({ privacyPreset }: { privacyPreset: PrivacyPreset }): AskHerme
 
   return {
     connection: {
-      connectionKind: 'local',
-      endpointMode: 'auto',
-      baseUrl: 'http://localhost:8642',
+      connectionKind,
+      endpointMode: connectionKind === 'hosted' ? 'openai-chat' : connectionKind === 'custom' ? 'custom' : 'auto',
+      baseUrl: baseUrl ?? (connectionKind === 'hosted' ? 'https://hosted.example/hermes' : 'http://localhost:8642'),
       modelId: 'hermes-agent',
-      bearerToken: ''
+      bearerToken: 'secret-token'
     },
     question: 'Should I take this trade?',
     screenshotDataUrl: 'data:image/png;base64,QUFBQQ==',

@@ -147,6 +147,7 @@ Useful beta docs:
 - [Beta troubleshooting](docs/beta/troubleshooting.md)
 - [Tester feedback template](docs/beta/tester-feedback-template.md)
 - [Manual QA checklist](docs/beta/manual-qa-checklist.md)
+- [UX and accessibility audit](docs/beta/ux-accessibility-audit.md)
 - [Release notes template](docs/beta/release-notes-template.md)
 - [Beta release runbook](docs/beta/release-runbook.md)
 

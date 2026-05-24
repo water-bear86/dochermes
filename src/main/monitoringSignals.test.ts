@@ -70,4 +70,55 @@ describe('clipboard signal extraction', () => {
     expect(signals.some((signal) => signal.kind === 'source' && signal.value.includes('wallet alert'))).toBe(true);
     expect(signals.some((signal) => signal.kind === 'route' && signal.value.includes('raydium/swap'))).toBe(true);
   });
+
+  it('extracts labeled Solana token and pair address hints without exposing full values in masks', () => {
+    const tokenAddress = 'So11111111111111111111111111111111111111112';
+    const pairAddress = '9wFFeK6Z5M9mnUwqgq7vM8tMYzA6EVz6C7D1j4z5p9fK';
+    const signals = extractClipboardSignalsFromText(
+      `tokenAddress="${tokenAddress}" pairAddress: ${pairAddress} chain solana`,
+      NOW
+    );
+
+    const tokenSignal = signals.find((signal) => signal.kind === 'token-address');
+    const pairSignal = signals.find((signal) => signal.kind === 'pair-address');
+
+    expect(tokenSignal?.value).toBe(tokenAddress);
+    expect(tokenSignal?.maskedValue).toBe('So11...1112');
+    expect(pairSignal?.value).toBe(pairAddress);
+    expect(pairSignal?.maskedValue).toBe('9wFF...p9fK');
+    expect(signals.some((signal) => signal.kind === 'chain' && signal.value === 'solana')).toBe(true);
+  });
+
+  it('extracts labeled EVM token and pair address hints', () => {
+    const tokenAddress = '0x1111111111111111111111111111111111111111';
+    const pairAddress = '0x2222222222222222222222222222222222222222';
+    const signals = extractClipboardSignalsFromText(
+      `Token address: ${tokenAddress} pair=${pairAddress} network: base`,
+      NOW
+    );
+
+    expect(signals.some((signal) => signal.kind === 'token-address' && signal.value === tokenAddress)).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'pair-address' && signal.value === pairAddress)).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'chain' && signal.value === 'base')).toBe(true);
+  });
+
+  it('extracts order side plus route and source labels from DOM-like snippets', () => {
+    const signals = extractClipboardSignalsFromText(
+      'data-side="sell" data-size="1,250 USDC" routePreview: Jupiter swap source label: browser DOM extraction',
+      NOW
+    );
+
+    expect(signals.some((signal) => signal.kind === 'order-side' && signal.value === 'sell')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'order-size' && signal.value === '1,250 USDC')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'route' && signal.value === 'Jupiter swap')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'source' && signal.value === 'browser DOM extraction')).toBe(true);
+  });
+
+  it('extracts read-only liquidity and volume hints', () => {
+    const signals = extractClipboardSignalsFromText('liquidityUsd: $118,000 volume h24: $1.8M DEX: Raydium', NOW);
+
+    expect(signals.some((signal) => signal.kind === 'liquidity' && signal.value === '$118,000')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'volume' && signal.value === '$1.8M')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'source' && signal.value === 'Raydium')).toBe(true);
+  });
 });

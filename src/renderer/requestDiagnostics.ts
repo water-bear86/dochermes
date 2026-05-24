@@ -33,6 +33,7 @@ interface RequestDiagnosticInput {
   request: {
     redactionEnabled: boolean;
     usedFallbackImage: boolean;
+    privacySummary?: HermesRequestDiagnostic['request']['privacySummary'];
   };
   timings: HermesRequestTiming;
   connectionStatus?: HermesConnectionStatus;
@@ -59,7 +60,8 @@ export function createRequestDiagnostic(input: Readonly<RequestDiagnosticInput>)
     completedAt: input.completedAt,
     status: input.status,
     questionPreview: input.questionPreview,
-    selectedWindowName: input.selectedWindowName,
+    selectedWindowName:
+      input.request.privacySummary?.windowTitle === 'withheld' ? 'Window title withheld' : input.selectedWindowName,
     selectedWindowKind: input.selectedWindowKind,
     selectedWindowId: input.selectedWindowId,
     connection: {
@@ -73,7 +75,8 @@ export function createRequestDiagnostic(input: Readonly<RequestDiagnosticInput>)
     ...(input.requestContext ? { requestContext: { ...input.requestContext } } : {}),
     request: {
       redactionEnabled: input.request.redactionEnabled,
-      usedFallbackImage: input.request.usedFallbackImage
+      usedFallbackImage: input.request.privacySummary?.screenshot === 'placeholder' ? true : input.request.usedFallbackImage,
+      ...(input.request.privacySummary ? { privacySummary: { ...input.request.privacySummary } } : {})
     },
     timings: {
       ...(typeof input.timings.localRiskMs === 'number' ? { localRiskMs: clampNonNegativeInteger(input.timings.localRiskMs) } : {}),
@@ -86,8 +89,10 @@ export function createRequestDiagnostic(input: Readonly<RequestDiagnosticInput>)
       ...(typeof input.timings.totalMs === 'number' ? { totalMs: clampNonNegativeInteger(input.timings.totalMs) } : {})
     },
     ...(input.connectionStatus ? { connectionStatus: input.connectionStatus } : {}),
-    ...(input.failure ? { failure: { ...input.failure } } : {}),
-    ...(input.debugNotes ? { debugNotes: input.debugNotes } : {})
+    ...(input.failure
+      ? { failure: { ...input.failure, ...(input.failure.reason ? { reason: redactSensitiveText(input.failure.reason) } : {}) } }
+      : {}),
+    ...(input.debugNotes ? { debugNotes: redactSensitiveText(input.debugNotes) } : {})
   };
 }
 
@@ -122,7 +127,7 @@ export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
     `Started: ${entry.startedAt}`,
     `Finished: ${entry.completedAt}`,
     `Question: ${entry.questionPreview}`,
-    `Window: ${entry.selectedWindowName} (${entry.selectedWindowKind})`,
+    `Window: ${entry.request.privacySummary?.windowTitle === 'withheld' ? 'Window title withheld' : entry.selectedWindowName} (${entry.selectedWindowKind})`,
     `Connection: ${entry.connection.connectionKind}/${entry.connection.endpointMode}`,
     `Gateway route/profile: ${entry.connection.modelId}`,
     `Base: ${redactUrl(entry.connection.baseUrl)}`
@@ -144,6 +149,17 @@ export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
   lines.push(`Redaction: ${entry.request.redactionEnabled ? 'on' : 'off'}`);
   lines.push(`Image input: ${entry.request.usedFallbackImage ? 'placeholder' : 'screenshot image'}`);
 
+  if (entry.request.privacySummary) {
+    lines.push(`Remote consent: ${entry.request.privacySummary.remoteConsentRequired ? 'required' : 'not required'}`);
+    lines.push(`Destination origin: ${entry.request.privacySummary.destinationOrigin}`);
+    lines.push(`Screenshot: ${entry.request.privacySummary.screenshot}`);
+    lines.push(`Memory context: ${entry.request.privacySummary.memoryContext}`);
+    lines.push(`Monitoring context: ${entry.request.privacySummary.monitoringContext}`);
+    lines.push(`Window title: ${entry.request.privacySummary.windowTitle}`);
+    lines.push(`Trade summary: ${entry.request.privacySummary.tradeSummary}`);
+    lines.push(`Schema screenshot: ${entry.request.privacySummary.schemaRequiresScreenshot ? 'required' : 'not required'}`);
+  }
+
   if (entry.connectionStatus) {
     lines.push(`Current Hermes status: ${entry.connectionStatus}`);
   }
@@ -164,12 +180,12 @@ export function buildDiagnosticReport(entry: HermesRequestDiagnostic): string {
   if (entry.failure?.stage || entry.failure?.reason) {
     lines.push(`Failure stage: ${entry.failure?.stage ?? 'unknown'}`);
     if (entry.failure?.reason) {
-      lines.push(`Failure detail: ${entry.failure.reason}`);
+      lines.push(`Failure detail: ${redactSensitiveText(entry.failure.reason)}`);
     }
   }
 
   if (entry.debugNotes) {
-    lines.push(`Notes: ${entry.debugNotes}`);
+    lines.push(`Notes: ${redactSensitiveText(entry.debugNotes)}`);
   }
 
   return lines.join('\n');
@@ -241,8 +257,34 @@ function isRequestDiagnostic(value: unknown): value is HermesRequestDiagnostic {
     typeof candidate.connection.modelId === 'string' &&
     typeof candidate.request.redactionEnabled === 'boolean' &&
     typeof candidate.request.usedFallbackImage === 'boolean' &&
+    (candidate.request.privacySummary === undefined || isPrivacySummary(candidate.request.privacySummary)) &&
     typeof candidate.timings.totalMs === 'number'
   );
+}
+
+function isPrivacySummary(value: unknown): value is HermesRequestDiagnostic['request']['privacySummary'] {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as NonNullable<HermesRequestDiagnostic['request']['privacySummary']>;
+  return (
+    isDisposition(candidate.screenshot) &&
+    isDisposition(candidate.memoryContext) &&
+    isDisposition(candidate.monitoringContext) &&
+    isDisposition(candidate.windowTitle) &&
+    isDisposition(candidate.tradeSummary) &&
+    typeof candidate.schemaRequiresScreenshot === 'boolean' &&
+    typeof candidate.remoteConsentRequired === 'boolean' &&
+    typeof candidate.dataSharingScope === 'string' &&
+    typeof candidate.connectionKind === 'string' &&
+    typeof candidate.preset === 'string' &&
+    typeof candidate.destinationOrigin === 'string'
+  );
+}
+
+function isDisposition(value: unknown): boolean {
+  return value === 'sent' || value === 'withheld' || value === 'placeholder' || value === 'not-provided';
 }
 
 function average(entries: HermesRequestDiagnostic[], selector: (entry: HermesRequestDiagnostic) => number): number {
@@ -283,4 +325,12 @@ function redactUrl(value: string): string {
 
 function isSensitiveKey(key: string): boolean {
   return /^(access_token|authorization|api_key|token|key|auth|bearer)$/i.test(key);
+}
+
+function redactSensitiveText(value: string): string {
+  if (/\b(authorization|bearer|access[_-]?token|api[_-]?key|token|secret)\b/i.test(value)) {
+    return '[redacted sensitive diagnostic detail]';
+  }
+
+  return value;
 }

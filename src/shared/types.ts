@@ -84,14 +84,19 @@ export type ClipboardCandidateKind =
   | 'sol-address'
   | 'dex-url'
   | 'wallet-address'
+  | 'token-address'
+  | 'pair-address'
   | 'pair'
   | 'chain'
+  | 'order-side'
   | 'order-direction'
   | 'order-size'
   | 'leverage'
   | 'order-type'
   | 'route'
   | 'source'
+  | 'liquidity'
+  | 'volume'
   | 'unknown';
 
 export interface MonitoringSignal {
@@ -292,6 +297,22 @@ export interface HermesFailureDetail {
   reason?: string;
 }
 
+export type HermesRequestPrivacyDisposition = 'sent' | 'withheld' | 'placeholder' | 'not-provided';
+
+export interface HermesRequestPrivacySummary {
+  screenshot: HermesRequestPrivacyDisposition;
+  memoryContext: HermesRequestPrivacyDisposition;
+  monitoringContext: HermesRequestPrivacyDisposition;
+  windowTitle: HermesRequestPrivacyDisposition;
+  tradeSummary: HermesRequestPrivacyDisposition;
+  schemaRequiresScreenshot: boolean;
+  remoteConsentRequired: boolean;
+  dataSharingScope: DataSharingScope;
+  connectionKind: HermesConnectionKind;
+  preset: PrivacyPreset;
+  destinationOrigin: string;
+}
+
 export interface HermesRequestDiagnostic {
   id: string;
   startedAt: string;
@@ -316,6 +337,7 @@ export interface HermesRequestDiagnostic {
   request: {
     redactionEnabled: boolean;
     usedFallbackImage: boolean;
+    privacySummary?: HermesRequestPrivacySummary;
   };
   timings: HermesRequestTiming;
   connectionStatus?: HermesConnectionStatus;

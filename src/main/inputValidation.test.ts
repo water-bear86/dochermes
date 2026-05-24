@@ -353,6 +353,88 @@ describe('assertAskHermesInput', () => {
       } as unknown as AskHermesInput)
     ).toThrow('Monitoring context is invalid.');
   });
+
+  it('accepts and trims expanded read-only monitoring signal context', () => {
+    const input = assertAskHermesInput({
+      ...baseInput,
+      monitoringContext: {
+        localWarnings: ['  Slow down.  '],
+        signals: [
+          {
+            source: 'ocr',
+            kind: 'token-address',
+            maskedValue: '  0x11...1111  ',
+            confidence: 'medium',
+            detectedAt: '  2026-05-23T15:00:00.000Z  ',
+            message: '  Detected token address context  '
+          },
+          {
+            source: 'clipboard',
+            kind: 'liquidity',
+            maskedValue: '  $118,000  ',
+            confidence: 'low',
+            detectedAt: '2026-05-23T15:00:01.000Z'
+          },
+          {
+            source: 'clipboard',
+            kind: 'order-side',
+            maskedValue: '  buy  ',
+            confidence: 'high',
+            detectedAt: '2026-05-23T15:00:02.000Z'
+          }
+        ]
+      }
+    });
+
+    expect(input.monitoringContext).toEqual({
+      localWarnings: ['Slow down.'],
+      signals: [
+        {
+          source: 'ocr',
+          kind: 'token-address',
+          maskedValue: '0x11...1111',
+          confidence: 'medium',
+          detectedAt: '2026-05-23T15:00:00.000Z',
+          message: 'Detected token address context'
+        },
+        {
+          source: 'clipboard',
+          kind: 'liquidity',
+          maskedValue: '$118,000',
+          confidence: 'low',
+          detectedAt: '2026-05-23T15:00:01.000Z'
+        },
+        {
+          source: 'clipboard',
+          kind: 'order-side',
+          maskedValue: 'buy',
+          confidence: 'high',
+          detectedAt: '2026-05-23T15:00:02.000Z'
+        }
+      ]
+    });
+  });
+
+  it('rejects monitoring context that includes raw unmasked signal values', () => {
+    expect(() =>
+      assertAskHermesInput({
+        ...baseInput,
+        monitoringContext: {
+          localWarnings: [],
+          signals: [
+            {
+              source: 'clipboard',
+              kind: 'token-address',
+              value: '0x1111111111111111111111111111111111111111',
+              maskedValue: '0x11...1111',
+              confidence: 'medium',
+              detectedAt: '2026-05-23T15:00:00.000Z'
+            }
+          ]
+        }
+      } as unknown as AskHermesInput)
+    ).toThrow('Monitoring context is invalid.');
+  });
 });
 
 describe('assertVoiceSettings', () => {

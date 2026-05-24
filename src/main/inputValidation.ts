@@ -337,31 +337,75 @@ function parseMonitoringContext(value: unknown): MonitoringContextPayload | unde
     throw new Error('Monitoring context is invalid.');
   }
 
-  if (!candidate.signals.every(isJournalMonitoringSignal)) {
+  const signals = candidate.signals.map(normalizeJournalMonitoringSignal);
+  if (!signals.every(Boolean)) {
     throw new Error('Monitoring context is invalid.');
   }
 
-  return value as MonitoringContextPayload;
+  return {
+    ...candidate,
+    localWarnings: candidate.localWarnings.map((warning) => warning.trim()),
+    signals
+  } as MonitoringContextPayload;
 }
 
-function isJournalMonitoringSignal(value: unknown): value is JournalMonitoringSignal {
+function normalizeJournalMonitoringSignal(value: unknown): JournalMonitoringSignal | undefined {
   if (!value || typeof value !== 'object') {
-    return false;
+    return undefined;
   }
 
   const signal = value as JournalMonitoringSignal;
+  if (
+    Object.prototype.hasOwnProperty.call(signal, 'value') ||
+    !isMonitoringSignalSource(signal.source) ||
+    !isMonitoringSignalKind(signal.kind) ||
+    typeof signal.maskedValue !== 'string' ||
+    !isMonitoringConfidence(signal.confidence) ||
+    typeof signal.detectedAt !== 'string' ||
+    (signal.message !== undefined && typeof signal.message !== 'string')
+  ) {
+    return undefined;
+  }
+
+  return {
+    source: signal.source,
+    kind: signal.kind,
+    maskedValue: signal.maskedValue.trim(),
+    confidence: signal.confidence,
+    detectedAt: signal.detectedAt.trim(),
+    ...(signal.message === undefined ? {} : { message: signal.message.trim() })
+  };
+}
+
+function isMonitoringSignalSource(value: unknown): value is JournalMonitoringSignal['source'] {
+  return value === 'clipboard' || value === 'ocr-placeholder' || value === 'ocr';
+}
+
+function isMonitoringConfidence(value: unknown): value is JournalMonitoringSignal['confidence'] {
+  return value === 'high' || value === 'medium' || value === 'low';
+}
+
+function isMonitoringSignalKind(value: unknown): value is JournalMonitoringSignal['kind'] {
   return (
-    (signal.source === 'clipboard' || signal.source === 'ocr-placeholder') &&
-    (signal.kind === 'evm-address' ||
-      signal.kind === 'evm-tx-hash' ||
-      signal.kind === 'sol-address' ||
-      signal.kind === 'dex-url' ||
-      signal.kind === 'wallet-address' ||
-      signal.kind === 'unknown') &&
-    typeof signal.maskedValue === 'string' &&
-    (signal.confidence === 'high' || signal.confidence === 'medium' || signal.confidence === 'low') &&
-    typeof signal.detectedAt === 'string' &&
-    (signal.message === undefined || typeof signal.message === 'string')
+    value === 'evm-address' ||
+    value === 'evm-tx-hash' ||
+    value === 'sol-address' ||
+    value === 'dex-url' ||
+    value === 'wallet-address' ||
+    value === 'token-address' ||
+    value === 'pair-address' ||
+    value === 'pair' ||
+    value === 'chain' ||
+    value === 'order-side' ||
+    value === 'order-direction' ||
+    value === 'order-size' ||
+    value === 'leverage' ||
+    value === 'order-type' ||
+    value === 'route' ||
+    value === 'source' ||
+    value === 'liquidity' ||
+    value === 'volume' ||
+    value === 'unknown'
   );
 }
 
