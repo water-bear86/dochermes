@@ -2964,6 +2964,10 @@ export function App(): ReactElement {
         </div>
         {settingsOpen ? (
           <div className="settings-grid">
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Gateway</span>
+              <small>Connect DocHermes to your Hermes gateway and test route compatibility.</small>
+            </div>
             <label htmlFor="connection-kind">Hermes gateway</label>
             <select
               id="connection-kind"
@@ -3125,6 +3129,11 @@ export function App(): ReactElement {
                 </small>
               </div>
             </details>
+
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Privacy and local data</span>
+              <small>Control what leaves this device and clear local beta data.</small>
+            </div>
             <div className={`privacy-indicator ${connectionScope.className}`}>
               <span className="label">Data-sharing scope</span>
               <strong>{connectionScope.title}</strong>
@@ -3418,6 +3427,10 @@ export function App(): ReactElement {
               Wallet records (read-only): {walletTradeRecords.length}
             </small>
 
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Panel and voice</span>
+              <small>Keep the coach available while staying in the trading window.</small>
+            </div>
             <label className="check-row" htmlFor="keep-on-top">
               <input
                 id="keep-on-top"
@@ -3469,6 +3482,11 @@ export function App(): ReactElement {
             <small className="subtle-note">
               Voice flow uses the selected trading window and shares the same Hermes request path as manual capture.
             </small>
+
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Coach behavior</span>
+              <small>Set friction, advisory mode, and the rules that shape pre-trade guidance.</small>
+            </div>
             <label className="check-row" htmlFor="friction-enabled">
               <input
                 id="friction-enabled"
@@ -3522,6 +3540,11 @@ export function App(): ReactElement {
             <small className="subtle-note">
               {activeCoachModeCopy.settingDetail} {activeCoachModeCopy.policyBlockBehavior} {activeCoachModeCopy.boundary}
             </small>
+
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Personal rules</span>
+              <small>Write plain-language limits for the coach to check before sending a prompt.</small>
+            </div>
             <label>Personal trading rules</label>
             <p className="subtle-note">Add plain-language rules; supported checks: confirmation requirements, size ceilings, and cooldown patterns.</p>
             <label htmlFor="new-personal-rule">New rule</label>
@@ -3600,6 +3623,11 @@ export function App(): ReactElement {
                 ))}
               </details>
             ) : null}
+
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Session risk budget</span>
+              <small>Configure local position discipline, cooldowns, source limits, and tilt checks.</small>
+            </div>
             <label className="check-row" htmlFor="risk-budget-enabled">
               <input
                 id="risk-budget-enabled"
@@ -3731,6 +3759,11 @@ export function App(): ReactElement {
               );
             })}
             <small className="subtle-note">Higher sensitivity triggers more rapid-repetition and urgency checks.</small>
+
+            <div className="settings-section-heading settings-wide">
+              <span className="label">Capture monitoring</span>
+              <small>Tune local clipboard and OCR context extraction for the paired window.</small>
+            </div>
             <label className="check-row" htmlFor="clipboard-watch">
               <input
                 id="clipboard-watch"

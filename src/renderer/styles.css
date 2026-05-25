@@ -290,6 +290,24 @@ small {
   width: 100%;
 }
 
+.settings-section-heading {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--dh-border-strong);
+  border-left: 6px solid var(--dh-blue);
+  padding: 8px 10px;
+  margin-top: 8px;
+  background: var(--dh-blue-paper);
+}
+
+.settings-section-heading:first-child {
+  margin-top: 0;
+}
+
+.settings-section-heading small {
+  color: var(--dh-muted);
+}
+
 .nested-settings-grid {
   margin-top: 8px;
 }
