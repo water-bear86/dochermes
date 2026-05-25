@@ -80,6 +80,7 @@ import {
   summarizePrivacyRequestPolicy,
   type RemoteConsentBypassReason
 } from './requestPolicy';
+import { buildPolicyBlockUiCopy } from './policyBlockUi';
 import { buildFrictionCard, type FrictionCard } from './frictionCards';
 import { buildSessionRiskAssessment } from './sessionRisk';
 import {
@@ -2807,6 +2808,13 @@ export function App(): ReactElement {
     );
   }
 
+  const policyBlockUi = policyCard
+    ? buildPolicyBlockUiCopy({
+        blockerCount: policyCard.blockers.length,
+        overrideNote: policyNoteText
+      })
+    : undefined;
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -3939,39 +3947,48 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {policyCard ? (
+      {policyCard && policyBlockUi ? (
         <section className="message warning policy-card" aria-label="Policy mode guardrail">
-          <span className="label">Policy mode block</span>
-          <p>Blocked by policy: review these required conditions before sending to Hermes.</p>
+          <span className="label">{policyBlockUi.title}</span>
+          <p>{policyBlockUi.summary}</p>
+          <small className="policy-card-boundary">{policyBlockUi.boundary}</small>
           {policyCard.blockers.length > 0 ? (
-            <ul className="warning-list">
-              {policyCard.blockers.map((blocker) => (
-                <li key={blocker}>{blocker}</li>
-              ))}
-            </ul>
+            <div className="policy-card-panel">
+              <strong>{policyBlockUi.blockerHeading}</strong>
+              <ol className="policy-blocker-list">
+                {policyCard.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ol>
+            </div>
           ) : null}
           {policyCard.warnings.length > 0 ? (
-            <ul className="warning-list">
-              <li>Context summary:
-                <ul>
-                  {policyCard.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </li>
-            </ul>
+            <details className="policy-card-panel">
+              <summary>{policyBlockUi.contextHeading}</summary>
+              <ul className="warning-list">
+                {policyCard.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </details>
           ) : null}
-          <label htmlFor="policy-note">Add override note</label>
+          <div className="policy-card-audit">
+            <strong>{policyBlockUi.auditLabel}</strong>
+            <small>{policyBlockUi.auditDetail}</small>
+          </div>
+          <label htmlFor="policy-note">{policyBlockUi.noteLabel}</label>
           <textarea
             id="policy-note"
             className="notes"
             value={policyNoteText}
             onChange={(event) => setPolicyNoteText(event.target.value)}
-            placeholder="Why are you overriding this policy block?"
+            placeholder={policyBlockUi.notePlaceholder}
           />
+          <small className="policy-note-hint">{policyBlockUi.noteHint}</small>
           <div className="button-row">
             <button
               type="button"
+              disabled={!policyBlockUi.canOverride}
               onClick={() => {
                 if (selectedSource) {
                   proceedWithPolicyOverride(selectedSource);

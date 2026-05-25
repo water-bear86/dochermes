@@ -778,13 +778,45 @@ textarea:focus {
   margin: 4px 0;
 }
 
-.policy-card .warning-list ul {
-  margin: 4px 0 0 18px;
-  padding-left: 18px;
-}
-
 .policy-card .warning-list {
   margin-bottom: 8px;
+}
+
+.policy-card-boundary,
+.policy-note-hint {
+  display: block;
+  color: #f3d57f;
+}
+
+.policy-card-panel,
+.policy-card-audit {
+  margin-top: 8px;
+  border: 1px solid #5c4923;
+  border-radius: 8px;
+  padding: 8px;
+  background: #18140d;
+}
+
+.policy-card-panel summary,
+.policy-card-panel strong,
+.policy-card-audit strong {
+  color: #fff3c3;
+}
+
+.policy-blocker-list {
+  margin: 6px 0 0 20px;
+  padding: 0;
+  color: #f8e0a8;
+}
+
+.policy-blocker-list li {
+  margin: 5px 0;
+}
+
+.policy-card-audit small {
+  display: block;
+  margin-top: 4px;
+  color: #d8c36a;
 }
 
 .source-constraint-row {
