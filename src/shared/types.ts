@@ -160,6 +160,21 @@ export interface DataSharingSettings {
   observedWalletAddresses: string[];
 }
 
+export interface RememberedRemoteConsentGrant {
+  destinationOrigin: string;
+  connectionKind: HermesConnectionKind;
+  endpointMode: HermesEndpointMode;
+  dataSharingScope: DataSharingScope;
+  payloadClasses: string[];
+  localOnlyClasses: string[];
+  approvedAt: string;
+}
+
+export interface RemoteConsentSettings {
+  rememberApprovedDestinations: boolean;
+  grants: RememberedRemoteConsentGrant[];
+}
+
 export interface MonitoringContextPayload {
   localWarnings: string[];
   warningEvidence?: WarningEvidenceSummary[];
@@ -398,6 +413,7 @@ export interface LocalSettings {
   coachMode: CoachMode;
   riskBudget: SessionBudgetSettings;
   dataSharing: DataSharingSettings;
+  remoteConsent: RemoteConsentSettings;
   personalRules: PersonalRule[];
   keepAlwaysOnTop: boolean;
   armed: boolean;

@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
 import type { AskHermesInput, MemoryContext, MonitoringContextPayload, PrivacyPreset } from '../shared/types';
 import {
+  appendRememberedRemoteConsentGrant,
   buildPrivacyAwareAskHermesInput,
+  buildRememberedRemoteConsentGrant,
   buildRemoteConsentMetadata,
   canBypassRemoteConsent,
+  canUseRememberedRemoteConsent,
   requiresRemoteConsent,
   summarizePrivacyRequestPolicy,
   shouldCaptureWindowForPrivacy
@@ -52,6 +55,70 @@ describe('remote consent metadata', () => {
     expect(buildRemoteConsentMetadata(customRemote).dataSharingScope).toBe('advanced');
     expect(requiresRemoteConsent(customLocal.connection)).toBe(false);
     expect(buildRemoteConsentMetadata(customLocal).dataSharingScope).toBe('local-first');
+  });
+});
+
+describe('remembered remote consent', () => {
+  it('matches only explicit opt-in grants for the same destination and payload classes', () => {
+    const input = askInput({ privacyPreset: 'balanced', connectionKind: 'hosted', baseUrl: 'https://hosted.example/hermes' });
+    const metadata = buildRemoteConsentMetadata(input);
+    const grant = buildRememberedRemoteConsentGrant(metadata, '2026-05-25T12:00:00.000Z');
+
+    expect(
+      canUseRememberedRemoteConsent(metadata, {
+        rememberApprovedDestinations: false,
+        grants: [grant]
+      })
+    ).toBe(false);
+
+    expect(
+      canUseRememberedRemoteConsent(metadata, {
+        rememberApprovedDestinations: true,
+        grants: [grant]
+      })
+    ).toBe(true);
+
+    expect(
+      canUseRememberedRemoteConsent(
+        {
+          ...metadata,
+          payloadClasses: [...metadata.payloadClasses, 'Experimental payload']
+        },
+        {
+          rememberApprovedDestinations: true,
+          grants: [grant]
+        }
+      )
+    ).toBe(false);
+  });
+
+  it('does not use remembered consent for local endpoints or sanitized grant mismatches', () => {
+    const remote = buildRemoteConsentMetadata(
+      askInput({ privacyPreset: 'maximum', connectionKind: 'custom', baseUrl: 'https://coach.example/hermes?token=secret' })
+    );
+    const local = buildRemoteConsentMetadata(askInput({ privacyPreset: 'balanced', connectionKind: 'custom', baseUrl: 'http://127.0.0.1:8787' }));
+    const grant = buildRememberedRemoteConsentGrant(remote, '2026-05-25T12:00:00.000Z');
+
+    expect(grant.destinationOrigin).toBe('https://coach.example');
+    expect(JSON.stringify(grant)).not.toContain('secret');
+    expect(canUseRememberedRemoteConsent(local, { rememberApprovedDestinations: true, grants: [grant] })).toBe(false);
+  });
+
+  it('appends newest remembered grants first, dedupes equivalent grants, and caps history', () => {
+    const first = buildRemoteConsentMetadata(askInput({ privacyPreset: 'balanced', connectionKind: 'hosted', baseUrl: 'https://hosted.example/hermes' }));
+    const second = buildRemoteConsentMetadata(askInput({ privacyPreset: 'maximum', connectionKind: 'custom', baseUrl: 'https://coach.example/hermes' }));
+    const current = {
+      rememberApprovedDestinations: false,
+      grants: [buildRememberedRemoteConsentGrant(first, '2026-05-25T12:00:00.000Z')]
+    };
+
+    const updated = appendRememberedRemoteConsentGrant(current, second, '2026-05-25T12:05:00.000Z', 2);
+    const deduped = appendRememberedRemoteConsentGrant(updated, first, '2026-05-25T12:10:00.000Z', 2);
+
+    expect(updated.rememberApprovedDestinations).toBe(true);
+    expect(updated.grants.map((entry) => entry.destinationOrigin)).toEqual(['https://coach.example', 'https://hosted.example']);
+    expect(deduped.grants.map((entry) => entry.destinationOrigin)).toEqual(['https://hosted.example', 'https://coach.example']);
+    expect(deduped.grants[0].approvedAt).toBe('2026-05-25T12:10:00.000Z');
   });
 });
 

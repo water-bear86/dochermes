@@ -8,8 +8,11 @@ import type {
   CoachMode,
   SessionBudgetSettings,
   DataSharingSettings,
+  DataSharingScope,
   SourceConstraintCatalog,
   SourceCategory,
+  RememberedRemoteConsentGrant,
+  RemoteConsentSettings,
   VoiceSettings,
   VoiceHotkey,
   OcrContextMode,
@@ -52,6 +55,11 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
 };
 
 export const DEFAULT_SETUP_SETTINGS: SetupSettings = {};
+
+export const DEFAULT_REMOTE_CONSENT_SETTINGS: RemoteConsentSettings = {
+  rememberApprovedDestinations: false,
+  grants: []
+};
 
 export const DEFAULT_OCR_REGION_PROFILE: OcrRegionProfileSettings = {
   overlayEnabled: true,
@@ -102,6 +110,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
     sendRawTradeRecordsToHermes: false,
     observedWalletAddresses: []
   },
+  remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
   personalRules: [],
   riskBudget: DEFAULT_RISK_BUDGET_SETTINGS,
   keepAlwaysOnTop: true,
@@ -131,6 +140,7 @@ export function parseLocalSettings(rawValue: string | null): LocalSettings {
       friction: parseFrictionSettings(parsed.friction),
       riskBudget: parseRiskBudgetSettings(parsed.riskBudget),
       dataSharing: parseDataSharingSettings(parsed.dataSharing),
+      remoteConsent: parseRemoteConsentSettings(parsed.remoteConsent),
       personalRules: parsePersonalRules(parsed.personalRules),
       coachMode: parseCoachMode(parsed.coachMode),
       keepAlwaysOnTop:
@@ -159,6 +169,7 @@ export function serializeLocalSettings(settings: LocalSettings): string {
     friction: settings.friction,
     coachMode: settings.coachMode,
     dataSharing: settings.dataSharing,
+    remoteConsent: serializeRemoteConsentSettings(settings.remoteConsent),
     personalRules: settings.personalRules,
     riskBudget: settings.riskBudget,
     keepAlwaysOnTop: settings.keepAlwaysOnTop,
@@ -392,6 +403,61 @@ function parseDataSharingSettings(rawDataSharing: unknown): DataSharingSettings 
   };
 }
 
+function parseRemoteConsentSettings(rawRemoteConsent: unknown): RemoteConsentSettings {
+  if (!rawRemoteConsent || typeof rawRemoteConsent !== 'object') {
+    return DEFAULT_REMOTE_CONSENT_SETTINGS;
+  }
+
+  const candidate = rawRemoteConsent as Partial<RemoteConsentSettings>;
+  const grants = Array.isArray(candidate.grants)
+    ? candidate.grants
+        .map(parseRememberedRemoteConsentGrant)
+        .filter((entry): entry is RememberedRemoteConsentGrant => entry !== undefined)
+        .slice(0, 20)
+    : [];
+
+  return {
+    rememberApprovedDestinations:
+      typeof candidate.rememberApprovedDestinations === 'boolean'
+        ? candidate.rememberApprovedDestinations
+        : DEFAULT_REMOTE_CONSENT_SETTINGS.rememberApprovedDestinations,
+    grants
+  };
+}
+
+function serializeRemoteConsentSettings(remoteConsent: RemoteConsentSettings): RemoteConsentSettings {
+  return parseRemoteConsentSettings(remoteConsent);
+}
+
+function parseRememberedRemoteConsentGrant(value: unknown): RememberedRemoteConsentGrant | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as Partial<RememberedRemoteConsentGrant>;
+  const destinationOrigin = parseOrigin(candidate.destinationOrigin);
+  const connectionKind = parseStrictConnectionKind(candidate.connectionKind);
+  const endpointMode = parseStrictEndpointMode(candidate.endpointMode);
+  const dataSharingScope = parseStrictDataSharingScope(candidate.dataSharingScope);
+  const payloadClasses = parseClassList(candidate.payloadClasses);
+  const localOnlyClasses = parseClassList(candidate.localOnlyClasses);
+  const approvedAt = typeof candidate.approvedAt === 'string' ? candidate.approvedAt.trim() : '';
+
+  if (!destinationOrigin || !connectionKind || !endpointMode || !dataSharingScope || payloadClasses.length === 0 || !approvedAt) {
+    return undefined;
+  }
+
+  return {
+    destinationOrigin,
+    connectionKind,
+    endpointMode,
+    dataSharingScope,
+    payloadClasses,
+    localOnlyClasses,
+    approvedAt
+  };
+}
+
 function sanitizeSourceConstraintMultiplier(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return 1;
@@ -402,6 +468,43 @@ function sanitizeSourceConstraintMultiplier(value: unknown): number {
   }
 
   return value;
+}
+
+function parseOrigin(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseStrictConnectionKind(value: unknown): HermesConnectionKind | undefined {
+  return value === 'local' || value === 'hosted' || value === 'custom' ? value : undefined;
+}
+
+function parseStrictEndpointMode(value: unknown): HermesEndpointMode | undefined {
+  return value === 'auto' || value === 'openai-chat' || value === 'legacy-coach' || value === 'custom'
+    ? value
+    : undefined;
+}
+
+function parseStrictDataSharingScope(value: unknown): DataSharingScope | undefined {
+  return value === 'local-first' || value === 'hosted' || value === 'advanced' ? value : undefined;
+}
+
+function parseClassList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right)
+  );
 }
 
 function parseTiltSensitivity(value: unknown): SessionBudgetSettings['tiltSensitivity'] {

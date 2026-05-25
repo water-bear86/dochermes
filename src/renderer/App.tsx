@@ -64,6 +64,7 @@ import {
 } from './warningFeedback';
 import {
   DEFAULT_OCR_REGION_PROFILE,
+  DEFAULT_REMOTE_CONSENT_SETTINGS,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
   LOCAL_SETTINGS_KEY,
@@ -81,7 +82,9 @@ import {
 } from './coachMode';
 import {
   buildPrivacyAwareAskHermesInput,
+  appendRememberedRemoteConsentGrant,
   canBypassRemoteConsent,
+  canUseRememberedRemoteConsent,
   shouldCaptureWindowForPrivacy,
   summarizePrivacyRequestPolicy,
   type RemoteConsentBypassReason
@@ -214,6 +217,7 @@ type HermesHeartbeatStatus = 'unknown' | HermesConnectionStatus;
 
 type HermesRequestPreview = {
   destinationOrigin: string;
+  connectionKind: HermesConnectionKind;
   endpointMode: HermesEndpointMode;
   dataSharingScope: DataSharingScope;
   payloadClasses: string[];
@@ -371,6 +375,7 @@ export function App(): ReactElement {
   });
   const [requestPreview, setRequestPreview] = useState<HermesRequestPreview | undefined>();
   const [pendingRemoteConsent, setPendingRemoteConsent] = useState<HermesRequestPreview | undefined>();
+  const [rememberRemoteConsent, setRememberRemoteConsent] = useState(false);
   const [ocrStatusMessage, setOcrStatusMessage] = useState('OCR monitoring disabled.');
   const [warningFeedbackEntries, setWarningFeedbackEntries] = useState(() =>
     readWarningFeedbackEntries(localStorage)
@@ -1366,6 +1371,7 @@ export function App(): ReactElement {
   useEffect(() => {
     setRequestPreview(undefined);
     setPendingRemoteConsent(undefined);
+    setRememberRemoteConsent(false);
   }, [settings.connection, settings.privacy]);
 
   const askWithSource = useCallback(
@@ -1524,8 +1530,12 @@ export function App(): ReactElement {
       });
       setRequestPreview(nextPreview);
 
-      if (nextPreview.requiresRemoteConsent && !skipRemoteConsent) {
+      const remoteConsentSettings = settings.remoteConsent ?? DEFAULT_REMOTE_CONSENT_SETTINGS;
+      const hasRememberedRemoteConsent = canUseRememberedRemoteConsent(nextPreview, remoteConsentSettings);
+
+      if (nextPreview.requiresRemoteConsent && !skipRemoteConsent && !hasRememberedRemoteConsent) {
         setPendingRemoteConsent(nextPreview);
+        setRememberRemoteConsent(false);
         setError(
           settings.privacy.preset === 'maximum'
             ? 'Remote Hermes destination selected. Confirm before sending the placeholder-only maximum privacy request.'
@@ -1725,6 +1735,7 @@ export function App(): ReactElement {
       settings.friction.strictness,
       settings.personalRules,
       settings.privacy,
+      settings.remoteConsent,
       settings.riskBudget,
       settings.voice.speakReplies,
       postmortemSummaries,
@@ -3123,7 +3134,8 @@ export function App(): ReactElement {
               <span className="label">Local data on this device</span>
               <strong>
                 {journalEntries.length} journal · {warningFeedbackEntries.length} feedback · {importedTradeRecords.length} imported ·{' '}
-                {walletTradeRecords.length} wallet · {requestDiagnostics.length} diagnostics
+                {walletTradeRecords.length} wallet · {requestDiagnostics.length} diagnostics ·{' '}
+                {settings.remoteConsent.grants.length} remote consent
               </strong>
               <ul className="warning-list">
                 {LOCAL_DATA_CATEGORIES.map((category) => (
@@ -3153,6 +3165,19 @@ export function App(): ReactElement {
                   disabled={requestDiagnostics.length === 0}
                 >
                   Clear diagnostics
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    setSettings((current) => ({
+                      ...current,
+                      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS
+                    }))
+                  }
+                  disabled={settings.remoteConsent.grants.length === 0}
+                >
+                  Clear remote consent
                 </button>
               </div>
             </div>
@@ -3956,6 +3981,19 @@ export function App(): ReactElement {
           </p>
           <p>To Hermes: {pendingRemoteConsent.payloadClasses.join(' · ')}</p>
           <p>Local-only: {pendingRemoteConsent.localOnlyClasses.join(' · ') || 'none'}</p>
+          <label className="check-row" htmlFor="remember-remote-consent">
+            <input
+              id="remember-remote-consent"
+              type="checkbox"
+              checked={rememberRemoteConsent}
+              onChange={(event) => setRememberRemoteConsent(event.target.checked)}
+            />
+            <span>Remember this destination for this exact privacy payload</span>
+          </label>
+          <small className="subtle-note">
+            Stored consent uses the sanitized origin and payload classes only. Changing privacy mode, payload type, or
+            destination will ask again.
+          </small>
           <div className="button-row">
             <button
               type="button"
@@ -3964,6 +4002,16 @@ export function App(): ReactElement {
                   setPendingRemoteConsent(undefined);
                   setError('Select a trading window first.');
                   return;
+                }
+                if (rememberRemoteConsent) {
+                  setSettings((current) => ({
+                    ...current,
+                    remoteConsent: appendRememberedRemoteConsentGrant(
+                      current.remoteConsent ?? DEFAULT_REMOTE_CONSENT_SETTINGS,
+                      pendingRemoteConsent,
+                      new Date().toISOString()
+                    )
+                  }));
                 }
                 void askWithSource(selectedSource, {
                   remoteConsentBypassReason: 'remote-consent-confirmed',
@@ -3974,7 +4022,14 @@ export function App(): ReactElement {
             >
               I understand, send now
             </button>
-            <button type="button" className="ghost" onClick={() => setPendingRemoteConsent(undefined)}>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setPendingRemoteConsent(undefined);
+                setRememberRemoteConsent(false);
+              }}
+            >
               Cancel
             </button>
           </div>
@@ -5182,6 +5237,7 @@ function buildHermesRequestPreview(input: {
 
   return {
     destinationOrigin: originFromBaseUrl(connection.baseUrl),
+    connectionKind: connection.connectionKind,
     endpointMode: connection.endpointMode,
     dataSharingScope: profile.scope,
     payloadClasses,

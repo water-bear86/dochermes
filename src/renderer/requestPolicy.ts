@@ -5,7 +5,9 @@ import type {
   HermesConnectionSettings,
   HermesRequestPrivacyDisposition,
   HermesRequestPrivacySummary,
-  PrivacyPreset
+  PrivacyPreset,
+  RememberedRemoteConsentGrant,
+  RemoteConsentSettings
 } from '../shared/types';
 
 export type RemoteConsentBypassReason = 'remote-consent-confirmed' | 'friction-action';
@@ -19,6 +21,8 @@ export interface RemoteConsentMetadata {
   localOnlyClasses: string[];
   requiresRemoteConsent: boolean;
 }
+
+const DEFAULT_REMEMBERED_CONSENT_LIMIT = 20;
 
 export function shouldCaptureWindowForPrivacy(privacy: { preset: PrivacyPreset }): boolean {
   return privacy.preset !== 'maximum';
@@ -40,6 +44,59 @@ export function buildPrivacyAwareAskHermesInput(input: AskHermesInput): AskHerme
 
 export function canBypassRemoteConsent(reason: RemoteConsentBypassReason | undefined): boolean {
   return reason === 'remote-consent-confirmed';
+}
+
+export function buildRememberedRemoteConsentGrant(
+  metadata: RemoteConsentMetadata,
+  approvedAt: string
+): RememberedRemoteConsentGrant {
+  return {
+    destinationOrigin: originFromBaseUrl(metadata.destinationOrigin),
+    connectionKind: metadata.connectionKind,
+    endpointMode: metadata.endpointMode,
+    dataSharingScope: metadata.dataSharingScope,
+    payloadClasses: normalizeClassList(metadata.payloadClasses),
+    localOnlyClasses: normalizeClassList(metadata.localOnlyClasses),
+    approvedAt
+  };
+}
+
+export function canUseRememberedRemoteConsent(
+  metadata: RemoteConsentMetadata,
+  settings: RemoteConsentSettings
+): boolean {
+  if (!metadata.requiresRemoteConsent || !settings.rememberApprovedDestinations) {
+    return false;
+  }
+
+  const candidate = buildRememberedRemoteConsentGrant(metadata, 'candidate');
+
+  return settings.grants.some((grant) => equivalentRememberedConsentGrant(grant, candidate));
+}
+
+export function appendRememberedRemoteConsentGrant(
+  settings: RemoteConsentSettings,
+  metadata: RemoteConsentMetadata,
+  approvedAt: string,
+  limit = DEFAULT_REMEMBERED_CONSENT_LIMIT
+): RemoteConsentSettings {
+  if (!metadata.requiresRemoteConsent) {
+    return {
+      ...settings,
+      rememberApprovedDestinations: true
+    };
+  }
+
+  const grant = buildRememberedRemoteConsentGrant(metadata, approvedAt);
+  const nextGrants = [
+    grant,
+    ...settings.grants.filter((entry) => !equivalentRememberedConsentGrant(entry, grant))
+  ].slice(0, Math.max(1, limit));
+
+  return {
+    rememberApprovedDestinations: true,
+    grants: nextGrants
+  };
 }
 
 export function requiresRemoteConsent(connection: HermesConnectionSettings): boolean {
@@ -177,4 +234,32 @@ function addWithheldClass(list: string[], disposition: HermesRequestPrivacyDispo
   if (disposition === 'withheld' || disposition === 'placeholder') {
     list.push(label);
   }
+}
+
+function equivalentRememberedConsentGrant(
+  left: RememberedRemoteConsentGrant,
+  right: RememberedRemoteConsentGrant
+): boolean {
+  return (
+    left.destinationOrigin === right.destinationOrigin &&
+    left.connectionKind === right.connectionKind &&
+    left.endpointMode === right.endpointMode &&
+    left.dataSharingScope === right.dataSharingScope &&
+    sameStringList(left.payloadClasses, right.payloadClasses) &&
+    sameStringList(left.localOnlyClasses, right.localOnlyClasses)
+  );
+}
+
+function sameStringList(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((entry, index) => entry === right[index]);
+}
+
+function normalizeClassList(values: string[]): string[] {
+  return [...new Set(values.map((entry) => entry.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right)
+  );
 }

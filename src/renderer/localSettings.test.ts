@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_OCR_REGION_PROFILE,
+  DEFAULT_REMOTE_CONSENT_SETTINGS,
   DEFAULT_RISK_BUDGET_SETTINGS,
   DEFAULT_VOICE_SETTINGS,
   DEFAULT_SOURCE_CONSTRAINTS,
@@ -20,6 +21,10 @@ describe('parseLocalSettings', () => {
 
   it('defaults first-run setup to incomplete', () => {
     expect(parseLocalSettings(null).setup).toEqual({});
+  });
+
+  it('defaults remembered remote consent to disabled and empty', () => {
+    expect(parseLocalSettings(null).remoteConsent).toEqual(DEFAULT_REMOTE_CONSENT_SETTINGS);
   });
 
   it('parses old settings without setup as incomplete', () => {
@@ -152,6 +157,7 @@ describe('parseLocalSettings', () => {
         sendRawTradeRecordsToHermes: false,
         observedWalletAddresses: ['0xabc123']
       },
+      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
       keepAlwaysOnTop: false,
       armed: true,
       watchClipboard: true,
@@ -204,6 +210,52 @@ describe('parseLocalSettings', () => {
     ).toBe('local-dev-token');
   });
 
+  it('parses remembered remote consent grants without retaining URL paths or query secrets', () => {
+    const parsed = parseLocalSettings(
+      JSON.stringify({
+        remoteConsent: {
+          rememberApprovedDestinations: true,
+          grants: [
+            {
+              destinationOrigin: 'https://hosted.example/path?token=secret',
+              connectionKind: 'hosted',
+              endpointMode: 'openai-chat',
+              dataSharingScope: 'hosted',
+              payloadClasses: ['Screenshot image', 'Question text', 'Question text'],
+              localOnlyClasses: ['Window title'],
+              approvedAt: '2026-05-25T12:00:00.000Z'
+            },
+            {
+              destinationOrigin: 'not a url',
+              connectionKind: 'custom',
+              endpointMode: 'custom',
+              dataSharingScope: 'advanced',
+              payloadClasses: ['Question text'],
+              localOnlyClasses: [],
+              approvedAt: '2026-05-25T12:01:00.000Z'
+            }
+          ]
+        }
+      })
+    );
+
+    expect(parsed.remoteConsent).toEqual({
+      rememberApprovedDestinations: true,
+      grants: [
+        {
+          destinationOrigin: 'https://hosted.example',
+          connectionKind: 'hosted',
+          endpointMode: 'openai-chat',
+          dataSharingScope: 'hosted',
+          payloadClasses: ['Question text', 'Screenshot image'],
+          localOnlyClasses: ['Window title'],
+          approvedAt: '2026-05-25T12:00:00.000Z'
+        }
+      ]
+    });
+    expect(JSON.stringify(parsed.remoteConsent)).not.toContain('secret');
+  });
+
   it('migrates old gatewayUrl settings into explicit legacy mode', () => {
     expect(
       parseLocalSettings(
@@ -237,6 +289,7 @@ describe('parseLocalSettings', () => {
       personalRules: [],
       coachMode: 'advisory',
       dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
+      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -280,6 +333,7 @@ describe('parseLocalSettings', () => {
       personalRules: [],
       coachMode: 'advisory',
       dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
+      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -321,6 +375,7 @@ describe('parseLocalSettings', () => {
       personalRules: [],
       coachMode: 'advisory',
       dataSharing: DEFAULT_LOCAL_SETTINGS.dataSharing,
+      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
       keepAlwaysOnTop: true,
       armed: false,
       watchClipboard: false,
@@ -500,6 +555,7 @@ describe('serializeLocalSettings', () => {
             sendRawTradeRecordsToHermes: false,
             observedWalletAddresses: ['wallet-one', 'wallet-two']
           },
+          remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
           keepAlwaysOnTop: true,
           armed: false,
           watchClipboard: false,
@@ -561,6 +617,7 @@ describe('serializeLocalSettings', () => {
         sendRawTradeRecordsToHermes: false,
         observedWalletAddresses: ['wallet-one', 'wallet-two']
       },
+      remoteConsent: DEFAULT_REMOTE_CONSENT_SETTINGS,
       voice: DEFAULT_VOICE_SETTINGS,
       setup: {
         completedAt: '2026-05-23T12:00:00.000Z'
@@ -571,6 +628,44 @@ describe('serializeLocalSettings', () => {
         kind: 'window'
       }
     });
+  });
+
+  it('serializes remembered remote consent grants as sanitized origins only', () => {
+    const serialized = JSON.parse(
+      serializeLocalSettings({
+        ...DEFAULT_LOCAL_SETTINGS,
+        remoteConsent: {
+          rememberApprovedDestinations: true,
+          grants: [
+            {
+              destinationOrigin: 'https://hosted.example/path?token=secret',
+              connectionKind: 'hosted',
+              endpointMode: 'openai-chat',
+              dataSharingScope: 'hosted',
+              payloadClasses: ['Screenshot image', 'Question text'],
+              localOnlyClasses: [],
+              approvedAt: '2026-05-25T12:00:00.000Z'
+            }
+          ]
+        }
+      })
+    );
+
+    expect(serialized.remoteConsent).toEqual({
+      rememberApprovedDestinations: true,
+      grants: [
+        {
+          destinationOrigin: 'https://hosted.example',
+          connectionKind: 'hosted',
+          endpointMode: 'openai-chat',
+          dataSharingScope: 'hosted',
+          payloadClasses: ['Question text', 'Screenshot image'],
+          localOnlyClasses: [],
+          approvedAt: '2026-05-25T12:00:00.000Z'
+        }
+      ]
+    });
+    expect(JSON.stringify(serialized.remoteConsent)).not.toContain('secret');
   });
 
   it('strips hosted and custom bearer tokens before writing settings to storage', () => {
