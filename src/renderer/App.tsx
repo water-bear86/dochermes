@@ -138,6 +138,12 @@ import {
 } from './monitoringCorrections';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { WindowPicker } from './WindowPicker';
+import {
+  FrictionCardPanel,
+  LocalGuardrailPanel,
+  PolicyGuardrailPanel,
+  SessionRiskStatusPanel
+} from './RiskGuardrailPanels';
 
 interface WarningEvidenceEntry {
   source: string;
@@ -2963,39 +2969,20 @@ export function App(): ReactElement {
         </button>
       </section>
 
-      <section className={`message session-risk-status ${sessionRiskStatusClass}`} aria-label="Session risk budget status">
-        <span className="label">Session risk status</span>
-        <div className="session-risk-grid">
-          <div>
-            <strong>Trades today</strong>
-            <p>{sessionRiskTradeText}</p>
-          </div>
-          <div>
-            <strong>Loss usage</strong>
-            <p>{sessionRiskLossText}</p>
-          </div>
-          <div>
-            <strong>Cooldown</strong>
-            <p>
-              {sessionRiskAssessment.status.cooldownMinutesLeft === undefined
-                ? 'N/A'
-                : `${Math.max(0, Math.ceil(sessionRiskAssessment.status.cooldownMinutesLeft))} min left`}
-            </p>
-          </div>
-          <div>
-            <strong>Tilt sensitivity</strong>
-            <p>{sessionRiskAssessment.status.tiltSensitivity}</p>
-          </div>
-        </div>
-        {sessionRiskAssessment.status.candidateSize ? (
-          <p className="session-risk-note">
-            Candidate size: {sessionRiskAssessment.status.candidateSize} · Session median: {sessionRiskAssessment.status.medianSize ?? 'unknown'}
-          </p>
-        ) : null}
-        <small className="session-risk-note">
-          {sessionRiskSignalSummary}
-        </small>
-      </section>
+      <SessionRiskStatusPanel
+        statusClass={sessionRiskStatusClass}
+        tradeText={sessionRiskTradeText}
+        lossText={sessionRiskLossText}
+        cooldownText={
+          sessionRiskAssessment.status.cooldownMinutesLeft === undefined
+            ? 'N/A'
+            : `${Math.max(0, Math.ceil(sessionRiskAssessment.status.cooldownMinutesLeft))} min left`
+        }
+        tiltSensitivity={sessionRiskAssessment.status.tiltSensitivity}
+        candidateSize={sessionRiskAssessment.status.candidateSize}
+        medianSize={sessionRiskAssessment.status.medianSize}
+        signalSummary={sessionRiskSignalSummary}
+      />
 
       <section className="settings-panel" aria-label="Local settings">
         <div className="section-heading compact">
@@ -4085,72 +4072,22 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {policyCard && policyBlockUi ? (
-        <section className="message warning policy-card" aria-label="Policy mode guardrail">
-          <span className="label">{policyBlockUi.title}</span>
-          <p>{policyBlockUi.summary}</p>
-          <small className="policy-card-boundary">{policyBlockUi.boundary}</small>
-          {policyCard.blockers.length > 0 ? (
-            <div className="policy-card-panel">
-              <strong>{policyBlockUi.blockerHeading}</strong>
-              <ol className="policy-blocker-list">
-                {policyCard.blockers.map((blocker) => (
-                  <li key={blocker}>{blocker}</li>
-                ))}
-              </ol>
-            </div>
-          ) : null}
-          {policyCard.warnings.length > 0 ? (
-            <details className="policy-card-panel">
-              <summary>{policyBlockUi.contextHeading}</summary>
-              <ul className="warning-list">
-                {policyCard.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-          <div className="policy-card-audit">
-            <strong>{policyBlockUi.auditLabel}</strong>
-            <small>{policyBlockUi.auditDetail}</small>
-          </div>
-          <label htmlFor="policy-note">{policyBlockUi.noteLabel}</label>
-          <textarea
-            id="policy-note"
-            className="notes"
-            value={policyNoteText}
-            onChange={(event) => setPolicyNoteText(event.target.value)}
-            placeholder={policyBlockUi.notePlaceholder}
-          />
-          <small className="policy-note-hint">{policyBlockUi.noteHint}</small>
-          <div className="button-row">
-            <button
-              type="button"
-              disabled={!policyBlockUi.canOverride}
-              onClick={() => {
-                if (selectedSource) {
-                  proceedWithPolicyOverride(selectedSource);
-                }
-              }}
-            >
-              Override and send
-            </button>
-            <button type="button" className="ghost" onClick={clearPolicyAndError}>
-              Block (no send)
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                setPolicyCard(undefined);
-                setPolicyNoteText('');
-              }}
-            >
-              Dismiss for now
-            </button>
-          </div>
-        </section>
-      ) : null}
+      <PolicyGuardrailPanel
+        policyCard={policyCard}
+        policyBlockUi={policyBlockUi}
+        policyNoteText={policyNoteText}
+        onPolicyNoteChange={setPolicyNoteText}
+        onOverride={() => {
+          if (selectedSource) {
+            proceedWithPolicyOverride(selectedSource);
+          }
+        }}
+        onBlock={clearPolicyAndError}
+        onDismiss={() => {
+          setPolicyCard(undefined);
+          setPolicyNoteText('');
+        }}
+      />
 
       <WindowPicker
         open={pickerOpen}
@@ -4207,179 +4144,41 @@ export function App(): ReactElement {
         </div>
       </section>
 
-      {frictionCard ? (
-        <section className="message warning">
-          <span className="label">Pre-trade friction card</span>
-          <p>{frictionCard.question ? `High-risk context: ${frictionCard.question}` : 'High-risk context detected.'}</p>
-          {frictionCard.warnings.length > 0 ? (
-            <div className="warning-list">
-              {frictionCard.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
-            </div>
-          ) : null}
-          <div className="warning-list">
-            {frictionCard.prompts.map((prompt) => (
-              <p key={prompt}>{prompt}</p>
-            ))}
-          </div>
-          <div className="button-row" style={{ marginTop: '8px' }}>
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedSource) {
-                  void proceedWithFrictionAction('I have a plan', selectedSource, true);
-                }
-              }}
-            >
-              I have a plan
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedSource) {
-                  void proceedWithFrictionAction('Skip this trade', selectedSource);
-                }
-              }}
-            >
-              Skip this trade
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedSource) {
-                  void proceedWithFrictionAction('Ask Hermes', selectedSource, true);
-                }
-              }}
-            >
-              Ask Hermes
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                clearFrictionCard();
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-          <label htmlFor="friction-note">Add friction note</label>
-          <textarea
-            id="friction-note"
-            className="notes"
-            value={frictionNoteText}
-            onChange={(event) => setFrictionNoteText(event.target.value)}
-            placeholder="If this is a false-positive or special case, capture it here."
-          />
-          <div className="button-row">
-            <button
-              type="button"
-              onClick={() => {
-                if (!frictionNoteText.trim()) {
-                  return;
-                }
+      <FrictionCardPanel
+        frictionCard={frictionCard}
+        frictionNoteText={frictionNoteText}
+        onFrictionNoteChange={setFrictionNoteText}
+        onHavePlan={() => {
+          if (selectedSource) {
+            void proceedWithFrictionAction('I have a plan', selectedSource, true);
+          }
+        }}
+        onSkipTrade={() => {
+          if (selectedSource) {
+            void proceedWithFrictionAction('Skip this trade', selectedSource);
+          }
+        }}
+        onAskHermes={() => {
+          if (selectedSource) {
+            void proceedWithFrictionAction('Ask Hermes', selectedSource, true);
+          }
+        }}
+        onDismiss={clearFrictionCard}
+        onSaveNote={() => {
+          if (!frictionNoteText.trim()) {
+            return;
+          }
 
-                persistFrictionJournalAction('Friction note added', frictionNoteText.trim());
-              }}
-            >
-              Save note
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                setFrictionNoteText('');
-              }}
-            >
-              Clear note
-            </button>
-          </div>
-          <small>Dismiss does not log an action. Use an action to proceed, skip, or save a note.</small>
-        </section>
-      ) : null}
+          persistFrictionJournalAction('Friction note added', frictionNoteText.trim());
+        }}
+        onClearNote={() => setFrictionNoteText('')}
+      />
 
-      {localWarningCards.length > 0 ? (
-        <section className="message warning">
-          <span className="label">Local guardrail</span>
-          <div className="warning-cards">
-            {localWarningCards.map((warning) => (
-              <article key={warning.text} className="warning-card">
-                <p className="warning-card-text">{warning.text}</p>
-                <p className="warning-card-subtitle">Why am I seeing this?</p>
-                <ul className="warning-evidence-list">
-                  {warning.evidences.length > 0 ? (
-                    warning.evidences.map((evidence, index) => (
-                      <li
-                        key={`${warning.text}-${evidence.source}-${evidence.detail}-${index}`}
-                        className={`warning-evidence ${isLowConfidenceEvidence(evidence.confidence) ? 'warning-evidence--low' : ''}`}
-                      >
-                        <div className="warning-evidence-header">
-                          <span className="warning-evidence-source">{evidence.source}</span>
-                          <span className={`warning-evidence-confidence ${isLowConfidenceEvidence(evidence.confidence) ? 'warning-evidence-confidence--low' : ''}`}>
-                            {formatEvidenceConfidence(evidence.confidence)}
-                            {isLowConfidenceEvidence(evidence.confidence) ? ' (uncertain)' : ''}
-                          </span>
-                        </div>
-                        <div className="warning-evidence-detail">{evidence.detail}</div>
-                        <small className="warning-evidence-meta">
-                          {evidence.provenance ? `Provenance: ${evidence.provenance}` : 'Provenance: local'}
-                          {evidence.detectedAt ? ` · ${formatWarningDetectedAt(evidence.detectedAt)}` : ''}
-                        </small>
-                      </li>
-                    ))
-                  ) : (
-                    <li className="warning-evidence warning-evidence--empty">No detailed evidence available.</li>
-                  )}
-                </ul>
-                <div className="feedback-button-row">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      recordWarningFeedback(warning.text, 'took-it-anyway');
-                    }}
-                  >
-                    I took it anyway
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      recordWarningFeedback(warning.text, 'skipped');
-                    }}
-                  >
-                    I skipped
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      recordWarningFeedback(warning.text, 'followed-plan');
-                    }}
-                  >
-                    I followed the plan
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      setFeedbackNoteWarning(warning.text);
-                    }}
-                  >
-                    Add note
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      recordWarningFeedback(warning.text, 'false-positive');
-                    }}
-                  >
-                    Mark false positive
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <LocalGuardrailPanel
+        localWarningCards={localWarningCards}
+        onFeedback={recordWarningFeedback}
+        onAddNote={setFeedbackNoteWarning}
+      />
 
       {feedbackNoteWarning ? (
         <section className="message">
@@ -5598,26 +5397,9 @@ function confidenceRank(confidence: SourceQualityConfidence): number {
   return 1;
 }
 
-function isLowConfidenceEvidence(confidence: SourceQualityConfidence): boolean {
-  return confidence === 'low';
-}
-
-function formatEvidenceConfidence(confidence: SourceQualityConfidence): string {
-  return `Confidence: ${confidence}`;
-}
-
 function sourceCategoryLabel(category: SourceCategory): string {
   const option = SOURCE_CATEGORY_OPTIONS.find((entry) => entry.value === category);
   return option?.label ?? category;
-}
-
-function formatWarningDetectedAt(detectedAt: string): string {
-  const parsed = new Date(detectedAt);
-  if (Number.isNaN(parsed.valueOf())) {
-    return detectedAt;
-  }
-
-  return parsed.toLocaleString();
 }
 
 function buildFrictionDecision(actionLabel: string, note?: string): string {
