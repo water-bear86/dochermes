@@ -2,11 +2,12 @@
 
 DocHermes is a read-only trading coach sidecar. It can inspect context you choose to share, but it must not ask for private keys, seed phrases, wallet control, signing, withdrawals, order routing, or trade execution.
 
-There is no installable DocHermes release yet. Until the packaging issue is complete, beta testing is limited to local development runs or local release-candidate builds made by the project maintainers.
+There is no public installable DocHermes release yet. Private beta testing is limited to local development runs or official release-candidate builds made by the project maintainers.
 
 ## Quick Support Checklist
 
-- Confirm the tester is not using an unofficial installer.
+- Confirm the tester is not using an unofficial installer or artifact.
+- Confirm private beta artifacts came from the project release channel and match the published checksums.
 - Confirm whether they are using local, hosted, custom, or fake Hermes.
 - Confirm `Test gateway` has been run.
 - Confirm screenshots, logs, and debug reports are sanitized before sharing.
@@ -107,7 +108,7 @@ Early beta builds may be unsigned until packaging and signing are complete. Wind
 
 Do not install a build unless it came from the official project release channel and the published checksum matches. If you trust the build, SmartScreen usually provides a `More info` path to continue.
 
-No installable Windows beta exists until packaging is complete, so any installer-like file shared before then should be treated as unofficial.
+No public Windows beta exists yet, so any installer-like file outside the official private beta release channel should be treated as unofficial.
 
 ## Linux AppImage Permissions And Sandbox Notes
 
@@ -121,7 +122,7 @@ Some distributions also require FUSE support for AppImage launch. If FUSE is una
 
 If Electron sandboxing or desktop capture fails, check your desktop environment and portal support. Wayland sessions can have stricter capture behavior than X11, and some setups require xdg-desktop-portal packages.
 
-No installable Linux beta exists until packaging is complete. Treat any AppImage, `.deb`, or archive outside the official release channel as unofficial.
+No public Linux beta exists yet. Treat any AppImage, `.deb`, or archive outside the official private beta release channel as unofficial.
 
 ## Privacy And Execution Boundary
 

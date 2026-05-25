@@ -1,16 +1,16 @@
 # DocHermes Known Beta Limitations
 
-DocHermes is an active prototype, not an installable beta. This page tracks what testers should know before spending time on it.
+DocHermes is an active prototype, not a public installable beta. This page tracks what testers should know before spending time on it.
 
 ## Release And Install
 
-- No official installer exists yet.
+- Private release-candidate artifacts may exist for invited testers.
 - No public beta download exists yet.
-- No published release checksums exist yet.
+- Official private beta artifacts must include checksums.
 - Signed and notarized desktop builds are not ready.
-- OS-specific install docs should stay blocked until real artifacts exist.
+- OS-specific install notes are available for official private beta artifacts only.
 
-Use local development runs or maintainer-created release-candidate builds only.
+Use local development runs or official maintainer-created release-candidate builds only. See [private beta install notes](install.md).
 
 ## Hermes Gateway
 
@@ -51,7 +51,7 @@ If a beta build appears to ask for wallet control, signing access, order-routing
 - macOS capture may require Screen Recording permission for DocHermes, Terminal, or the local development host.
 - Windows may warn about unknown publishers for early unsigned builds.
 - Linux desktop capture can vary across Wayland, X11, portals, and sandbox settings.
-- AppImage and `.deb` notes are placeholders until real Linux beta artifacts exist.
+- AppImage, `.deb`, and `.tar.gz` artifacts are private beta candidates until a public release is approved.
 
 ## Testing Focus
 

@@ -2,7 +2,7 @@
 
 Use this template for private beta release notes. Keep the notes honest about what was tested, what is missing, and what data may leave the user's machine.
 
-There is no installable DocHermes release yet. Leave install links empty until the packaging issue is complete and release artifacts are produced through the official project release process.
+There is no public installable DocHermes release yet. Fill install links only for official private beta artifacts produced through the project release process, and include checksums.
 
 ## Release
 
@@ -20,9 +20,7 @@ There is no installable DocHermes release yet. Leave install links empty until t
 
 ## Install Links
 
-No installable release is available until packaging is complete.
-
-When packaging is ready, replace this section with official links only:
+Use official links only:
 
 - macOS:
 - Windows:
@@ -30,6 +28,8 @@ When packaging is ready, replace this section with official links only:
 - Linux `.deb`:
 
 Do not link ad-hoc local builds, unsigned test artifacts, or files from personal storage.
+
+Install steps: [private beta install notes](install.md)
 
 ## Known Limitations
 

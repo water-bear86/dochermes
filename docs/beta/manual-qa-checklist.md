@@ -2,7 +2,7 @@
 
 Use this lightweight checklist before publishing beta release notes or handing a release candidate to testers. For detailed product flow coverage, run the full smoke test in `docs/beta-smoke-test.md`.
 
-There is no installable DocHermes release yet. Until packaging is complete, mark installer checks as `Blocked` unless you are validating a maintainer-created local release-candidate build.
+There is no public installable DocHermes release yet. For private release candidates, run installer checks only against official project artifacts with matching checksums.
 
 ## Release Candidate Info
 
@@ -17,9 +17,9 @@ There is no installable DocHermes release yet. Until packaging is complete, mark
 
 | Area | Result | Notes |
 | --- | --- | --- |
-| Official artifact exists | Blocked | No installable release until packaging is complete. |
-| Artifact checksum published | Blocked | Required before install links are shared. |
-| App launches | Not run | Use local dev run or release-candidate build. |
+| Official artifact exists | Not run | Use only project release artifacts or local dev builds. |
+| Artifact checksum published | Not run | Required before install links are shared. |
+| App launches | Not run | Use local dev run or official release-candidate build. |
 | Local Hermes connection test | Not run | Default gateway is `http://localhost:8642`. |
 | Hosted Hermes auth failure is clear | Not run | Token errors should not expose secrets. |
 | Image capability failure is clear | Not run | Text-only fallback should stay usable. |
@@ -46,3 +46,5 @@ Use `Pass`, `Fail`, or `Blocked` in the Result column.
 - Follow-up owner:
 
 Before sign-off, confirm that release notes do not contain unofficial install links and do not ask testers to share private credentials, seed phrases, bearer tokens, or unsanitized financial data.
+
+For OS-specific install steps, use [private beta install notes](install.md).

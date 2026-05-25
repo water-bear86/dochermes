@@ -8,7 +8,7 @@ It is designed to sit beside an existing trading platform, watch only the window
 
 DocHermes is currently an active prototype.
 
-Do not install this as a production trading tool yet. Do not use it as the basis for live trading decisions. There is no packaged release, no stable installer, and no production support guarantee.
+Do not install this as a production trading tool yet. Do not use it as the basis for live trading decisions. Private release-candidate artifacts may exist for invited testers, but there is no stable public installer or production support guarantee.
 
 This repository is public so the product direction, architecture, and implementation work can be reviewed early.
 
@@ -138,11 +138,12 @@ npm run build
 
 ## Beta Testing Notes
 
-DocHermes does not have an installable beta yet. Current beta work is for maintainers, contributors, and invited testers using local development runs or maintainer-created release-candidate builds.
+DocHermes does not have a public installable beta yet. Current beta work is for maintainers, contributors, and invited testers using local development runs or official unsigned release-candidate builds with checksums.
 
 Useful beta docs:
 
 - [Beta tester support checklist](docs/beta/tester-support-checklist.md)
+- [Private beta install notes](docs/beta/install.md)
 - [Known beta limitations](docs/beta/known-limitations.md)
 - [Beta troubleshooting](docs/beta/troubleshooting.md)
 - [Tester feedback template](docs/beta/tester-feedback-template.md)

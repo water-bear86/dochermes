@@ -35,6 +35,7 @@ npm run build
 Review the beta caveats before sharing anything:
 
 - [Known beta limitations](known-limitations.md)
+- [Private beta install notes](install.md)
 - [Release notes template](release-notes-template.md)
 - [Manual QA checklist](manual-qa-checklist.md)
 

@@ -1,13 +1,13 @@
 # DocHermes Beta Tester Support Checklist
 
-DocHermes is not ready to install yet. There is no official installer, no public beta download, and no production support channel. Use this page for local development runs, maintainer-created release-candidate builds, and support triage while the beta is being shaped.
+DocHermes is not ready for public install yet. There is no stable public installer, no public beta download, and no production support channel. Use this page for local development runs, official maintainer-created release-candidate builds, and support triage while the beta is being shaped.
 
 DocHermes is advisory only. It does not control wallets, sign messages, route orders, place trades, submit transactions, approve withdrawals, or ask for private keys.
 
 ## Before Testing
 
-- [ ] Confirm you are using a local development run or a maintainer-created release-candidate build.
-- [ ] Confirm there is no install link being shared as official unless packaging and checksums are complete.
+- [ ] Confirm you are using a local development run or an official maintainer-created release-candidate build.
+- [ ] Confirm any install link points to the project release channel and has matching checksums.
 - [ ] Confirm the tester understands DocHermes is not financial advice and should not drive live trading decisions.
 - [ ] Confirm the tester has a Hermes gateway plan: local, hosted, custom, or fake Hermes for development.
 - [ ] Confirm no private keys, seed phrases, exchange credentials, bearer tokens, or unsanitized account data will be shared.
@@ -23,13 +23,12 @@ DocHermes is advisory only. It does not control wallets, sign messages, route or
 
 ## What Is Blocked
 
-- Official installable beta artifacts.
-- Published checksums for release artifacts.
+- Public installable beta artifacts.
+- Any release artifact without a published checksum.
 - Signed and notarized desktop builds.
-- OS-specific install instructions for real beta installers.
 - Production support guarantees.
 
-Until those are done, do not tell testers to install DocHermes as a finished beta.
+Until those are done, do not tell testers to install DocHermes as a finished beta. For private artifacts, use [private beta install notes](install.md).
 
 ## Local Dev And Fake Hermes
 
