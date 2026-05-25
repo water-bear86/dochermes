@@ -27,6 +27,28 @@ describe('parseLocalSettings', () => {
     expect(parseLocalSettings(null).remoteConsent).toEqual(DEFAULT_REMOTE_CONSENT_SETTINGS);
   });
 
+  it('defaults invalid voice transcription settings to auto with typed fallback', () => {
+    expect(
+      parseLocalSettings(
+        JSON.stringify({
+          voice: {
+            enabled: true,
+            hotkey: 'ctrl-space',
+            transcriptionProvider: 'direct-model',
+            fallbackMode: 'remote-only',
+            speakReplies: false
+          }
+        })
+      ).voice
+    ).toEqual({
+      enabled: true,
+      hotkey: 'ctrl-space',
+      transcriptionProvider: 'auto',
+      fallbackMode: 'typed-question',
+      speakReplies: false
+    });
+  });
+
   it('parses old settings without setup as incomplete', () => {
     expect(
       parseLocalSettings(
@@ -107,6 +129,8 @@ describe('parseLocalSettings', () => {
           voice: {
             enabled: true,
             hotkey: 'alt-space',
+            transcriptionProvider: 'browser',
+            fallbackMode: 'none',
             speakReplies: true
           },
           setup: {
@@ -181,6 +205,8 @@ describe('parseLocalSettings', () => {
       voice: {
         enabled: true,
         hotkey: 'alt-space',
+        transcriptionProvider: 'browser',
+        fallbackMode: 'none',
         speakReplies: true
       },
       setup: {

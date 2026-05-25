@@ -460,13 +460,21 @@ describe('assertAskHermesInput', () => {
 describe('assertVoiceSettings', () => {
   it('normalizes missing or malformed voice settings', () => {
     expect(() => assertVoiceSettings(undefined)).toThrow('Voice settings payload is required.');
-    expect(assertVoiceSettings({ enabled: 'yes' as unknown as boolean, hotkey: 'invalid' as never, speakReplies: 'no' as never })).toEqual(
-      {
-        enabled: false,
-        hotkey: 'space',
-        speakReplies: false
-      }
-    );
+    expect(
+      assertVoiceSettings({
+        enabled: 'yes' as unknown as boolean,
+        hotkey: 'invalid' as never,
+        transcriptionProvider: 'direct-provider' as never,
+        fallbackMode: 'upload-audio' as never,
+        speakReplies: 'no' as never
+      })
+    ).toEqual({
+      enabled: false,
+      hotkey: 'space',
+      transcriptionProvider: 'auto',
+      fallbackMode: 'typed-question',
+      speakReplies: false
+    });
   });
 
   it('accepts valid voice settings', () => {
@@ -474,11 +482,15 @@ describe('assertVoiceSettings', () => {
       assertVoiceSettings({
         enabled: true,
         hotkey: 'cmd-space',
+        transcriptionProvider: 'browser',
+        fallbackMode: 'none',
         speakReplies: true
       })
     ).toEqual({
       enabled: true,
       hotkey: 'cmd-space',
+      transcriptionProvider: 'browser',
+      fallbackMode: 'none',
       speakReplies: true
     });
   });

@@ -32,6 +32,7 @@ There is no public installable DocHermes release yet. For private release candid
 | Linux AppImage permission note checked | Not run | `chmod +x` and sandbox/portal notes are documented. |
 | Privacy boundary checked | Not run | No wallet control, signing, order routing, or trade execution. |
 | Remote-send consent checked | Not run | Hosted/custom gateway requests should show destination, sent data, and local-only data before send. |
+| Voice path checked | Not run | Push-to-talk, mic errors, typed fallback, and spoken replies behave normally; voice uses the same selected-window/privacy/remote-consent Hermes path as typed asks, with no model/provider picker and no wallet control, signing, order routing, private keys, or trade execution. |
 | Token redaction checked | Not run | Debug reports and auth failures should not expose bearer tokens. |
 | Local data controls checked | Not run | Clearing settings, memory, or diagnostics should say what stays local and what is not deleted remotely. |
 | Bug report path checked | Not run | Reports should redact tokens and sensitive account data. |

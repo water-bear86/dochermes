@@ -49,6 +49,7 @@ If a beta build appears to ask for wallet control, signing access, order-routing
 ## Platform Notes
 
 - macOS capture may require Screen Recording permission for DocHermes, Terminal, or the local development host.
+- Push-to-talk depends on the packaged desktop add-on for global hotkeys and on browser/OS speech recognition for current transcription. If speech recognition is missing, Auto mode falls back to typed questions.
 - Windows may warn about unknown publishers for early unsigned builds.
 - Linux desktop capture can vary across Wayland, X11, portals, and sandbox settings.
 - AppImage, `.deb`, and `.tar.gz` artifacts are private beta candidates until a public release is approved.

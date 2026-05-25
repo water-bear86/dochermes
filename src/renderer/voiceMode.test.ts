@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import type { VoiceSettings } from '../shared/types';
 import {
   canSpeakVoiceReply,
+  getVoiceHotkeyPlatformNote,
+  getVoiceTranscriptionProviderLabel,
   getVoiceHotkeyLabel,
   getSpeechRecognitionSupport,
   mapSpeechRecognitionError,
-  normalizeVoiceTranscript
+  normalizeVoiceTranscript,
+  resolveVoiceTranscriptionPlan
 } from './voiceMode';
 
 describe('voiceMode', () => {
@@ -40,9 +43,69 @@ describe('voiceMode', () => {
 
   it('formats push-to-talk hotkey labels', () => {
     expect(getVoiceHotkeyLabel('space')).toBe('Space');
-    expect(getVoiceHotkeyLabel('alt-space')).toBe('Option Space');
+    expect(getVoiceHotkeyLabel('alt-space')).toBe('Alt/Option Space');
     expect(getVoiceHotkeyLabel('ctrl-space')).toBe('Control Space');
-    expect(getVoiceHotkeyLabel('cmd-space')).toBe('Command Space');
+    expect(getVoiceHotkeyLabel('cmd-space')).toBe('Command/Ctrl Space');
+  });
+
+  it('describes cross-platform hotkey conflicts for manual QA', () => {
+    expect(getVoiceHotkeyPlatformNote('space', 'darwin')).toContain('active trading window');
+    expect(getVoiceHotkeyPlatformNote('alt-space', 'win32')).toContain('Windows system menu');
+    expect(getVoiceHotkeyPlatformNote('cmd-space', 'darwin')).toContain('Spotlight');
+    expect(getVoiceHotkeyPlatformNote('ctrl-space', 'linux')).toContain('Wayland');
+  });
+
+  it('labels transcription provider choices without exposing model providers', () => {
+    expect(getVoiceTranscriptionProviderLabel({ transcriptionProvider: 'auto' })).toBe('Auto');
+    expect(getVoiceTranscriptionProviderLabel({ transcriptionProvider: 'browser' })).toBe('Browser speech only');
+  });
+
+  it('selects browser transcription when speech recognition is available', () => {
+    class StandardRecognition {}
+
+    const plan = resolveVoiceTranscriptionPlan(
+      {
+        enabled: true,
+        transcriptionProvider: 'auto',
+        fallbackMode: 'typed-question'
+      },
+      getSpeechRecognitionSupport({
+        SpeechRecognition: StandardRecognition
+      })
+    );
+
+    expect(plan.kind).toBe('browser');
+    expect(plan.label).toBe('Browser speech');
+  });
+
+  it('falls back to the typed question path in auto mode when speech recognition is unavailable', () => {
+    const plan = resolveVoiceTranscriptionPlan(
+      {
+        enabled: true,
+        transcriptionProvider: 'auto',
+        fallbackMode: 'typed-question'
+      },
+      getSpeechRecognitionSupport({})
+    );
+
+    expect(plan).toEqual({
+      kind: 'typed-fallback',
+      label: 'Typed fallback',
+      message: 'Speech recognition is unavailable in this build, so DocHermes will keep you on the typed question path.'
+    });
+  });
+
+  it('does not silently fall back when browser-only transcription is selected', () => {
+    const plan = resolveVoiceTranscriptionPlan(
+      {
+        enabled: true,
+        transcriptionProvider: 'browser',
+        fallbackMode: 'typed-question'
+      },
+      getSpeechRecognitionSupport({})
+    );
+
+    expect(plan.kind).toBe('unavailable');
   });
 
   it('trims and joins final speech recognition transcripts', () => {
@@ -85,6 +148,8 @@ describe('voiceMode', () => {
     const voice: VoiceSettings = {
       enabled: true,
       hotkey: 'space',
+      transcriptionProvider: 'auto',
+      fallbackMode: 'typed-question',
       speakReplies: true
     };
 

@@ -15,6 +15,8 @@ import type {
   RemoteConsentSettings,
   VoiceSettings,
   VoiceHotkey,
+  VoiceFallbackMode,
+  VoiceTranscriptionProvider,
   OcrContextMode,
   OcrRegionProfileSettings,
   SetupSettings,
@@ -51,6 +53,8 @@ export const DEFAULT_FRICTION_SETTINGS: FrictionSettings = {
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: false,
   hotkey: 'space',
+  transcriptionProvider: 'auto',
+  fallbackMode: 'typed-question',
   speakReplies: false
 };
 
@@ -688,6 +692,8 @@ function parseVoiceSettings(rawVoice: unknown): VoiceSettings {
   return {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_VOICE_SETTINGS.enabled,
     hotkey: parseVoiceHotkey(candidate.hotkey),
+    transcriptionProvider: parseVoiceTranscriptionProvider(candidate.transcriptionProvider),
+    fallbackMode: parseVoiceFallbackMode(candidate.fallbackMode),
     speakReplies: typeof candidate.speakReplies === 'boolean' ? candidate.speakReplies : DEFAULT_VOICE_SETTINGS.speakReplies
   };
 }
@@ -707,6 +713,14 @@ function parseVoiceHotkey(value: unknown): VoiceHotkey {
   return value === 'space' || value === 'alt-space' || value === 'ctrl-space' || value === 'cmd-space'
     ? value
     : DEFAULT_VOICE_SETTINGS.hotkey;
+}
+
+function parseVoiceTranscriptionProvider(value: unknown): VoiceTranscriptionProvider {
+  return value === 'auto' || value === 'browser' ? value : DEFAULT_VOICE_SETTINGS.transcriptionProvider;
+}
+
+function parseVoiceFallbackMode(value: unknown): VoiceFallbackMode {
+  return value === 'typed-question' || value === 'none' ? value : DEFAULT_VOICE_SETTINGS.fallbackMode;
 }
 
 function parseOcrContextMode(value: unknown): OcrContextMode {

@@ -121,43 +121,17 @@ import {
   type TradeCardActionViewModel
 } from './tradeCardViewModel';
 import { FirstRunWizard } from './FirstRunWizard';
-
-type SpeechRecognitionResult = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: VoiceRecognitionEvent) => void) | null;
-  onerror: ((event: VoiceRecognitionError) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  abort: () => void;
-};
-
-type WindowWithSpeechSupport = Window & {
-  SpeechRecognition?: {
-    new (): SpeechRecognitionResult;
-  };
-  webkitSpeechRecognition?: SpeechRecognitionConstructor;
-};
-
-type SpeechRecognitionConstructor = {
-  new (): SpeechRecognitionResult;
-};
-
-type VoiceRecognitionEvent = {
-  results: {
-    length: number;
-    [index: number]: {
-      0: {
-        transcript: string;
-      };
-    };
-  };
-};
-
-type VoiceRecognitionError = {
-  error: string;
-};
+import {
+  getSpeechRecognitionSupport,
+  getVoiceHotkeyLabel,
+  getVoiceHotkeyPlatformNote,
+  getVoiceTranscriptionProviderLabel,
+  mapSpeechRecognitionError,
+  normalizeVoiceTranscript,
+  resolveVoiceTranscriptionPlan,
+  type SpeechRecognitionGlobalLike,
+  type SpeechRecognitionLike
+} from './voiceMode';
 
 interface WarningEvidenceEntry {
   source: string;
@@ -406,8 +380,9 @@ export function App(): ReactElement {
   const sourceContextAutoFillRequestId = useRef<string | undefined>(undefined);
   const walletSyncInFlight = useRef(false);
   const questionRef = useRef('');
+  const questionTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const previewImageRef = useRef<HTMLImageElement | null>(null);
-  const speechRecognitionRef = useRef<SpeechRecognitionResult | null>(null);
+  const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const migratableBearerTokenRef = useRef<string | undefined>(
     readMigratableBearerToken(localStorage.getItem(LOCAL_SETTINGS_KEY))
   );
@@ -423,6 +398,36 @@ export function App(): ReactElement {
   const bridge = window.hermesCoach;
   const hasHostedTokenBridge = Boolean(bridge);
   const usesSecureHostedTokenStore = settings.connection.connectionKind === 'hosted';
+  const speechRecognitionSupport = useMemo(
+    () => getSpeechRecognitionSupport(window as SpeechRecognitionGlobalLike),
+    []
+  );
+  const voiceTranscriptionPlan = useMemo(
+    () => resolveVoiceTranscriptionPlan(settings.voice, speechRecognitionSupport),
+    [
+      settings.voice.enabled,
+      settings.voice.fallbackMode,
+      settings.voice.transcriptionProvider,
+      speechRecognitionSupport
+    ]
+  );
+  const platformKey = useMemo(() => {
+    const platform = window.navigator.platform.toLowerCase();
+    if (platform.includes('mac')) {
+      return 'darwin';
+    }
+    if (platform.includes('win')) {
+      return 'win32';
+    }
+    if (platform.includes('linux')) {
+      return 'linux';
+    }
+    return platform;
+  }, []);
+  const voiceHotkeyNote = useMemo(
+    () => getVoiceHotkeyPlatformNote(settings.voice.hotkey, platformKey),
+    [platformKey, settings.voice.hotkey]
+  );
 
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
@@ -964,19 +969,6 @@ export function App(): ReactElement {
     window.speechSynthesis.speak(nextUtterance);
   }, [stopSpeechOutput]);
 
-  const resolveSpeechRecognitionConstructor = useCallback((): SpeechRecognitionConstructor | undefined => {
-    const typedWindow = window as WindowWithSpeechSupport;
-    if (typeof typedWindow.SpeechRecognition === 'function') {
-      return typedWindow.SpeechRecognition;
-    }
-
-    if (typeof typedWindow.webkitSpeechRecognition === 'function') {
-      return typedWindow.webkitSpeechRecognition;
-    }
-
-    return undefined;
-  }, []);
-
   const loadSources = useCallback(async (mode: PickerMode = 'pair') => {
     if (!bridge) {
       setError('Hermes Coach must be run from the desktop add-on to capture windows.');
@@ -1039,22 +1031,24 @@ export function App(): ReactElement {
       return;
     }
 
-    const SpeechRecognitionCtor = resolveSpeechRecognitionConstructor();
-    if (!SpeechRecognitionCtor) {
-      setError('Push-to-talk is unavailable: this build lacks browser speech recognition.');
+    if (voiceTranscriptionPlan.kind === 'typed-fallback') {
+      setError(voiceTranscriptionPlan.message);
+      questionTextAreaRef.current?.focus();
       return;
     }
 
-    const recognition = new SpeechRecognitionCtor();
+    if (voiceTranscriptionPlan.kind !== 'browser') {
+      setError(voiceTranscriptionPlan.message);
+      return;
+    }
+
+    const recognition = new voiceTranscriptionPlan.constructor();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
     const selectedSourceForRequest = selectedSource;
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((entry) => entry[0]?.transcript)
-        .join(' ')
-        .trim();
+      const transcript = normalizeVoiceTranscript(event);
       const runRequest = askWithSourceRef.current;
 
       if (!transcript) {
@@ -1072,8 +1066,7 @@ export function App(): ReactElement {
       stopVoiceCapture();
     };
     recognition.onerror = (event) => {
-      const detail = event.error;
-      setError(`Push-to-talk error: ${detail}`);
+      setError(mapSpeechRecognitionError(event.error));
       stopVoiceCapture();
     };
     recognition.onend = () => {
@@ -1092,7 +1085,7 @@ export function App(): ReactElement {
       stopVoiceCapture();
       setError(readError(nextError));
     }
-  }, [loadSources, resolveSpeechRecognitionConstructor, requestState, selectedSource, settings.voice.enabled, stopVoiceCapture]);
+  }, [loadSources, requestState, selectedSource, settings.voice.enabled, stopVoiceCapture, voiceTranscriptionPlan]);
 
   const toggleVoiceCapture = useCallback(() => {
     if (isVoiceListening) {
@@ -3465,11 +3458,40 @@ export function App(): ReactElement {
                 })
               }
             >
-              <option value="space">Space</option>
-              <option value="alt-space">Alt + Space</option>
-              <option value="ctrl-space">Ctrl + Space</option>
-              <option value="cmd-space">Cmd + Space</option>
+              <option value="space">{getVoiceHotkeyLabel('space')}</option>
+              <option value="alt-space">{getVoiceHotkeyLabel('alt-space')}</option>
+              <option value="ctrl-space">{getVoiceHotkeyLabel('ctrl-space')}</option>
+              <option value="cmd-space">{getVoiceHotkeyLabel('cmd-space')}</option>
             </select>
+            <small className="subtle-note">{voiceHotkeyNote}</small>
+            <label htmlFor="voice-transcription-provider">Transcription</label>
+            <select
+              id="voice-transcription-provider"
+              value={settings.voice.transcriptionProvider}
+              disabled={!settings.voice.enabled}
+              onChange={(event) =>
+                updateVoice({
+                  transcriptionProvider: event.target.value as LocalSettings['voice']['transcriptionProvider']
+                })
+              }
+            >
+              <option value="auto">Auto: browser speech, typed fallback</option>
+              <option value="browser">Browser speech only</option>
+            </select>
+            <label className="check-row" htmlFor="voice-typed-fallback">
+              <input
+                id="voice-typed-fallback"
+                type="checkbox"
+                checked={settings.voice.fallbackMode === 'typed-question'}
+                disabled={!settings.voice.enabled || settings.voice.transcriptionProvider !== 'auto'}
+                onChange={(event) =>
+                  updateVoice({
+                    fallbackMode: event.target.checked ? 'typed-question' : 'none'
+                  })
+                }
+              />
+              <span>Use typed question fallback when speech is unavailable</span>
+            </label>
             <label className="check-row" htmlFor="voice-speak-replies">
               <input
                 id="voice-speak-replies"
@@ -3480,7 +3502,11 @@ export function App(): ReactElement {
               <span>Read Hermes replies aloud</span>
             </label>
             <small className="subtle-note">
-              Voice flow uses the selected trading window and shares the same Hermes request path as manual capture.
+              Current voice path: {voiceTranscriptionPlan.label}. {voiceTranscriptionPlan.message}
+            </small>
+            <small className="subtle-note">
+              {getVoiceTranscriptionProviderLabel(settings.voice)} keeps model/provider routing inside Hermes; voice still uses
+              the selected trading window and the same privacy/remote-consent path as typed asks.
             </small>
 
             <div className="settings-section-heading settings-wide">
@@ -4192,6 +4218,7 @@ export function App(): ReactElement {
         <label htmlFor="question">Question</label>
         <textarea
           id="question"
+          ref={questionTextAreaRef}
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
           placeholder="Should I take this trade now?"

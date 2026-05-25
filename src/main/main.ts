@@ -37,6 +37,8 @@ let ocrContextMode: OcrContextMode = 'full-window';
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: false,
   hotkey: 'space',
+  transcriptionProvider: 'auto',
+  fallbackMode: 'typed-question',
   speakReplies: false
 };
 let activeVoiceSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;

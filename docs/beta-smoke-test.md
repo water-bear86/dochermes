@@ -92,16 +92,20 @@ Expected:
 
 1. Open Local settings.
 2. Enable `Enable push-to-talk`.
-3. Choose a push-to-talk hotkey.
-4. Click `Push-to-talk`.
-5. Speak a short question, then stop listening.
-6. Optional: enable `Read Hermes replies aloud`, ask a low-risk question, and then stop reply audio.
+3. Choose a push-to-talk hotkey and read the OS-specific conflict note.
+4. Leave transcription on `Auto: browser speech, typed fallback` unless intentionally testing browser-only speech.
+5. Click `Push-to-talk`.
+6. Speak a short question, then stop listening.
+7. If speech recognition is unavailable, confirm the app focuses the typed question path instead of sending audio somewhere else.
+8. Optional: enable `Read Hermes replies aloud`, ask a low-risk question, and then stop reply audio.
 
 Expected:
 
 - The voice state changes between off, ready, listening, and speaking without freezing the app.
 - Recognized text flows into the same advisory request path as manual capture.
+- Auto transcription falls back to typed input when browser or OS speech recognition is unavailable.
 - Disabling push-to-talk disables the voice button.
+- Voice settings do not ask the beta user to choose a model/provider; that routing stays inside Hermes.
 - Voice does not bypass privacy preset, selected-window, or remote consent behavior.
 
 ## 6. Local Journal And Memory Visibility

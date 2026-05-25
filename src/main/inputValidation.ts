@@ -189,7 +189,7 @@ function assertMaximumPrivacyRequest(record: AskHermesInput): void {
   }
 }
 
-export function assertVoiceSettings(input: unknown): { enabled: boolean; hotkey: VoiceHotkey; speakReplies: boolean } {
+export function assertVoiceSettings(input: unknown): VoiceSettings {
   if (!input || typeof input !== 'object') {
     throw new Error('Voice settings payload is required.');
   }
@@ -199,6 +199,8 @@ export function assertVoiceSettings(input: unknown): { enabled: boolean; hotkey:
   return {
     enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
     hotkey: parseVoiceHotkey(record.hotkey),
+    transcriptionProvider: parseVoiceTranscriptionProvider(record.transcriptionProvider),
+    fallbackMode: parseVoiceFallbackMode(record.fallbackMode),
     speakReplies: typeof record.speakReplies === 'boolean' ? record.speakReplies : false
   };
 }
@@ -234,6 +236,14 @@ function parseVoiceHotkey(value: unknown): VoiceHotkey {
   }
 
   return 'space';
+}
+
+function parseVoiceTranscriptionProvider(value: unknown): VoiceSettings['transcriptionProvider'] {
+  return value === 'auto' || value === 'browser' ? value : 'auto';
+}
+
+function parseVoiceFallbackMode(value: unknown): VoiceSettings['fallbackMode'] {
+  return value === 'typed-question' || value === 'none' ? value : 'typed-question';
 }
 
 function parsePrivacySettings(value: unknown): PrivacySettings {

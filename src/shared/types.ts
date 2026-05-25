@@ -25,6 +25,8 @@ export type CoachMode = 'advisory' | 'guardrail' | 'policy';
 export type SessionRiskPolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type PersonalRulePolicyLevel = 'advisory' | 'guardrail' | 'policy';
 export type VoiceHotkey = 'space' | 'alt-space' | 'ctrl-space' | 'cmd-space';
+export type VoiceTranscriptionProvider = 'auto' | 'browser';
+export type VoiceFallbackMode = 'typed-question' | 'none';
 export type OcrContextMode = 'full-window' | 'order-panel' | 'chart-order-panel';
 
 export interface OcrNormalizedRegionRect {
@@ -43,6 +45,8 @@ export interface OcrRegionProfileSettings {
 export interface VoiceSettings {
   enabled: boolean;
   hotkey: VoiceHotkey;
+  transcriptionProvider: VoiceTranscriptionProvider;
+  fallbackMode: VoiceFallbackMode;
   speakReplies: boolean;
 }
 
