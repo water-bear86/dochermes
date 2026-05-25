@@ -12,6 +12,7 @@ import {
   buildCompactPostmortemSummary,
   buildPostmortemSessions,
   deletePostmortemOutcomeRecord,
+  formatPostmortemOutcomeDetail,
   parsePostmortemOutcomeRecords,
   readPostmortemOutcomeRecords,
   readPostmortemSummaries,
@@ -214,19 +215,59 @@ describe('postmortem session summary helpers', () => {
         id: 'outcome-1',
         createdAt: '2026-05-20T11:00:00.000Z',
         eventId: firstTimelineEvent.id,
-        tag: 'good-skip' as PostmortemOutcomeTag
+        tag: 'good-skip' as PostmortemOutcomeTag,
+        setupQuality: 5,
+        sourceQuality: 3,
+        sizingQuality: 1,
+        entryTimingQuality: 2,
+        invalidationQuality: 2
       },
       {
         id: 'outcome-2',
         createdAt: '2026-05-20T11:00:01.000Z',
         eventId: secondTimelineEvent.id,
-        tag: 'bad-entry' as PostmortemOutcomeTag
+        tag: 'bad-entry' as PostmortemOutcomeTag,
+        mistakeTags: ['early-entry', 'oversized'],
+        setupQuality: 3,
+        sourceQuality: 1,
+        sizingQuality: 1,
+        entryTimingQuality: 2,
+        invalidationQuality: 4,
+        maxLossPercent: 18,
+        lessonLearned: 'Wait for confirmation.'
       }
     ]);
 
     expect(summary.eventCount).toBe(3);
     expect(summary.taggedEventCount).toBe(2);
     expect(summary.tagCounts['bad-entry']).toBe(1);
+    expect(summary.compactSummary).toContain('Review coverage: 2/3');
+    expect(summary.compactSummary).toContain('Avg setup/source/sizing/entry/invalidation: 4.0/2.0/1.0/2.0/3.0');
+    expect(summary.compactSummary).toContain('Max loss observed: 18%');
+    expect(summary.compactSummary).toContain('Top mistake tags: early-entry, oversized');
+    expect(summary.compactSummary).toContain('Lessons: Wait for confirmation.');
+  });
+
+  it('formats captured postmortem outcome detail for the timeline chip', () => {
+    expect(
+      formatPostmortemOutcomeDetail({
+        id: 'outcome-1',
+        createdAt: '2026-05-20T11:00:00.000Z',
+        eventId: 'event-1',
+        tag: 'bad-entry',
+        notes: 'Took it too early.',
+        mistakeTags: ['early-entry', 'oversized'],
+        setupQuality: 2,
+        sourceQuality: 3,
+        sizingQuality: 1,
+        entryTimingQuality: 2,
+        invalidationQuality: 4,
+        maxLossPercent: 18,
+        lessonLearned: 'Wait for confirmation.'
+      })
+    ).toBe(
+      'Outcome: Bad entry · notes: Took it too early. · tags: early-entry, oversized · quality setup/source/sizing/entry/invalidation: 2/3/1/2/4 · max loss: 18% · lesson: Wait for confirmation.'
+    );
   });
 
   it('stores and reads summaries from local storage', () => {

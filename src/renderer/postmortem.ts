@@ -472,7 +472,7 @@ export function buildCompactPostmortemSummary(
     tagCounts[outcome.tag] += 1;
   }
 
-  const compactSummary = buildSummaryText(session, tagCounts, related.length);
+  const compactSummary = buildSummaryText(session, tagCounts, related);
   const notableRisks = dedupe(session.riskSignals).slice(0, 5);
 
   return {
@@ -505,12 +505,44 @@ export function formatPostmortemTagLabel(tag: PostmortemOutcomeTag): string {
   return 'Note for next time';
 }
 
+export function formatPostmortemOutcomeDetail(outcome: PostmortemOutcomeRecord): string {
+  const parts = [`Outcome: ${formatPostmortemTagLabel(outcome.tag)}`];
+
+  if (outcome.notes) {
+    parts.push(`notes: ${outcome.notes}`);
+  }
+  if (outcome.mistakeTags && outcome.mistakeTags.length > 0) {
+    parts.push(`tags: ${outcome.mistakeTags.join(', ')}`);
+  }
+
+  const qualityScores = [
+    outcome.setupQuality,
+    outcome.sourceQuality,
+    outcome.sizingQuality,
+    outcome.entryTimingQuality,
+    outcome.invalidationQuality
+  ];
+  if (qualityScores.every((score) => typeof score === 'number')) {
+    parts.push(`quality setup/source/sizing/entry/invalidation: ${qualityScores.join('/')}`);
+  }
+  if (typeof outcome.maxLossPercent === 'number') {
+    parts.push(`max loss: ${formatPercent(outcome.maxLossPercent)}`);
+  }
+  if (outcome.lessonLearned) {
+    parts.push(`lesson: ${outcome.lessonLearned}`);
+  }
+
+  return parts.join(' · ');
+}
+
 function buildSummaryText(
   session: PostmortemSession,
   counts: PostmortemTagCount,
-  taggedEventCount: number
+  outcomes: PostmortemOutcomeRecord[]
 ): string {
+  const taggedEventCount = outcomes.length;
   const parts = [`Session ${session.label}`, `${session.timeline.length} events in timeline`];
+  parts.push(`Review coverage: ${taggedEventCount}/${session.timeline.length}`);
 
   if (taggedEventCount === 0) {
     parts.push('No outcomes tagged yet.');
@@ -526,12 +558,82 @@ function buildSummaryText(
     }
   }
 
+  const qualitySummary = summarizeQualityScores(outcomes);
+  if (qualitySummary) {
+    parts.push(qualitySummary);
+  }
+
+  const maxLoss = maxObservedLoss(outcomes);
+  if (maxLoss !== undefined) {
+    parts.push(`Max loss observed: ${formatPercent(maxLoss)}`);
+  }
+
+  const topMistakeTags = topTags(outcomes);
+  if (topMistakeTags.length > 0) {
+    parts.push(`Top mistake tags: ${topMistakeTags.join(', ')}`);
+  }
+
+  const lessons = outcomes
+    .map((outcome) => outcome.lessonLearned?.trim())
+    .filter((lesson): lesson is string => Boolean(lesson))
+    .slice(0, 2);
+  if (lessons.length > 0) {
+    parts.push(`Lessons: ${lessons.join(' | ')}`);
+  }
+
   if (session.riskSignals.length > 0) {
     const signalCount = new Set(session.riskSignals).size;
     parts.push(`${signalCount} risk signal(s).`);
   }
 
   return parts.filter(Boolean).join(' · ');
+}
+
+function summarizeQualityScores(outcomes: PostmortemOutcomeRecord[]): string | undefined {
+  const setup = averageScore(outcomes.map((outcome) => outcome.setupQuality));
+  const source = averageScore(outcomes.map((outcome) => outcome.sourceQuality));
+  const sizing = averageScore(outcomes.map((outcome) => outcome.sizingQuality));
+  const entry = averageScore(outcomes.map((outcome) => outcome.entryTimingQuality));
+  const invalidation = averageScore(outcomes.map((outcome) => outcome.invalidationQuality));
+
+  if ([setup, source, sizing, entry, invalidation].some((score) => score === undefined)) {
+    return undefined;
+  }
+
+  return `Avg setup/source/sizing/entry/invalidation: ${setup}/${source}/${sizing}/${entry}/${invalidation}`;
+}
+
+function averageScore(values: Array<number | undefined>): string | undefined {
+  const numbers = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (numbers.length === 0) {
+    return undefined;
+  }
+  const average = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+  return average.toFixed(1);
+}
+
+function maxObservedLoss(outcomes: PostmortemOutcomeRecord[]): number | undefined {
+  const losses = outcomes
+    .map((outcome) => outcome.maxLossPercent)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return losses.length > 0 ? Math.max(...losses) : undefined;
+}
+
+function topTags(outcomes: PostmortemOutcomeRecord[]): string[] {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    for (const tag of outcome.mistakeTags ?? []) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([tag]) => tag)
+    .slice(0, 4);
+}
+
+function formatPercent(value: number): string {
+  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 function isPostmortemOutcomeRecord(value: unknown): value is PostmortemOutcomeRecord {

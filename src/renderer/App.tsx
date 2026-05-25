@@ -40,6 +40,7 @@ import {
   buildCompactPostmortemSummary,
   buildPostmortemSessions,
   deletePostmortemOutcomeRecord,
+  formatPostmortemOutcomeDetail,
   formatPostmortemTagLabel,
   readPostmortemOutcomeRecords,
   readPostmortemSummaries,
@@ -4477,12 +4478,7 @@ export function App(): ReactElement {
 
                   {eventOutcome ? (
                     <small className="postmortem-outcome-chip">
-                      Outcome: {formatPostmortemTagLabel(eventOutcome.tag)}
-                      {eventOutcome.notes ? ` · ${eventOutcome.notes}` : ''}
-                      {eventOutcome.mistakeTags && eventOutcome.mistakeTags.length > 0
-                        ? ` · tags: ${eventOutcome.mistakeTags.join(', ')}`
-                        : ''}
-                      {eventOutcome.lessonLearned ? ` · lesson: ${eventOutcome.lessonLearned}` : ''}
+                      {formatPostmortemOutcomeDetail(eventOutcome)}
                     </small>
                   ) : null}
 
