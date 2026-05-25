@@ -1,4 +1,6 @@
-export type TradeRecordSource = 'manual' | 'exchange-csv' | 'public-wallet' | 'journal';
+import type { TradeDecisionAction, TradeDecisionEvent, TradeOutcomeEvent } from './tradeDecision';
+
+export type TradeRecordSource = 'manual' | 'exchange-csv' | 'public-wallet' | 'journal' | 'decision';
 export type TradeRecordSide = 'long' | 'short' | 'unknown';
 export type TradeRecordOutcome = 'win' | 'loss' | 'breakeven' | 'skipped' | 'unknown';
 export type TradeDecisionTiming = 'immediate-entry' | 'waited-confirmation' | 'skipped' | 'unknown';
@@ -74,11 +76,20 @@ type JournalTradeInput = {
   mistakeTags?: string[];
 };
 
+type DecisionTradeInput = {
+  source: 'decision';
+  decision: TradeDecisionEvent;
+  outcome?: TradeOutcomeEvent;
+  assetSymbol?: string;
+  side?: string;
+};
+
 export type TradeRecordInput =
   | ManualTradeInput
   | ExchangeCsvTradeInput
   | PublicWalletTradeInput
-  | JournalTradeInput;
+  | JournalTradeInput
+  | DecisionTradeInput;
 
 export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
   switch (input.source) {
@@ -136,6 +147,19 @@ export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
         decisionTiming: normalizeDecisionTiming(input.decisionTiming),
         tags: normalizeTags(input.mistakeTags),
         rawRef: input.entryId
+      });
+    case 'decision':
+      return compact({
+        id: `decision:${input.decision.signalId}`,
+        source: 'decision',
+        openedAt: input.decision.decidedAt,
+        assetLabel: input.assetSymbol?.trim() || 'Structured decision',
+        side: normalizeSide(input.side),
+        quantity: input.decision.finalSize?.value ?? input.decision.requestedSize?.value,
+        outcome: normalizeDecisionOutcome(input.decision, input.outcome),
+        decisionTiming: normalizeDecisionActionTiming(input.decision.action),
+        tags: normalizeTags(input.outcome?.review?.mistakeTags),
+        rawRef: input.decision.signalId
       });
   }
 }
@@ -201,6 +225,47 @@ function normalizeDecisionTiming(value: string | undefined): TradeDecisionTiming
     return 'unknown';
   }
   return undefined;
+}
+
+function normalizeDecisionActionTiming(action: TradeDecisionAction): TradeDecisionTiming {
+  if (action === 'rejected') {
+    return 'skipped';
+  }
+  if (action === 'waited' || action === 'set-alert' || action === 'created-plan') {
+    return 'waited-confirmation';
+  }
+  return 'immediate-entry';
+}
+
+function normalizeDecisionOutcome(
+  decision: TradeDecisionEvent,
+  outcome: TradeOutcomeEvent | undefined
+): TradeRecordOutcome {
+  if (!outcome) {
+    return decision.action === 'rejected' ? 'skipped' : 'unknown';
+  }
+
+  if (outcome.outcome.status === 'skipped' || outcome.outcome.status === 'expired') {
+    return 'skipped';
+  }
+  if (outcome.outcome.status === 'stopped') {
+    return 'loss';
+  }
+  if (outcome.outcome.status !== 'closed') {
+    return 'unknown';
+  }
+
+  const pnlPercent = outcome.outcome.pnlPercent;
+  if (typeof pnlPercent !== 'number' || !Number.isFinite(pnlPercent)) {
+    return 'unknown';
+  }
+  if (pnlPercent > 0) {
+    return 'win';
+  }
+  if (pnlPercent < 0) {
+    return 'loss';
+  }
+  return 'breakeven';
 }
 
 function toFiniteNumber(value: string | number | undefined): number | undefined {

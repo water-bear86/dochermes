@@ -110,4 +110,54 @@ describe('normalizeTradeRecord', () => {
       rawRef: 'entry-1'
     });
   });
+
+  it('normalizes structured decision and outcome events without raw UI metadata', () => {
+    expect(
+      normalizeTradeRecord({
+        source: 'decision',
+        assetSymbol: 'ABC',
+        side: 'buy',
+        decision: {
+          schemaVersion: 'dochermes.decision.v1',
+          signalId: 'request-1',
+          decidedAt: '2026-05-25T09:00:00.000Z',
+          action: 'overrode',
+          requestedSize: { value: 0.5, unit: 'SOL' },
+          finalSize: { value: 0.08, unit: 'SOL' },
+          override: {
+            used: true,
+            note: 'Window title and raw notes stay out of the normalized stats record.'
+          },
+          outcomeLink: {
+            schemaVersion: 'dochermes.outcome.v1',
+            signalId: 'request-1'
+          }
+        },
+        outcome: {
+          schemaVersion: 'dochermes.outcome.v1',
+          signalId: 'request-1',
+          closedAt: '2026-05-25T09:45:00.000Z',
+          outcome: {
+            status: 'closed',
+            pnlPercent: -18
+          },
+          review: {
+            mistakeTags: ['early-entry'],
+            notes: 'Do not ship raw notes in TradeRecord.'
+          }
+        }
+      })
+    ).toEqual({
+      id: 'decision:request-1',
+      source: 'decision',
+      openedAt: '2026-05-25T09:00:00.000Z',
+      assetLabel: 'ABC',
+      side: 'long',
+      quantity: 0.08,
+      outcome: 'loss',
+      decisionTiming: 'immediate-entry',
+      tags: ['early-entry'],
+      rawRef: 'request-1'
+    });
+  });
 });

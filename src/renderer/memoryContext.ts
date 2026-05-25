@@ -1,4 +1,8 @@
 import type {
+  TradeDecisionEvent,
+  TradeOutcomeEvent
+} from '../shared/tradeDecision';
+import type {
   JournalEntry,
   MemoryContext,
   MemoryPattern,
@@ -38,7 +42,9 @@ export function buildMemoryContext(
   currentQuestion: string,
   warningFeedback: WarningFeedbackRecord[] = [],
   postmortemSummaries: MemoryPostmortemSummary[] = [],
-  importedTradeRecords: ImportedTradeRecord[] = []
+  importedTradeRecords: ImportedTradeRecord[] = [],
+  tradeDecisionEvents: TradeDecisionEvent[] = [],
+  tradeOutcomeEvents: TradeOutcomeEvent[] = []
 ): MemoryContext {
   const recentNotes = entries
     .slice()
@@ -74,7 +80,7 @@ export function buildMemoryContext(
 
   return {
     matchedPatterns: matchPatterns(entries, currentQuestion, falsePositiveSuppressedQuestions),
-    tradeBehaviorStats: buildJournalTradeBehaviorStats(entries),
+    tradeBehaviorStats: buildLocalTradeBehaviorStats(entries, tradeDecisionEvents, tradeOutcomeEvents),
     recentNotes,
     ...(tradeHistorySummary.totalTrades > 0 ? { tradeHistorySummary } : {}),
     ...(postmortemSummaryContext.length > 0 ? { postmortemSummaries: postmortemSummaryContext } : {})
@@ -86,22 +92,39 @@ export function withoutCompactTradeSummary(memoryContext: MemoryContext): Memory
   return rest;
 }
 
-function buildJournalTradeBehaviorStats(entries: JournalEntry[]): MemoryContext['tradeBehaviorStats'] {
-  if (entries.length === 0) {
+function buildLocalTradeBehaviorStats(
+  entries: JournalEntry[],
+  tradeDecisionEvents: TradeDecisionEvent[],
+  tradeOutcomeEvents: TradeOutcomeEvent[]
+): MemoryContext['tradeBehaviorStats'] {
+  if (entries.length === 0 && tradeDecisionEvents.length === 0) {
     return undefined;
   }
 
-  const trades = entries.map((entry) =>
-    normalizeTradeRecord({
-      source: 'journal',
-      entryId: entry.id,
-      createdAt: entry.createdAt,
-      selectedWindowName: entry.selectedWindow.name,
-      outcome: inferJournalOutcome(entry),
-      decisionTiming: inferJournalDecisionTiming(entry),
-      mistakeTags: inferMistakeTags(entry)
-    })
-  );
+  const outcomesBySignalId = new Map(tradeOutcomeEvents.map((outcome) => [outcome.signalId, outcome]));
+  const structuredDecisionIds = new Set(tradeDecisionEvents.map((decision) => decision.signalId));
+  const trades = [
+    ...entries
+      .filter((entry) => !structuredDecisionIds.has(entry.id))
+      .map((entry) =>
+        normalizeTradeRecord({
+          source: 'journal',
+          entryId: entry.id,
+          createdAt: entry.createdAt,
+          selectedWindowName: entry.selectedWindow.name,
+          outcome: inferJournalOutcome(entry),
+          decisionTiming: inferJournalDecisionTiming(entry),
+          mistakeTags: inferMistakeTags(entry)
+        })
+      ),
+    ...tradeDecisionEvents.map((decision) =>
+      normalizeTradeRecord({
+        source: 'decision',
+        decision,
+        outcome: outcomesBySignalId.get(decision.signalId)
+      })
+    )
+  ];
 
   return buildTradeBehaviorStats(trades);
 }

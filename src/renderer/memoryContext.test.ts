@@ -264,6 +264,101 @@ describe('buildMemoryContext', () => {
     });
   });
 
+  it('adds structured decision and outcome events to compact local stats', () => {
+    const duplicateJournalEntry: JournalEntry = {
+      id: 'decision-1',
+      createdAt: '2026-05-25T09:00:00.000Z',
+      question: 'Should I enter immediately?',
+      response: 'Trade card: buy recommended size.',
+      notes: 'The readable journal entry should not double-count the structured decision.',
+      selectedWindow: {
+        id: 'window:1',
+        name: 'Trading Window',
+        kind: 'window'
+      },
+      screenshot: {
+        captured: false,
+        imageStored: false
+      }
+    };
+
+    const context = buildMemoryContext(
+      [duplicateJournalEntry],
+      'Review this setup',
+      [],
+      [],
+      [],
+      [
+        {
+          schemaVersion: 'dochermes.decision.v1',
+          signalId: 'decision-1',
+          decidedAt: '2026-05-25T09:00:00.000Z',
+          action: 'accepted-recommended',
+          finalSize: { value: 0.08, unit: 'SOL' },
+          override: { used: false, note: '' },
+          outcomeLink: {
+            schemaVersion: 'dochermes.outcome.v1',
+            signalId: 'decision-1'
+          }
+        },
+        {
+          schemaVersion: 'dochermes.decision.v1',
+          signalId: 'decision-2',
+          decidedAt: '2026-05-25T09:10:00.000Z',
+          action: 'set-alert',
+          override: { used: false, note: '' },
+          outcomeLink: {
+            schemaVersion: 'dochermes.outcome.v1',
+            signalId: 'decision-2'
+          }
+        }
+      ],
+      [
+        {
+          schemaVersion: 'dochermes.outcome.v1',
+          signalId: 'decision-1',
+          closedAt: '2026-05-25T09:30:00.000Z',
+          outcome: { status: 'closed', pnlPercent: -12 },
+          review: { mistakeTags: ['early-entry'], notes: 'Raw postmortem note must not leave local storage.' }
+        },
+        {
+          schemaVersion: 'dochermes.outcome.v1',
+          signalId: 'decision-2',
+          closedAt: '2026-05-25T09:30:00.000Z',
+          outcome: { status: 'skipped' }
+        }
+      ]
+    );
+
+    expect(context.tradeBehaviorStats).toMatchObject({
+      tradeCount: 2,
+      decisionOutcomeStats: {
+        immediateEntry: {
+          count: 1,
+          wins: 0,
+          losses: 1,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 0,
+          winRate: 0,
+          lossRate: 1
+        },
+        waitedConfirmation: {
+          count: 1,
+          wins: 0,
+          losses: 0,
+          breakeven: 0,
+          skipped: 1,
+          unknown: 0,
+          winRate: undefined,
+          lossRate: undefined
+        }
+      },
+      commonMistakeTags: [{ tag: 'early-entry', count: 1 }]
+    });
+    expect(JSON.stringify(context.tradeBehaviorStats)).not.toContain('Raw postmortem note');
+  });
+
   it('includes recent postmortem summaries in memory context', () => {
     const context = buildMemoryContext([earlyLossEntry], 'Should I enter immediately?', [], [postmortemSummary]);
 

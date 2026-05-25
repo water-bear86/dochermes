@@ -91,6 +91,14 @@ import {
   type WalletSyncProviderStatus
 } from './tradeHistory';
 import {
+  appendTradeDecisionEvent,
+  appendTradeOutcomeEvent,
+  buildTradeDecisionEventFromTradeCardAction,
+  buildTradeOutcomeEventFromPostmortemOutcome,
+  readTradeDecisionEvents,
+  readTradeOutcomeEvents
+} from './tradeDecisionPersistence';
+import {
   buildPersonalRuleContext,
   evaluatePersonalRules,
   type PersonalRuleWarningCandidate
@@ -281,6 +289,8 @@ export function App(): ReactElement {
   const [journalEntries, setJournalEntries] = useState(() => readJournalEntries(localStorage));
   const [importedTradeRecords, setImportedTradeRecords] = useState(() => readImportedTradeRecords(localStorage));
   const [walletTradeRecords, setWalletTradeRecords] = useState(() => readWalletTradeRecords(localStorage));
+  const [tradeDecisionEvents, setTradeDecisionEvents] = useState(() => readTradeDecisionEvents(localStorage));
+  const [tradeOutcomeEvents, setTradeOutcomeEvents] = useState(() => readTradeOutcomeEvents(localStorage));
   const [walletSyncState, setWalletSyncState] = useState<WalletSyncState>({
     status: 'idle',
     providerStatuses: []
@@ -415,6 +425,14 @@ export function App(): ReactElement {
     () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? walletTradeRecords : []),
     [settings.dataSharing.useLocalTradeHistoryForRiskChecks, walletTradeRecords]
   );
+  const tradeDecisionEventsForRiskChecks = useMemo(
+    () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? tradeDecisionEvents : []),
+    [settings.dataSharing.useLocalTradeHistoryForRiskChecks, tradeDecisionEvents]
+  );
+  const tradeOutcomeEventsForRiskChecks = useMemo(
+    () => (settings.dataSharing.useLocalTradeHistoryForRiskChecks ? tradeOutcomeEvents : []),
+    [settings.dataSharing.useLocalTradeHistoryForRiskChecks, tradeOutcomeEvents]
+  );
   const memoryContext = useMemo(
     () =>
       buildMemoryContext(
@@ -422,13 +440,17 @@ export function App(): ReactElement {
         question,
         warningFeedbackEntries,
         postmortemSummaries,
-        importedTradeRecordsForRiskChecks.concat(walletTradeRecordsForRiskChecks)
+        importedTradeRecordsForRiskChecks.concat(walletTradeRecordsForRiskChecks),
+        tradeDecisionEventsForRiskChecks,
+        tradeOutcomeEventsForRiskChecks
       ),
     [
       historyEntriesForRiskChecks,
       importedTradeRecordsForRiskChecks,
       postmortemSummaries,
       question,
+      tradeDecisionEventsForRiskChecks,
+      tradeOutcomeEventsForRiskChecks,
       walletTradeRecordsForRiskChecks,
       warningFeedbackEntries
     ]
@@ -1375,12 +1397,20 @@ export function App(): ReactElement {
       const requestWalletTradeRecords = settings.dataSharing.useLocalTradeHistoryForRiskChecks
         ? walletTradeRecords
         : [];
+      const requestTradeDecisionEvents = settings.dataSharing.useLocalTradeHistoryForRiskChecks
+        ? tradeDecisionEvents
+        : [];
+      const requestTradeOutcomeEvents = settings.dataSharing.useLocalTradeHistoryForRiskChecks
+        ? tradeOutcomeEvents
+        : [];
       const requestMemoryContext = buildMemoryContext(
         requestHistoryEntries,
         questionText,
         warningFeedbackEntries,
         postmortemSummaries,
-        requestImportedTradeRecords.concat(requestWalletTradeRecords)
+        requestImportedTradeRecords.concat(requestWalletTradeRecords),
+        requestTradeDecisionEvents,
+        requestTradeOutcomeEvents
       );
       const requestSourceQuality = buildSourceQualityAssessment({
         question: questionText,
@@ -1666,6 +1696,8 @@ export function App(): ReactElement {
       journalEntries,
       importedTradeRecords,
       walletTradeRecords,
+      tradeDecisionEvents,
+      tradeOutcomeEvents,
       monitorSignals,
       warningFeedbackEntries,
       settings.connection,
@@ -1958,7 +1990,16 @@ export function App(): ReactElement {
         sourceContext: buildJournalSourceContext()
       });
       const nextEntries = appendJournalEntry(localStorage, entry);
+      const decisionEvent = buildTradeDecisionEventFromTradeCardAction({
+        signalId: entry.id,
+        decidedAt: entry.createdAt,
+        card: tradeCard,
+        action,
+        note: note || undefined
+      });
+      const nextDecisionEvents = appendTradeDecisionEvent(localStorage, decisionEvent);
       setJournalEntries(nextEntries);
+      setTradeDecisionEvents(nextDecisionEvents);
       setJournalSavedMessage('Saved trade-card decision locally.');
       setTradeCardNoteText('');
       setError('');
@@ -2130,6 +2171,18 @@ export function App(): ReactElement {
         });
 
     setPostmortemOutcomeRecords(nextOutcomeRecords);
+    const savedOutcome = nextOutcomeRecords.find((record) => record.eventId === timelineEvent.id);
+    if (savedOutcome) {
+      const nextTradeOutcomeEvents = appendTradeOutcomeEvent(
+        localStorage,
+        buildTradeOutcomeEventFromPostmortemOutcome({
+          signalId: timelineEvent.requestId ?? timelineEvent.id,
+          closedAt: savedOutcome.updatedAt ?? savedOutcome.createdAt,
+          postmortem: savedOutcome
+        })
+      );
+      setTradeOutcomeEvents(nextTradeOutcomeEvents);
+    }
     setEditingPostmortemEventId(undefined);
     setEditingPostmortemNotes('');
     setEditingPostmortemMistakeTags('');
