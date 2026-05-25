@@ -23,6 +23,7 @@ DocHermes is an advisory sidecar only. During every smoke pass, verify that the 
 | Voice toggle | Not run | |
 | Local journal and memory | Not run | |
 | CSV import | Not run | |
+| Browser DOM context | Not run | |
 | OCR overlay | Not run | |
 | Wallet sync disabled by default | Not run | |
 | Advisory/privacy boundary | Not run | |
@@ -147,7 +148,21 @@ Expected:
 - `Send raw trade records to Hermes (disabled in MVP)` remains disabled.
 - The app does not claim to modify exchange, broker, chain, or wallet data.
 
-## 8. OCR Overlay Open, Adjust, Save Path
+## 8. Browser DOM Context Path
+
+1. Open a harmless browser-based chart, DEX, or test trading page.
+2. Use the optional DocHermes context extension, or copy a `DOCHERMES_CONTEXT` text payload from a browser DOM test fixture.
+3. Confirm clipboard monitoring is enabled and the coach is armed.
+4. Confirm the live signal list shows browser DOM context such as route, pair, chain, size, side, order type, leverage, and token address when available.
+5. Correct or dismiss any bad field before asking Hermes.
+
+Expected:
+
+- Browser context is optional and clipboard-mediated; DocHermes still works without the extension.
+- Detected browser DOM fields stay platform-agnostic and advisory-only.
+- Bad browser DOM extraction can be corrected locally before the next coach request.
+
+## 9. OCR Overlay Open, Adjust, Save Path
 
 1. Open Local settings.
 2. Enable `Use OCR snapshots for local pre-checks`.
@@ -169,7 +184,7 @@ Expected:
 - Recalibration reports a clear inactive, waiting, active, or error state.
 - OCR monitoring does not start hidden capture without the app being armed and configured.
 
-## 9. Wallet Sync Disabled-By-Default Sanity Check
+## 10. Wallet Sync Disabled-By-Default Sanity Check
 
 1. Start from clean local settings or clear the Observed public wallet addresses field.
 2. Confirm the field is empty by default.

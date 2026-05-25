@@ -122,3 +122,56 @@ describe('clipboard signal extraction', () => {
     expect(signals.some((signal) => signal.kind === 'source' && signal.value === 'Raydium')).toBe(true);
   });
 });
+
+describe('browser trading tool context extraction', () => {
+  it('parses copied browser-extension DOM payloads as clean trading context', () => {
+    const signals = extractClipboardSignalsFromText(
+      [
+        'DOCHERMES_CONTEXT',
+        'source: browser-dom',
+        'route: app.example.trade/swap',
+        'pair: SOL/USDC',
+        'chain: solana',
+        'order-direction: buy',
+        'order-type: limit',
+        'size: 0.08 SOL',
+        'leverage: 2x',
+        'token-address: So11111111111111111111111111111111111111112'
+      ].join('\n'),
+      NOW
+    );
+
+    expect(signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'clipboard', kind: 'source', value: 'browser-dom' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'route', value: 'app.example.trade/swap' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'pair', value: 'SOL/USDC', confidence: 'high' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'chain', value: 'solana' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'order-side', value: 'buy' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'order-type', value: 'limit' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'order-size', value: '0.08 SOL' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'leverage', value: '2x' }),
+        expect.objectContaining({ source: 'clipboard', kind: 'token-address', maskedValue: 'So11...1112' })
+      ])
+    );
+  });
+});
+
+describe('non-browser trading tool screenshot/OCR fallback extraction', () => {
+  it('keeps OCR fallback signals separate and confidence-qualified', () => {
+    const signals = extractOCRSignalsFromText(
+      ['Buy 0.08 SOL', 'chain solana', 'liquidity $118,000', 'volume $1.8M'].join('\n'),
+      NOW,
+      'low'
+    );
+
+    expect(signals.every((signal) => signal.source === 'ocr')).toBe(true);
+    expect(signals.every((signal) => signal.confidence === 'low')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'order-direction' && signal.value === 'buy')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'order-size' && signal.value === '0.08 SOL')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'chain' && signal.value === 'solana')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'liquidity' && signal.value === '$118,000')).toBe(true);
+    expect(signals.some((signal) => signal.kind === 'volume' && signal.value === '$1.8M')).toBe(true);
+    expect(signals.every((signal) => signal.message?.includes('OCR hint (low confidence):'))).toBe(true);
+  });
+});

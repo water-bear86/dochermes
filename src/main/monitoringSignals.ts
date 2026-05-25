@@ -9,24 +9,26 @@ const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}\b/g;
 const SOL_ADDRESS_RE = /\b[1-9A-HJ-NP-Za-km-z]{40,88}\b/g;
 const URL_RE = /https?:\/\/[^\s]+/g;
 const LABELED_ADDRESS_RE = new RegExp(
-  `\\b(tokenAddress|token address|asset address|contract address|mint|ca|pairAddress|pair address|pair|poolAddress|pool address|pool)\\b\\s*[:=]?\\s*["']?(${EVM_ADDRESS_PATTERN}|${SOL_ADDRESS_PATTERN})["']?`,
+  `\\b(tokenAddress|token address|token-address|asset address|asset-address|contract address|contract-address|mint|ca|pairAddress|pair address|pair-address|pair|poolAddress|pool address|pool-address|pool)\\b\\s*[:=]?\\s*["']?(${EVM_ADDRESS_PATTERN}|${SOL_ADDRESS_PATTERN})["']?`,
   'gi'
 );
 const ORDER_PAIR_RE = /\b(?:pair|trading pair)\s*[:=]?\s*([A-Za-z0-9]{2,12})\s*[\/:.-]\s*([A-Za-z0-9]{2,12})\b/i;
 const RAW_PAIR_RE = /\b([A-Z]{2,12})\s*\/\s*([A-Z]{2,12})\b/g;
 const ORDER_SIZE_RE =
   /\b(?:size|amount|qty|quantity|position size|notional|value|invest(?:ed)?|stake)\s*[:=]?\s*["']?\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(?:(?!size\b|amount\b|qty\b|quantity\b|position size\b|notional\b|value\b|invest(?:ed)?\b|stake\b|buy\b|sell\b|long\b|short\b|market\b|limit\b|stop\b|tp\b|sl\b|leverage\b)([A-Za-z%]{1,12})\b)?["']?/gi;
+const ACTION_SIZE_RE =
+  /\b(?:buy|sell|long|short)\s+\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*([A-Za-z%]{1,12})\b/gi;
 const LEVERAGE_RE = /\bleverage\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*[xX]\b/g;
 const CHAIN_RE =
   /\b(?:chain|network)\s*[:=]?\s*(ethereum|solana|sol|bsc|base|arbitrum|optimism|polygon|avalanche|avax|fantom|solana|sui|aptos)\b/gi;
 const ORDER_DIR_RE = /\b(buy|sell|long|short)\b/gi;
 const ORDER_TYPE_RE = /\b(market|limit|stop[- ]?loss|take[- ]?profit|tp|sl|stop)\b/gi;
 const ROUTE_RE =
-  /\b(?:routePreview|route preview|route)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|pairAddress|chain|network|liquidityUsd|liquidity|volume|dex|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
+  /\b(?:routePreview|route preview|route)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|token-address|pairAddress|pair-address|pair|chain|network|order-direction|order-type|order-size|size|leverage|liquidityUsd|liquidity|volume|dex|url|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
 const SOURCE_RE =
-  /\b(?:source(?:\s+label)?|dex)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|pairAddress|chain|network|liquidityUsd|liquidity|volume|dex|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
-const LIQUIDITY_RE = /\b(?:liquidityUsd|liquidity\s+usd|liquidity|liq)\s*[:=]\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
-const VOLUME_RE = /\b(?:volumeUsd|volume\s+(?:m5|h1|h24|24h)|volume|vol)\s*[:=]\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
+  /\b(?:source(?:\s+label)?|dex)\s*[:=]\s*["']?([A-Za-z0-9\-_/ .]{2,80}?)(?=\s+(?:source(?:\s+label)?|route(?:Preview|\s+preview)?|tokenAddress|token-address|pairAddress|pair-address|pair|chain|network|order-direction|order-type|order-size|size|leverage|liquidityUsd|liquidity|volume|dex|url|data-[a-z-]+)\s*[:=]|["']?\s*$)/gi;
+const LIQUIDITY_RE = /\b(?:liquidityUsd|liquidity\s+usd|liquidity|liq)\s*[:=]?\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
+const VOLUME_RE = /\b(?:volumeUsd|volume\s+(?:m5|h1|h24|24h)|volume|vol)\s*[:=]?\s*(\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmMbB]?)/gi;
 
 const KNOWN_CHAINS = new Set<string>([
   'avalanche',
@@ -118,6 +120,17 @@ export function extractMonitoringSignalsFromText(
 
     const normalizedQuantity = `${quantity}${unit ? ` ${unit}` : ''}`.trim();
     addSignal(normalizedQuantity, 'order-size', defaultConfidence, `Detected order-size signal: ${normalizedQuantity}`);
+  }
+
+  for (const rawMatch of normalized.matchAll(ACTION_SIZE_RE)) {
+    const quantity = rawMatch[1];
+    const unit = rawMatch[2] ?? '';
+    if (!quantity || !unit) {
+      continue;
+    }
+
+    const normalizedQuantity = `${quantity} ${unit}`.trim();
+    addSignal(normalizedQuantity, 'order-size', defaultConfidence, `Detected order-size signal near order action: ${normalizedQuantity}`);
   }
 
   for (const rawMatch of normalized.matchAll(LEVERAGE_RE)) {
