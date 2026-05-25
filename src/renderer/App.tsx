@@ -40,7 +40,6 @@ import {
   buildCompactPostmortemSummary,
   buildPostmortemSessions,
   deletePostmortemOutcomeRecord,
-  formatPostmortemOutcomeDetail,
   formatPostmortemTagLabel,
   readPostmortemOutcomeRecords,
   readPostmortemSummaries,
@@ -56,7 +55,6 @@ import {
   appendWarningFeedback,
   clearWarningFeedbackEntries,
   deleteWarningFeedback,
-  formatPolicyOverrideAuditDetail,
   readWarningFeedbackEntries,
   updateWarningFeedback,
   type WarningFeedbackAction,
@@ -139,6 +137,12 @@ import {
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { WindowPicker } from './WindowPicker';
 import { GatewaySettingsPanel } from './GatewaySettingsPanel';
+import {
+  LocalMemoryPanel,
+  PostmortemReplayPanel,
+  SourceContextJournalPanel,
+  WarningFeedbackLogPanel
+} from './JournalPostmortemPanels';
 import {
   FrictionCardPanel,
   LocalGuardrailPanel,
@@ -4145,359 +4149,77 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      <section className="message" aria-label="Local memory controls">
-        <div className="section-heading compact">
-          <span className="label">Local memory</span>
-          <button
-            type="button"
-            className="ghost"
-            onClick={clearLocalMemory}
-            disabled={journalEntries.length === 0 && warningFeedbackEntries.length === 0}
-          >
-            Clear local memory
-          </button>
-        </div>
-        <p>
-          {journalEntries.length} journal notes · {warningFeedbackEntries.length} warning feedback records saved locally on this
-          device.
-        </p>
-      </section>
+      <LocalMemoryPanel
+        journalEntryCount={journalEntries.length}
+        warningFeedbackCount={warningFeedbackEntries.length}
+        memoryContext={memoryContext}
+        onClearLocalMemory={clearLocalMemory}
+      />
 
-      {memoryContext.matchedPatterns.length > 0 ? (
-        <section className="message memory" aria-label="Personal memory match">
-          <span className="label">Personal memory</span>
-          {memoryContext.matchedPatterns.map((pattern) => (
-            <div key={pattern.name} className="memory-pattern">
-              <strong>{pattern.summary}</strong>
-              <p>{pattern.recommendation}</p>
-              <small>{pattern.evidenceCount} local journal notes matched</small>
-            </div>
-          ))}
-        </section>
-      ) : null}
+      <WarningFeedbackLogPanel
+        entries={warningFeedbackEntries}
+        editingFeedbackId={editingFeedbackId}
+        editingFeedbackAction={editingFeedbackAction}
+        editingFeedbackNotes={editingFeedbackNotes}
+        onBeginEdit={beginEditFeedback}
+        onDelete={deleteWarningFeedbackEntry}
+        onActionChange={setEditingFeedbackAction}
+        onNotesChange={setEditingFeedbackNotes}
+        onSave={saveEditedFeedback}
+        onCancel={() => {
+          setEditingFeedbackId(undefined);
+          setEditingFeedbackAction('followed-plan');
+          setEditingFeedbackNotes('');
+        }}
+      />
 
-      {memoryContext.tradeHistorySummary ? (
-        <section className="message trade-history" aria-label="Trade history summary">
-          <span className="label">Trade history summary</span>
-          <ul className="trade-history-list">
-            <li>
-              {memoryContext.tradeHistorySummary.totalTrades} recent trades tracked · {memoryContext.tradeHistorySummary.recentLossStreak} recent loss
-              {memoryContext.tradeHistorySummary.recentLossStreak === 1 ? '' : 'es'} (latest hour/day:
-              {memoryContext.tradeHistorySummary.tradesLastHour}/{memoryContext.tradeHistorySummary.tradesLastDay})
-              {memoryContext.tradeHistorySummary.importedTrades > 0
-                ? ` · imported records: ${memoryContext.tradeHistorySummary.importedTrades}`
-                : ''}
-              {memoryContext.tradeHistorySummary.walletTrades > 0
-                ? ` · wallet records: ${memoryContext.tradeHistorySummary.walletTrades}`
-                : ''}
-            </li>
-            {memoryContext.tradeHistorySummary.sizeSignals.length > 0 ? (
-              memoryContext.tradeHistorySummary.sizeSignals.map((signal) => (
-                <li key={signal.unit}>
-                  {signal.unit.toUpperCase()} median: {signal.medianSize.toFixed(2)} / max: {signal.maxSize.toFixed(2)} (n={signal.sampleCount})
-                </li>
-              ))
-            ) : (
-              <li>No parseable trade-size signal in recent notes.</li>
-            )}
-          </ul>
-        </section>
-      ) : null}
-
-      {warningFeedbackEntries.length > 0 ? (
-        <section className="message" aria-label="Warning feedback log">
-          <span className="label">Warning feedback</span>
-          <div className="warning-feedback-list">
-            {warningFeedbackEntries.map((entry) => (
-              <div key={entry.id} className="warning-feedback-item">
-                <strong>{entry.warningText}</strong>
-                <p>{entry.action.replace('-', ' ')}</p>
-                <small>
-                  {new Date(entry.createdAt).toLocaleString()} · {entry.selectedWindowName}
-                </small>
-                {entry.notes ? <small>Notes: {entry.notes}</small> : null}
-                {formatPolicyOverrideAuditDetail(entry).map((detail) => (
-                  <small key={`${entry.id}-${detail}`} className="policy-override-audit-detail">
-                    {detail}
-                  </small>
-                ))}
-                {entry.updatedAt ? <small>Updated: {new Date(entry.updatedAt).toLocaleString()}</small> : null}
-                <div className="button-row">
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      beginEditFeedback(entry);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button type="button" className="ghost" onClick={() => deleteWarningFeedbackEntry(entry.id)}>
-                    Delete
-                  </button>
-                </div>
-
-                {editingFeedbackId === entry.id ? (
-                  <div className="feedback-edit-row">
-                    <label htmlFor={`edit-action-${entry.id}`}>Action</label>
-                    <select
-                      id={`edit-action-${entry.id}`}
-                      value={editingFeedbackAction}
-                      onChange={(event) => setEditingFeedbackAction(event.target.value as WarningFeedbackAction)}
-                    >
-                      <option value="took-it-anyway">Took it anyway</option>
-                      <option value="skipped">Skipped</option>
-                      <option value="followed-plan">Followed plan</option>
-                      <option value="added-note">Added note</option>
-                      <option value="false-positive">Mark false positive</option>
-                    </select>
-                    <label htmlFor={`edit-notes-${entry.id}`}>Notes</label>
-                    <textarea
-                      id={`edit-notes-${entry.id}`}
-                      value={editingFeedbackNotes}
-                      onChange={(event) => setEditingFeedbackNotes(event.target.value)}
-                      className="notes"
-                    />
-                    <div className="button-row">
-                      <button type="button" onClick={saveEditedFeedback}>
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() => {
-                          setEditingFeedbackId(undefined);
-                          setEditingFeedbackAction('followed-plan');
-                          setEditingFeedbackNotes('');
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {postmortemSessions.length > 0 ? (
-        <section className="message postmortem" aria-label="Postmortem replay">
-          <span className="label">Postmortem replay</span>
-          <div className="section-heading compact">
-            <h2>{postmortemSessionSummaryLabel}</h2>
-            <button type="button" className="ghost" onClick={savePostmortemSummary}>
-              Save session compact summary
-            </button>
-          </div>
-
-          <label htmlFor="postmortem-session">Replay session</label>
-          <select
-            id="postmortem-session"
-            value={postmortemSession?.id ?? ''}
-            onChange={(event) => {
-              setSelectedPostmortemSessionId(event.target.value);
-              setPostmortemSummaryMessage('');
-              clearPostmortemEditing();
-            }}
-          >
-            {postmortemSessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.label}
-              </option>
-            ))}
-          </select>
-
-          {postmortemSummaryMessage ? <small className="subtle-note">{postmortemSummaryMessage}</small> : null}
-
-          <div className="subtle-note">
-            {postmortemSession.timeline.length} timeline event(s) · {postmortemSessionOutcomes.length} tagged outcome(s)
-            {postmortemSession.riskSignals.length > 0
-              ? ` · top risks: ${postmortemSession.riskSignals.slice(0, 3).join(', ')}`
-              : ''}
-          </div>
-
-          <div className="postmortem-timeline">
-            {postmortemSession.timeline.map((event) => {
-              const eventOutcome = postmortemOutcomeForEvent(event.id);
-              const isEditing = editingPostmortemEventId === event.id;
-
-              return (
-                <article key={event.id} className="postmortem-event">
-                  <div className="postmortem-event-heading">
-                    <strong>{event.source}</strong>
-                    <small>{new Date(event.timestamp).toLocaleString()}</small>
-                  </div>
-                  <h3>{event.title}</h3>
-                  <p className="postmortem-event-summary">{event.summary}</p>
-                  <small className="postmortem-event-subtitle">{event.riskSignals.length > 0 ? 'Risk signals present' : 'No explicit risk signal'}</small>
-
-                  <ul className="postmortem-event-list">
-                    {event.details.map((detail, index) => (
-                      <li key={`${event.id}-detail-${index}`}>{detail}</li>
-                    ))}
-                  </ul>
-                  {event.provenance.length > 0 ? (
-                    <ul className="postmortem-event-list postmortem-event-provenance">
-                      {event.provenance.map((entry, index) => (
-                        <li key={`${event.id}-prov-${index}`}>{entry}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-
-                  {eventOutcome ? (
-                    <small className="postmortem-outcome-chip">
-                      {formatPostmortemOutcomeDetail(eventOutcome)}
-                    </small>
-                  ) : null}
-
-                  {isEditing ? (
-                    <div className="postmortem-edit-row">
-                      <label htmlFor={`postmortem-tag-${event.id}`}>Outcome tag</label>
-                      <select
-                        id={`postmortem-tag-${event.id}`}
-                        value={editingPostmortemOutcome}
-                        onChange={(newEvent) => setEditingPostmortemOutcome(newEvent.target.value as PostmortemOutcomeTag)}
-                      >
-                        {POSTMORTEM_OUTCOME_TAG_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <label htmlFor={`postmortem-notes-${event.id}`}>Notes</label>
-                      <textarea
-                        id={`postmortem-notes-${event.id}`}
-                        value={editingPostmortemNotes}
-                        className="notes"
-                        onChange={(newEvent) => setEditingPostmortemNotes(newEvent.target.value)}
-                      />
-                      <label htmlFor={`postmortem-mistake-tags-${event.id}`}>Mistake tags (comma separated)</label>
-                      <input
-                        id={`postmortem-mistake-tags-${event.id}`}
-                        value={editingPostmortemMistakeTags}
-                        onChange={(newEvent) => setEditingPostmortemMistakeTags(newEvent.target.value)}
-                        placeholder="fomo, late-entry, oversize"
-                      />
-                      <label htmlFor={`postmortem-setup-quality-${event.id}`}>Setup quality (1-5)</label>
-                      <input
-                        id={`postmortem-setup-quality-${event.id}`}
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="1"
-                        value={editingPostmortemSetupQuality}
-                        onChange={(newEvent) => setEditingPostmortemSetupQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
-                      />
-                      <label htmlFor={`postmortem-source-quality-${event.id}`}>Source quality (1-5)</label>
-                      <input
-                        id={`postmortem-source-quality-${event.id}`}
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="1"
-                        value={editingPostmortemSourceQuality}
-                        onChange={(newEvent) => setEditingPostmortemSourceQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
-                      />
-                      <label htmlFor={`postmortem-sizing-quality-${event.id}`}>Sizing quality (1-5)</label>
-                      <input
-                        id={`postmortem-sizing-quality-${event.id}`}
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="1"
-                        value={editingPostmortemSizingQuality}
-                        onChange={(newEvent) => setEditingPostmortemSizingQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))}
-                      />
-                      <label htmlFor={`postmortem-entry-timing-quality-${event.id}`}>Entry timing quality (1-5)</label>
-                      <input
-                        id={`postmortem-entry-timing-quality-${event.id}`}
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="1"
-                        value={editingPostmortemEntryTimingQuality}
-                        onChange={(newEvent) =>
-                          setEditingPostmortemEntryTimingQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))
-                        }
-                      />
-                      <label htmlFor={`postmortem-invalidation-quality-${event.id}`}>Invalidation quality (1-5)</label>
-                      <input
-                        id={`postmortem-invalidation-quality-${event.id}`}
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="1"
-                        value={editingPostmortemInvalidationQuality}
-                        onChange={(newEvent) =>
-                          setEditingPostmortemInvalidationQuality(Math.max(1, Math.min(5, Number(newEvent.target.value) || 3)))
-                        }
-                      />
-                      <label htmlFor={`postmortem-max-loss-${event.id}`}>Max loss observed (%)</label>
-                      <input
-                        id={`postmortem-max-loss-${event.id}`}
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={editingPostmortemMaxLossPercent}
-                        onChange={(newEvent) => setEditingPostmortemMaxLossPercent(newEvent.target.value)}
-                        placeholder="12.5"
-                      />
-                      <label htmlFor={`postmortem-lesson-${event.id}`}>Lesson learned</label>
-                      <textarea
-                        id={`postmortem-lesson-${event.id}`}
-                        value={editingPostmortemLessonLearned}
-                        className="notes"
-                        onChange={(newEvent) => setEditingPostmortemLessonLearned(newEvent.target.value)}
-                      />
-                      <div className="button-row">
-                        <button type="button" onClick={savePostmortemOutcome}>
-                          Save outcome
-                        </button>
-                        <button type="button" className="ghost" onClick={clearPostmortemEditing}>
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="button-row">
-                      <button type="button" onClick={() => beginEditPostmortemOutcome(event)}>
-                        {eventOutcome ? 'Edit outcome' : 'Add outcome'}
-                      </button>
-                      {eventOutcome ? (
-                        <button type="button" className="ghost" onClick={() => deletePostmortemOutcome(eventOutcome.id)}>
-                          Clear outcome
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-
-          {postmortemSessionSummaries.length > 0 ? (
-            <div className="postmortem-summary-listing">
-              <div className="section-heading compact">
-                <h2>Saved session summaries</h2>
-                <small>{postmortemSessionSummaries.length}</small>
-              </div>
-              <ol className="postmortem-summary-list">
-                {postmortemSessionSummaries.slice(0, POSTMORTEM_SUMMARY_PREVIEW_LIMIT).map((summary) => (
-                  <li key={summary.id} className="postmortem-summary-item">
-                    <strong>{summary.compactSummary}</strong>
-                    <small>
-                      Generated {new Date(summary.generatedAt).toLocaleString()} · {summary.eventCount} events · {summary.taggedEventCount}{' '}
-                      tagged
-                    </small>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+      <PostmortemReplayPanel
+        sessions={postmortemSessions}
+        session={postmortemSession}
+        sessionOutcomes={postmortemSessionOutcomes}
+        sessionSummaries={postmortemSessionSummaries}
+        sessionSummaryLabel={postmortemSessionSummaryLabel}
+        summaryMessage={postmortemSummaryMessage}
+        editingState={{
+          eventId: editingPostmortemEventId,
+          outcome: editingPostmortemOutcome,
+          notes: editingPostmortemNotes,
+          mistakeTags: editingPostmortemMistakeTags,
+          setupQuality: editingPostmortemSetupQuality,
+          sourceQuality: editingPostmortemSourceQuality,
+          sizingQuality: editingPostmortemSizingQuality,
+          entryTimingQuality: editingPostmortemEntryTimingQuality,
+          invalidationQuality: editingPostmortemInvalidationQuality,
+          maxLossPercent: editingPostmortemMaxLossPercent,
+          lessonLearned: editingPostmortemLessonLearned
+        }}
+        outcomeTagOptions={POSTMORTEM_OUTCOME_TAG_OPTIONS}
+        summaryPreviewLimit={POSTMORTEM_SUMMARY_PREVIEW_LIMIT}
+        onSaveSummary={savePostmortemSummary}
+        onSessionChange={(sessionId) => {
+          setSelectedPostmortemSessionId(sessionId);
+          setPostmortemSummaryMessage('');
+          clearPostmortemEditing();
+        }}
+        onBeginEdit={beginEditPostmortemOutcome}
+        onDeleteOutcome={deletePostmortemOutcome}
+        onSaveOutcome={savePostmortemOutcome}
+        onCancelEdit={clearPostmortemEditing}
+        onEditingOutcomeChange={setEditingPostmortemOutcome}
+        onEditingNotesChange={setEditingPostmortemNotes}
+        onEditingMistakeTagsChange={setEditingPostmortemMistakeTags}
+        onEditingSetupQualityChange={(value) => setEditingPostmortemSetupQuality(Math.max(1, Math.min(5, Number(value) || 3)))}
+        onEditingSourceQualityChange={(value) => setEditingPostmortemSourceQuality(Math.max(1, Math.min(5, Number(value) || 3)))}
+        onEditingSizingQualityChange={(value) => setEditingPostmortemSizingQuality(Math.max(1, Math.min(5, Number(value) || 3)))}
+        onEditingEntryTimingQualityChange={(value) =>
+          setEditingPostmortemEntryTimingQuality(Math.max(1, Math.min(5, Number(value) || 3)))
+        }
+        onEditingInvalidationQualityChange={(value) =>
+          setEditingPostmortemInvalidationQuality(Math.max(1, Math.min(5, Number(value) || 3)))
+        }
+        onEditingMaxLossPercentChange={setEditingPostmortemMaxLossPercent}
+        onEditingLessonLearnedChange={setEditingPostmortemLessonLearned}
+      />
 
       {screenshotDataUrl ? (
         <section className="preview" aria-label="Latest screenshot preview">
@@ -4672,83 +4394,28 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {response ? (
-        <section className="message" aria-label="Source context">
-          <div className="section-heading compact source-outcome-heading">
-            <h2>Source context</h2>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                applySourceContextFromFinding(topSourceQualityFinding, true);
-              }}
-              disabled={!topSourceQualityFinding}
-            >
-              Apply detected source
-            </button>
-          </div>
-          <small className="source-outcome-hint">Track source context so future source-quality checks learn from your outcomes.</small>
-          {topSourceQualityFinding ? (
-            <div className="source-quality-chip-list">
-              <span className="source-quality-chip">
-                {topSourceQualityCategoryLabel} · confidence {topSourceQualityFinding.confidence} ·{' '}
-                {topSourceQualityFinding.provenance}
-              </span>
-              {topSourceQualityFinding.tokenHint ? (
-                <span className="source-quality-chip">Token hint: {topSourceQualityFinding.tokenHint}</span>
-              ) : null}
-            </div>
-          ) : (
-            <small className="source-outcome-hint">No source detected in this request. Fill category/outcome manually if needed.</small>
-          )}
-          <label htmlFor="source-category">Source category</label>
-          <select
-            id="source-category"
-            value={journalSourceCategory}
-            onChange={(event) => setJournalSourceCategory(event.target.value as SourceCategory)}
-          >
-            {SOURCE_CATEGORY_OPTIONS.map((option) => (
-              <option value={option.value} key={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="source-outcome">Outcome</label>
-          <select
-            id="source-outcome"
-            value={journalSourceOutcome}
-            onChange={(event) => setJournalSourceOutcome(event.target.value as SourceQualityOutcome)}
-          >
-            {SOURCE_OUTCOME_OPTIONS.map((option) => (
-              <option value={option.value} key={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <small className="source-outcome-hint">{SOURCE_OUTCOME_HELP[journalSourceOutcome]}</small>
-          <label htmlFor="source-token-hint">Token/address hint (optional)</label>
-          <input
-            id="source-token-hint"
-            value={journalSourceTokenHint}
-            onChange={(event) => setJournalSourceTokenHint(event.target.value)}
-            placeholder="Optional token hint (e.g. contract/address)"
-          />
-          <label htmlFor="journal-notes">Session notes</label>
-          <textarea
-            id="journal-notes"
-            className="notes"
-            value={journalNotes}
-            onChange={(event) => setJournalNotes(event.target.value)}
-            placeholder="What happened next?"
-          />
-          <div className="journal-actions">
-            <button type="button" onClick={saveJournalEntry}>
-              Save journal
-            </button>
-            <span>{journalSavedMessage || `${journalEntries.length} saved locally`}</span>
-          </div>
-        </section>
-      ) : null}
+      <SourceContextJournalPanel
+        visible={Boolean(response)}
+        topFinding={topSourceQualityFinding}
+        topFindingCategoryLabel={topSourceQualityCategoryLabel}
+        sourceCategoryOptions={SOURCE_CATEGORY_OPTIONS}
+        sourceOutcomeOptions={SOURCE_OUTCOME_OPTIONS}
+        sourceOutcomeHelp={SOURCE_OUTCOME_HELP}
+        sourceCategory={journalSourceCategory}
+        sourceOutcome={journalSourceOutcome}
+        sourceTokenHint={journalSourceTokenHint}
+        journalNotes={journalNotes}
+        journalSavedMessage={journalSavedMessage}
+        journalEntryCount={journalEntries.length}
+        onApplyDetectedSource={() => {
+          applySourceContextFromFinding(topSourceQualityFinding, true);
+        }}
+        onSourceCategoryChange={setJournalSourceCategory}
+        onSourceOutcomeChange={setJournalSourceOutcome}
+        onSourceTokenHintChange={setJournalSourceTokenHint}
+        onJournalNotesChange={setJournalNotes}
+        onSaveJournal={saveJournalEntry}
+      />
 
       <footer>
         Platform agnostic. Read-only wallet context only. No signing. No order routing.
