@@ -137,6 +137,7 @@ import {
   CORRECTABLE_MONITORING_SIGNAL_KINDS
 } from './monitoringCorrections';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
+import { WindowPicker } from './WindowPicker';
 
 interface WarningEvidenceEntry {
   source: string;
@@ -4151,35 +4152,14 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {pickerOpen ? (
-        <section className="window-picker" aria-label="Available windows">
-          <div className="section-heading">
-            <h2>Choose the trading window to inspect</h2>
-            <button type="button" className="ghost" onClick={() => loadSources('pair')}>
-              Refresh
-            </button>
-            <button type="button" className="ghost" onClick={() => setPickerOpen(false)}>
-              Close
-            </button>
-          </div>
-          <div className="source-list">
-            {sources.map((source) => (
-              <button
-                type="button"
-                className={`source-option ${selectedSource?.id === source.id ? 'selected' : ''}`}
-                key={source.id}
-                onClick={() => {
-                  onSelectSource(source);
-                }}
-              >
-                <img src={source.thumbnailDataUrl} alt="" />
-                <span>{source.name}</span>
-                <small>{source.kind}</small>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <WindowPicker
+        open={pickerOpen}
+        sources={sources}
+        selectedSourceId={selectedSource?.id}
+        onRefresh={() => loadSources('pair')}
+        onClose={() => setPickerOpen(false)}
+        onSelectSource={onSelectSource}
+      />
 
       {requestPreview ? (
         <section className="message" aria-label="Hermes request preview">
