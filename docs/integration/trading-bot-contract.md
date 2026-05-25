@@ -194,6 +194,52 @@ Allowed decision actions:
 - `rejected`
 - `overrode`
 
+## Execution Gate Decision
+
+When a bot is ready to decide whether its own execution flow may continue, it can derive a local gate decision from the trade card and the optional user decision event.
+
+This is policy metadata for the bot. It is not an order, route, signature request, transaction, or execution approval from DocHermes.
+
+```json
+{
+  "schemaVersion": "dochermes.execution-gate.v1",
+  "signalId": "sig_123",
+  "evaluatedAt": "2026-05-23T15:03:30.000Z",
+  "mode": "policy",
+  "status": "requires-override",
+  "canContinueToBotConfirmation": false,
+  "requiresExplicitOverride": true,
+  "overrideAccepted": false,
+  "reasons": ["Daily loss policy requires explicit user override."],
+  "executionBoundary": {
+    "docHermesCanExecute": false,
+    "botOwnsExecution": true,
+    "advisoryOnly": true,
+    "prohibitedActions": [
+      "hold-private-keys",
+      "request-seed-phrase",
+      "request-wallet-approval",
+      "sign-transaction",
+      "route-order",
+      "place-trade",
+      "submit-transaction",
+      "withdraw-funds"
+    ],
+    "note": "DocHermes provides local coaching metadata only. The trading bot owns confirmation, routing, signing, and execution."
+  }
+}
+```
+
+Gate statuses:
+
+- `allowed`: the user chose a continuing action and no policy override is required.
+- `warn`: guardrail mode has warnings, but the user chose a continuing action.
+- `requires-override`: policy mode has a violation and the user has not recorded explicit override metadata.
+- `override-accepted`: policy mode has a violation and the user recorded explicit override metadata.
+- `not-requested`: the user chose to wait, set an alert, create a plan, reject, or has not chosen a continuing action.
+
+The only continuation hint is `canContinueToBotConfirmation`. Even when it is `true`, the bot still owns final confirmation, routing, signing, and order placement. Local override notes are intentionally not exported through this bot-facing gate payload.
+
 ## Outcome Event
 
 Outcome data closes the coaching loop.
@@ -248,6 +294,6 @@ Maximum privacy means:
 ## Open Questions
 
 - Which bot event transport should ship first: local HTTP, WebSocket, IPC, or file-based dropbox?
-- Should policy mode block inside the bot, DocHermes, or both?
+- How should each bot map `canContinueToBotConfirmation` into its own pre-trade confirmation UI?
 - How much market data should the bot pass directly versus letting Hermes infer from screenshot/context?
 - What is the minimum outcome data needed for useful personal memory without becoming surveillance-heavy?
