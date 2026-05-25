@@ -276,6 +276,78 @@ describe('parseJournalEntries', () => {
       tokenHint: '0x123'
     });
   });
+
+  it('keeps expanded monitoring signal kinds when parsing journal entries', () => {
+    const entries = parseJournalEntries(
+      JSON.stringify([
+        {
+          id: 'expanded-signals',
+          createdAt: '2026-05-18T19:00:00.000Z',
+          question: 'New?',
+          response: 'New response',
+          notes: 'Reviewed',
+          selectedWindow: {
+            id: 'window:1',
+            name: 'Trading Window',
+            kind: 'window'
+          },
+          screenshot: {
+            captured: true,
+            imageStored: false
+          },
+          monitoring: {
+            localWarnings: [],
+            signals: [
+              {
+                source: 'ocr',
+                kind: 'token-address',
+                maskedValue: '0x11...1111',
+                confidence: 'medium',
+                detectedAt: '2026-05-18T19:01:00.000Z'
+              },
+              {
+                source: 'ocr',
+                kind: 'pair-address',
+                maskedValue: '9wFF...p9fK',
+                confidence: 'medium',
+                detectedAt: '2026-05-18T19:01:01.000Z'
+              },
+              {
+                source: 'clipboard',
+                kind: 'order-side',
+                maskedValue: 'buy',
+                confidence: 'high',
+                detectedAt: '2026-05-18T19:01:02.000Z'
+              },
+              {
+                source: 'clipboard',
+                kind: 'liquidity',
+                maskedValue: '$118,000',
+                confidence: 'low',
+                detectedAt: '2026-05-18T19:01:03.000Z'
+              },
+              {
+                source: 'clipboard',
+                kind: 'volume',
+                maskedValue: '$1.8M',
+                confidence: 'low',
+                detectedAt: '2026-05-18T19:01:04.000Z'
+              }
+            ]
+          }
+        }
+      ])
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.monitoring?.signals.map((signal) => signal.kind)).toEqual([
+      'token-address',
+      'pair-address',
+      'order-side',
+      'liquidity',
+      'volume'
+    ]);
+  });
 });
 
 describe('serializeJournalEntries', () => {

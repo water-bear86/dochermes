@@ -132,6 +132,10 @@ import {
   type SpeechRecognitionGlobalLike,
   type SpeechRecognitionLike
 } from './voiceMode';
+import {
+  buildCorrectedMonitoringSignal,
+  CORRECTABLE_MONITORING_SIGNAL_KINDS
+} from './monitoringCorrections';
 
 interface WarningEvidenceEntry {
   source: string;
@@ -332,6 +336,9 @@ export function App(): ReactElement {
     () => readRequestDiagnostics(localStorage)
   );
   const [monitorSignals, setMonitorSignals] = useState<MonitoringSignal[]>([]);
+  const [editingMonitorSignal, setEditingMonitorSignal] = useState<MonitoringSignal | undefined>();
+  const [monitorCorrectionKind, setMonitorCorrectionKind] = useState<MonitoringSignal['kind']>('unknown');
+  const [monitorCorrectionValue, setMonitorCorrectionValue] = useState('');
   const [lastRequestMonitoringMetadata, setLastRequestMonitoringMetadata] = useState<
     JournalMonitoringMetadata | undefined
   >();
@@ -2640,6 +2647,9 @@ export function App(): ReactElement {
 
   const clearMonitorSignals = useCallback(() => {
     setMonitorSignals([]);
+    setEditingMonitorSignal(undefined);
+    setMonitorCorrectionValue('');
+    setMonitorCorrectionKind('unknown');
   }, []);
 
   const clearLocalMemory = useCallback(() => {
@@ -2667,15 +2677,52 @@ export function App(): ReactElement {
     setError('');
   }, [journalEntries.length, warningFeedbackEntries.length]);
 
+  const isSameMonitoringSignal = useCallback((left: MonitoringSignal, right: MonitoringSignal): boolean => {
+    return left.kind === right.kind && left.source === right.source && left.value === right.value && left.detectedAt === right.detectedAt;
+  }, []);
+
   const dismissMonitorSignal = useCallback((signal: MonitoringSignal) => {
     setMonitorSignals((current) =>
       current.filter((entry) => !isSameMonitoringSignal(entry, signal))
     );
+    setEditingMonitorSignal((current) => (current && isSameMonitoringSignal(current, signal) ? undefined : current));
+  }, [isSameMonitoringSignal]);
+
+  const beginMonitorSignalCorrection = useCallback((signal: MonitoringSignal) => {
+    setEditingMonitorSignal(signal);
+    setMonitorCorrectionKind(signal.kind);
+    setMonitorCorrectionValue(signal.value);
   }, []);
 
-  const isSameMonitoringSignal = useCallback((left: MonitoringSignal, right: MonitoringSignal): boolean => {
-    return left.kind === right.kind && left.source === right.source && left.value === right.value && left.detectedAt === right.detectedAt;
+  const cancelMonitorSignalCorrection = useCallback(() => {
+    setEditingMonitorSignal(undefined);
+    setMonitorCorrectionKind('unknown');
+    setMonitorCorrectionValue('');
   }, []);
+
+  const saveMonitorSignalCorrection = useCallback(() => {
+    if (!editingMonitorSignal) {
+      return;
+    }
+
+    try {
+      const correctedSignal = buildCorrectedMonitoringSignal(editingMonitorSignal, {
+        kind: monitorCorrectionKind,
+        value: monitorCorrectionValue,
+        correctedAt: new Date().toISOString()
+      });
+
+      setMonitorSignals((current) =>
+        current.map((entry) => (isSameMonitoringSignal(entry, editingMonitorSignal) ? correctedSignal : entry))
+      );
+      setEditingMonitorSignal(undefined);
+      setMonitorCorrectionValue('');
+      setMonitorCorrectionKind('unknown');
+      setError('');
+    } catch (nextError) {
+      setError(readError(nextError));
+    }
+  }, [editingMonitorSignal, isSameMonitoringSignal, monitorCorrectionKind, monitorCorrectionValue]);
 
   const appendSignalToQuestion = useCallback(
     (signal: MonitoringSignal) => {
@@ -4457,19 +4504,58 @@ export function App(): ReactElement {
                     {signal.message ? signal.message : signal.maskedValue}
                   </div>
                 </div>
-                {signal.source === 'clipboard' ? (
-                  <div className="button-row">
+                <div className="button-row">
+                  {signal.source === 'clipboard' ? (
                     <button type="button" className="ghost" onClick={() => appendSignalToQuestion(signal)}>
                       Use
                     </button>
-                    <button type="button" className="ghost" onClick={() => dismissMonitorSignal(signal)}>
-                      Dismiss
-                    </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                  <button type="button" className="ghost" onClick={() => beginMonitorSignalCorrection(signal)}>
+                    Correct
+                  </button>
+                  <button type="button" className="ghost" onClick={() => dismissMonitorSignal(signal)}>
+                    Dismiss
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
+          {editingMonitorSignal ? (
+            <div className="monitor-correction-panel">
+              <span className="label">Correct extraction</span>
+              <small className="source-outcome-hint">
+                Fix bad OCR, clipboard, or DOM context before the next coach request. Corrections stay local to this session.
+              </small>
+              <label htmlFor="monitor-correction-kind">Field</label>
+              <select
+                id="monitor-correction-kind"
+                value={monitorCorrectionKind}
+                onChange={(event) => setMonitorCorrectionKind(event.target.value as MonitoringSignal['kind'])}
+              >
+                {CORRECTABLE_MONITORING_SIGNAL_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="monitor-correction-value">Correct value</label>
+              <input
+                id="monitor-correction-value"
+                type="text"
+                value={monitorCorrectionValue}
+                onChange={(event) => setMonitorCorrectionValue(event.target.value)}
+                placeholder="e.g. 0.08 SOL or SOL/USDC"
+              />
+              <div className="button-row">
+                <button type="button" onClick={saveMonitorSignalCorrection}>
+                  Save correction
+                </button>
+                <button type="button" className="ghost" onClick={cancelMonitorSignalCorrection}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

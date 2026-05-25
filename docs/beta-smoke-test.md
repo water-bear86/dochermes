@@ -157,13 +157,15 @@ Expected:
 6. Choose `Order panel` or `Chart zone` under OCR region to edit.
 7. Drag over the capture preview, or adjust Region left/top/width/height.
 8. Confirm the overlay box moves and persists while settings remain open.
-9. Click `Recalibrate OCR regions`.
-10. Optional: click `Reset OCR region defaults` and confirm default boxes return.
+9. If a live OCR or clipboard signal is wrong, click `Correct`, fix the field/value, and save the correction.
+10. Click `Recalibrate OCR regions`.
+11. Optional: click `Reset OCR region defaults` and confirm default boxes return.
 
 Expected:
 
 - OCR setup is local-only and does not transmit OCR text unless included by the configured request path.
 - Overlay controls stay within the selected capture preview.
+- Corrected extraction signals stay local to the session and feed the next advisory request path.
 - Recalibration reports a clear inactive, waiting, active, or error state.
 - OCR monitoring does not start hidden capture without the app being armed and configured.
 

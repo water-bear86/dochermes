@@ -1129,6 +1129,21 @@ textarea:focus {
   font-size: 11px;
 }
 
+.monitor-correction-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #3a433f;
+  border-radius: 6px;
+  background: rgba(12, 14, 18, 0.72);
+  display: grid;
+  gap: 8px;
+}
+
+.monitor-correction-panel input,
+.monitor-correction-panel select {
+  width: 100%;
+}
+
 .wallet-sync-status-list {
   margin: 4px 0 0 18px;
   padding: 0;
