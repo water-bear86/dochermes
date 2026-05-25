@@ -74,6 +74,12 @@ import {
 } from './localSettings';
 import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT, withoutCompactTradeSummary } from './memoryContext';
 import {
+  buildCoachModePolicyGate,
+  COACH_MODE_OPTIONS,
+  formatPolicyLevelSignalSummary,
+  getCoachModeCopy
+} from './coachMode';
+import {
   buildPrivacyAwareAskHermesInput,
   canBypassRemoteConsent,
   shouldCaptureWindowForPrivacy,
@@ -648,6 +654,11 @@ export function App(): ReactElement {
 
     return 'session-risk-status--ok';
   }, [sessionRiskAssessment.status.enabled, sessionRiskAssessment.warnings]);
+  const activeCoachModeCopy = useMemo(() => getCoachModeCopy(settings.coachMode), [settings.coachMode]);
+  const sessionRiskSignalSummary = useMemo(
+    () => formatPolicyLevelSignalSummary(sessionRiskAssessment.warnings.map((warning) => warning.policyLevel)),
+    [sessionRiskAssessment.warnings]
+  );
 
   const sessionRiskLossText = sessionRiskAssessment.status.hasLossData
     ? `${sessionRiskAssessment.status.knownLossPercent.toFixed(2)}% of ${sessionRiskAssessment.status.maxLossPerSessionPercent}%`
@@ -1456,6 +1467,10 @@ export function App(): ReactElement {
           .filter((entry) => entry.policyLevel === 'policy')
           .map((entry) => entry.text)
       ];
+      const requestPolicyGate = buildCoachModePolicyGate({
+        mode: settings.coachMode,
+        policyWarnings: requestPolicyBlockingWarnings
+      });
       const requestWarningEvidence: WarningEvidenceSummary[] = requestLocalWarningCards.flatMap((entry) =>
         entry.evidences.map((evidence) => ({
           warningText: entry.text,
@@ -1474,12 +1489,12 @@ export function App(): ReactElement {
       );
 
       setPolicyCard(undefined);
-      if (!skipPolicyCheck && settings.coachMode === 'policy' && requestPolicyBlockingWarnings.length > 0) {
+      if (!skipPolicyCheck && requestPolicyGate.shouldBlock) {
         setPolicyCard({
           id: createRequestContextId(),
           question: questionText,
           warnings: requestLocalWarnings,
-          blockers: requestPolicyBlockingWarnings
+          blockers: requestPolicyGate.blockers
         });
         return;
       }
@@ -1742,13 +1757,17 @@ export function App(): ReactElement {
       frictionEnabled: settings.friction.enabled,
       frictionStrictness: settings.friction.strictness
     });
+    const policyGate = buildCoachModePolicyGate({
+      mode: settings.coachMode,
+      policyWarnings: policyBlockingWarnings
+    });
 
-    if (settings.coachMode === 'policy' && policyBlockingWarnings.length > 0) {
+    if (policyGate.shouldBlock) {
       setPolicyCard({
         id: createRequestContextId(),
         question,
         warnings: localWarnings,
-        blockers: policyBlockingWarnings
+        blockers: policyGate.blockers
       });
       return;
     }
@@ -1764,7 +1783,7 @@ export function App(): ReactElement {
     hasQuestion,
     localWarnings,
     loadSources,
-    policyBlockingWarnings.length,
+    policyBlockingWarnings,
     question,
     selectedSource,
     settings.coachMode,
@@ -2428,19 +2447,29 @@ export function App(): ReactElement {
   ]);
 
   const persistPreTradeDecision = useCallback(
-    (actionLabel: string, note: string | undefined, source: 'friction' | 'policy', policyOverrideBlockers: string[] = []) => {
+    (
+      actionLabel: string,
+      note: string | undefined,
+      source: 'friction' | 'policy',
+      policyOverrideBlockers: string[] = [],
+      context?: {
+        question?: string;
+        localWarnings?: string[];
+      }
+    ) => {
       if (!selectedSource) {
         setError('A trading window is required before saving this decision.');
         return;
       }
 
-      const questionContext = question.trim();
+      const questionContext = (context?.question ?? question).trim();
       const notes = note?.trim() || '';
       if (source === 'policy' && policyOverrideBlockers.length > 0 && !notes) {
         setError('Add an override note before sending through a policy block.');
         return;
       }
       const response = buildFrictionDecision(actionLabel, notes);
+      const warningContext = context?.localWarnings ?? localWarnings;
 
       const entry = buildJournalEntry({
         question: questionContext,
@@ -2449,7 +2478,7 @@ export function App(): ReactElement {
         selectedWindow: selectedSource,
         screenshotCaptured: false,
         monitoring: buildMonitoringMetadata(
-          localWarnings,
+          warningContext,
           monitorSignals,
           sourceQualityAssessment.findings,
           localWarningEvidence
@@ -2511,9 +2540,12 @@ export function App(): ReactElement {
 
   const persistPolicyDecision = useCallback(
     (actionLabel: string, note?: string) => {
-      persistPreTradeDecision(actionLabel, note, 'policy', policyCard?.blockers ?? []);
+      persistPreTradeDecision(actionLabel, note, 'policy', policyCard?.blockers ?? [], {
+        question: policyCard?.question,
+        localWarnings: policyCard?.warnings
+      });
     },
-    [persistPreTradeDecision, policyCard?.blockers]
+    [persistPreTradeDecision, policyCard?.blockers, policyCard?.question, policyCard?.warnings]
   );
 
   const proceedWithFrictionAction = useCallback(
@@ -2545,6 +2577,7 @@ export function App(): ReactElement {
   const clearPolicyAndError = useCallback(() => {
     setError('Trade blocked by policy without override.');
     setPolicyCard(undefined);
+    setPolicyNoteText('');
   }, []);
 
   const proceedWithPolicyOverride = useCallback(
@@ -2556,9 +2589,9 @@ export function App(): ReactElement {
       setError('');
       persistPolicyDecision('Policy override', policyNoteText.trim() || undefined);
       setPolicyNoteText('');
-      void askWithSource(selected, { skipPolicyCheck: true, skipFrictionCheck: true });
+      void askWithSource(selected, { skipPolicyCheck: true, skipFrictionCheck: true }, policyCard?.question);
     },
-    [askWithSource, persistPolicyDecision, policyNoteText]
+    [askWithSource, persistPolicyDecision, policyCard?.question, policyNoteText]
   );
 
   const statusText = useMemo(() => {
@@ -2907,8 +2940,7 @@ export function App(): ReactElement {
           </p>
         ) : null}
         <small className="session-risk-note">
-          Session budget engine returned {sessionRiskAssessment.warnings.length} guardrail signal
-          {sessionRiskAssessment.warnings.length === 1 ? '' : 's'} for this question.
+          {sessionRiskSignalSummary}
         </small>
       </section>
 
@@ -3456,12 +3488,14 @@ export function App(): ReactElement {
                 updateCoachMode(event.target.value as CoachMode)
               }
             >
-              <option value="advisory">Advisory (warn only)</option>
-              <option value="guardrail">Guardrail (warn + suggest)</option>
-              <option value="policy">Policy (override required)</option>
+              {COACH_MODE_OPTIONS.map((option) => (
+                <option key={option.mode} value={option.mode}>
+                  {option.selectLabel}
+                </option>
+              ))}
             </select>
             <small className="subtle-note">
-              Policy mode requires an explicit override before sending a blocked prompt to Hermes.
+              {activeCoachModeCopy.settingDetail} {activeCoachModeCopy.policyBlockBehavior} {activeCoachModeCopy.boundary}
             </small>
             <label>Personal trading rules</label>
             <p className="subtle-note">Add plain-language rules; supported checks: confirmation requirements, size ceilings, and cooldown patterns.</p>
