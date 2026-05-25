@@ -497,6 +497,7 @@ function buildUserPromptText(input: BuildHermesPayloadInput): string {
       input.memoryContext.recentNotes.length > 0 ||
       (input.memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
       input.memoryContext.tradeHistorySummary !== undefined ||
+      input.memoryContext.tradeBehaviorStats !== undefined ||
       (input.memoryContext.personalRules?.matchedRules.length ?? 0) > 0)
   ) {
     lines.push('', 'Compact personal memory context:', JSON.stringify(input.memoryContext));
@@ -704,6 +705,11 @@ function applyMemoryContextRedaction(
     ...(memoryContext.tradeHistorySummary
       ? {
           tradeHistorySummary: memoryContext.tradeHistorySummary
+        }
+      : {}),
+    ...(memoryContext.tradeBehaviorStats
+      ? {
+          tradeBehaviorStats: memoryContext.tradeBehaviorStats
         }
       : {}),
     ...(memoryContext.personalRules

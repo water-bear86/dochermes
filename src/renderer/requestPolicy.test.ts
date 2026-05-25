@@ -89,6 +89,33 @@ describe('summarizePrivacyRequestPolicy', () => {
     expect(JSON.stringify(summary)).not.toContain('secret');
     expect(JSON.stringify(summary)).not.toContain('0x1234');
   });
+
+  it('treats decision outcome stats as compact memory and trade summary content', () => {
+    const input = askInput({ privacyPreset: 'balanced', connectionKind: 'hosted', baseUrl: 'https://hosted.example/hermes?token=secret' });
+    input.memoryContext = statsOnlyMemoryContext();
+
+    const summary = summarizePrivacyRequestPolicy(input);
+    const metadata = buildRemoteConsentMetadata(input);
+
+    expect(summary.memoryContext).toBe('sent');
+    expect(summary.tradeSummary).toBe('sent');
+    expect(metadata.payloadClasses).toContain('Compact memory context');
+    expect(metadata.payloadClasses).toContain('Compact trade summary');
+    expect(JSON.stringify(metadata)).not.toContain('secret');
+  });
+
+  it('withholds decision outcome stats in maximum privacy summaries', () => {
+    const input = askInput({ privacyPreset: 'maximum' });
+    input.memoryContext = statsOnlyMemoryContext();
+
+    const summary = summarizePrivacyRequestPolicy(input);
+    const metadata = buildRemoteConsentMetadata(input);
+
+    expect(summary.memoryContext).toBe('withheld');
+    expect(summary.tradeSummary).toBe('withheld');
+    expect(metadata.localOnlyClasses).toContain('Compact memory context');
+    expect(metadata.localOnlyClasses).toContain('Compact trade summary');
+  });
 });
 
 describe('buildPrivacyAwareAskHermesInput', () => {
@@ -190,6 +217,52 @@ function askInput({
         redactBalances: false,
         redactUsernames: false,
         redactAmounts: false
+      }
+    }
+  };
+}
+
+function statsOnlyMemoryContext(): MemoryContext {
+  return {
+    matchedPatterns: [],
+    recentNotes: [],
+    tradeBehaviorStats: {
+      tradeCount: 3,
+      recentLossStreak: 1,
+      tradesLastHour: 1,
+      tradesLastDay: 3,
+      commonMistakeTags: [{ tag: 'early-entry', count: 2 }],
+      decisionOutcomeStats: {
+        immediateEntry: {
+          count: 2,
+          wins: 0,
+          losses: 2,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 0,
+          winRate: 0,
+          lossRate: 1
+        },
+        waitedConfirmation: {
+          count: 1,
+          wins: 1,
+          losses: 0,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 0,
+          winRate: 1,
+          lossRate: 0
+        },
+        skipped: {
+          count: 0,
+          wins: 0,
+          losses: 0,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 0,
+          winRate: undefined,
+          lossRate: undefined
+        }
       }
     }
   };

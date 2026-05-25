@@ -16,6 +16,7 @@ const POSTMORTEM_SUMMARY_CONTEXT_LIMIT = 4;
 const EARLY_ENTRY_TERMS = ['early', 'immediate', 'immediately', 'enter now', 'ape'];
 const NEGATIVE_TERMS = ['poor', 'loss', 'lost', 'oversized', 'drawdown', 'bad', 'mistake'];
 const CONFIRMATION_TERMS = ['confirmation', 'confirmed', 'wait', 'waited', 'support'];
+const SKIPPED_DECISION_TERMS = ['skipped', 'skip', 'passed', 'pass'];
 const WIN_TERMS = ['win', 'won', 'profit', 'profitable', 'green', 'worked'];
 const LOSS_CONTEXT_TERMS = ['loss', 'lost', 'losing', 'drawdown', 'make it back', 'recover'];
 const SIZE_INTENT_TERMS = ['size', 'sizing', 'allocation', 'position', 'leverage', 'size up', 'increase allocation'];
@@ -80,33 +81,61 @@ export function buildMemoryContext(
   };
 }
 
+export function withoutCompactTradeSummary(memoryContext: MemoryContext): MemoryContext {
+  const { tradeBehaviorStats: _tradeBehaviorStats, tradeHistorySummary: _tradeHistorySummary, ...rest } = memoryContext;
+  return rest;
+}
+
 function buildJournalTradeBehaviorStats(entries: JournalEntry[]): MemoryContext['tradeBehaviorStats'] {
   if (entries.length === 0) {
     return undefined;
   }
 
-  const trades = entries.map((entry) => normalizeTradeRecord({
-    source: 'journal',
-    entryId: entry.id,
-    createdAt: entry.createdAt,
-    selectedWindowName: entry.selectedWindow.name,
-    outcome: inferJournalOutcome(entry),
-    mistakeTags: inferMistakeTags(entry)
-  }));
+  const trades = entries.map((entry) =>
+    normalizeTradeRecord({
+      source: 'journal',
+      entryId: entry.id,
+      createdAt: entry.createdAt,
+      selectedWindowName: entry.selectedWindow.name,
+      outcome: inferJournalOutcome(entry),
+      decisionTiming: inferJournalDecisionTiming(entry),
+      mistakeTags: inferMistakeTags(entry)
+    })
+  );
 
   return buildTradeBehaviorStats(trades);
 }
 
 function inferJournalOutcome(entry: JournalEntry): NormalizedTradeRecord['outcome'] {
   const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
-  if (containsAny(text, ['skipped', 'passed', 'avoided'])) {
+  if (containsAny(text, SKIPPED_DECISION_TERMS)) {
     return 'skipped';
+  }
+  if (text.includes('avoided') && text.includes('drawdown') && containsAny(text, CONFIRMATION_TERMS)) {
+    return 'unknown';
   }
   if (containsAny(text, NEGATIVE_TERMS)) {
     return 'loss';
   }
   if (containsAny(text, WIN_TERMS)) {
     return 'win';
+  }
+  if (containsAny(text, ['avoided']) && !containsAny(text, CONFIRMATION_TERMS)) {
+    return 'skipped';
+  }
+  return 'unknown';
+}
+
+function inferJournalDecisionTiming(entry: JournalEntry): NormalizedTradeRecord['decisionTiming'] {
+  const text = normalize(`${entry.question} ${entry.response} ${entry.notes}`);
+  if (containsAny(text, SKIPPED_DECISION_TERMS)) {
+    return 'skipped';
+  }
+  if (containsAny(text, EARLY_ENTRY_TERMS)) {
+    return 'immediate-entry';
+  }
+  if (containsAny(text, CONFIRMATION_TERMS)) {
+    return 'waited-confirmation';
   }
   return 'unknown';
 }

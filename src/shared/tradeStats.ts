@@ -1,5 +1,22 @@
 import type { TradeRecord } from './tradeRecord';
 
+export type TradeDecisionOutcomeStats = {
+  count: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  skipped: number;
+  unknown: number;
+  winRate?: number;
+  lossRate?: number;
+};
+
+export type TradeDecisionOutcomeSummary = {
+  immediateEntry: TradeDecisionOutcomeStats;
+  waitedConfirmation: TradeDecisionOutcomeStats;
+  skipped: TradeDecisionOutcomeStats;
+};
+
 export type TradeBehaviorStats = {
   tradeCount: number;
   medianTradeSizeUsd?: number;
@@ -7,6 +24,7 @@ export type TradeBehaviorStats = {
   recentLossStreak: number;
   tradesLastHour: number;
   tradesLastDay: number;
+  decisionOutcomeStats: TradeDecisionOutcomeSummary;
   commonMistakeTags: Array<{ tag: string; count: number }>;
 };
 
@@ -31,6 +49,7 @@ export function buildTradeBehaviorStats(trades: TradeRecord[], now = new Date())
     recentLossStreak: countRecentLossStreak(sortedNewestFirst),
     tradesLastHour: trades.filter((trade) => isWithin(trade.openedAt, now, ONE_HOUR_MS)).length,
     tradesLastDay: recentTrades.length,
+    decisionOutcomeStats: buildDecisionOutcomeStats(trades),
     commonMistakeTags: countCommonTags(trades)
   };
 }
@@ -76,4 +95,78 @@ function countCommonTags(trades: TradeRecord[]): Array<{ tag: string; count: num
   return Array.from(counts.entries())
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+function buildDecisionOutcomeStats(trades: TradeRecord[]): TradeDecisionOutcomeSummary {
+  const summary: TradeDecisionOutcomeSummary = {
+    immediateEntry: emptyDecisionOutcomeStats(),
+    waitedConfirmation: emptyDecisionOutcomeStats(),
+    skipped: emptyDecisionOutcomeStats()
+  };
+
+  for (const trade of trades) {
+    const bucket =
+      trade.decisionTiming === 'immediate-entry'
+        ? summary.immediateEntry
+        : trade.decisionTiming === 'waited-confirmation'
+          ? summary.waitedConfirmation
+          : trade.decisionTiming === 'skipped'
+            ? summary.skipped
+            : undefined;
+
+    if (!bucket) {
+      continue;
+    }
+
+    bucket.count += 1;
+    switch (trade.outcome) {
+      case 'win':
+        bucket.wins += 1;
+        break;
+      case 'loss':
+        bucket.losses += 1;
+        break;
+      case 'breakeven':
+        bucket.breakeven += 1;
+        break;
+      case 'skipped':
+        bucket.skipped += 1;
+        break;
+      default:
+        bucket.unknown += 1;
+        break;
+    }
+  }
+
+  return {
+    immediateEntry: withResolvedRates(summary.immediateEntry),
+    waitedConfirmation: withResolvedRates(summary.waitedConfirmation),
+    skipped: withResolvedRates(summary.skipped)
+  };
+}
+
+function emptyDecisionOutcomeStats(): TradeDecisionOutcomeStats {
+  return {
+    count: 0,
+    wins: 0,
+    losses: 0,
+    breakeven: 0,
+    skipped: 0,
+    unknown: 0,
+    winRate: undefined,
+    lossRate: undefined
+  };
+}
+
+function withResolvedRates(stats: TradeDecisionOutcomeStats): TradeDecisionOutcomeStats {
+  const resolvedCount = stats.wins + stats.losses + stats.breakeven;
+  if (resolvedCount === 0) {
+    return stats;
+  }
+
+  return {
+    ...stats,
+    winRate: stats.wins / resolvedCount,
+    lossRate: stats.losses / resolvedCount
+  };
 }

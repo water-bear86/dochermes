@@ -83,7 +83,8 @@ export function summarizePrivacyRequestPolicy(input: AskHermesInput): HermesRequ
     (input.monitoringContext?.warningEvidence?.length ?? 0) > 0 ||
     (input.monitoringContext?.signals.length ?? 0) > 0 ||
     (input.monitoringContext?.sourceQuality?.length ?? 0) > 0;
-  const hasTradeSummary = input.memoryContext?.tradeHistorySummary !== undefined;
+  const hasTradeSummary =
+    input.memoryContext?.tradeHistorySummary !== undefined || input.memoryContext?.tradeBehaviorStats !== undefined;
 
   if (preset === 'maximum') {
     return {
@@ -153,6 +154,7 @@ function hasMemoryContent(memoryContext: NonNullable<AskHermesInput['memoryConte
     memoryContext.recentNotes.length > 0 ||
     (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
     memoryContext.tradeHistorySummary !== undefined ||
+    memoryContext.tradeBehaviorStats !== undefined ||
     (memoryContext.personalRules?.matchedRules.length ?? 0) > 0
   );
 }

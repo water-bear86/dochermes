@@ -1,6 +1,7 @@
 export type TradeRecordSource = 'manual' | 'exchange-csv' | 'public-wallet' | 'journal';
 export type TradeRecordSide = 'long' | 'short' | 'unknown';
 export type TradeRecordOutcome = 'win' | 'loss' | 'breakeven' | 'skipped' | 'unknown';
+export type TradeDecisionTiming = 'immediate-entry' | 'waited-confirmation' | 'skipped' | 'unknown';
 
 export type TradeRecord = {
   id: string;
@@ -12,6 +13,7 @@ export type TradeRecord = {
   quantity?: number;
   feesUsd?: number;
   outcome?: TradeRecordOutcome;
+  decisionTiming?: TradeDecisionTiming;
   tags?: string[];
   chain?: string;
   publicAddress?: string;
@@ -27,6 +29,7 @@ type ManualTradeInput = {
   notionalUsd?: string | number;
   quantity?: string | number;
   outcome?: string;
+  decisionTiming?: string;
   tags?: string[];
 };
 
@@ -40,6 +43,8 @@ type ExchangeCsvTradeInput = {
   valueUsd?: string | number;
   amount?: string | number;
   feeUsd?: string | number;
+  outcome?: string;
+  decisionTiming?: string;
 };
 
 type PublicWalletTradeInput = {
@@ -51,6 +56,8 @@ type PublicWalletTradeInput = {
   direction?: string;
   valueUsd?: string | number;
   tokenAmount?: string | number;
+  outcome?: string;
+  decisionTiming?: string;
   walletAddress?: string;
   privateKey?: unknown;
   seedPhrase?: unknown;
@@ -63,6 +70,7 @@ type JournalTradeInput = {
   question?: string;
   selectedWindowName?: string;
   outcome?: string;
+  decisionTiming?: string;
   mistakeTags?: string[];
 };
 
@@ -84,6 +92,7 @@ export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
         notionalUsd: toFiniteNumber(input.notionalUsd),
         quantity: toFiniteNumber(input.quantity),
         outcome: normalizeOutcome(input.outcome),
+        decisionTiming: normalizeDecisionTiming(input.decisionTiming),
         tags: normalizeTags(input.tags),
         rawRef: input.id
       });
@@ -97,6 +106,8 @@ export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
         notionalUsd: toFiniteNumber(input.valueUsd),
         quantity: toFiniteNumber(input.amount),
         feesUsd: toFiniteNumber(input.feeUsd),
+        outcome: normalizeOutcome(input.outcome),
+        decisionTiming: normalizeDecisionTiming(input.decisionTiming),
         rawRef: input.rowId
       });
     case 'public-wallet':
@@ -108,6 +119,8 @@ export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
         side: normalizeSide(input.direction),
         notionalUsd: toFiniteNumber(input.valueUsd),
         quantity: toFiniteNumber(input.tokenAmount),
+        outcome: normalizeOutcome(input.outcome),
+        decisionTiming: normalizeDecisionTiming(input.decisionTiming),
         chain: input.chain,
         publicAddress: input.walletAddress,
         rawRef: input.signature
@@ -120,6 +133,7 @@ export function normalizeTradeRecord(input: TradeRecordInput): TradeRecord {
         assetLabel: input.selectedWindowName ?? 'Journal entry',
         side: 'unknown',
         outcome: normalizeOutcome(input.outcome),
+        decisionTiming: normalizeDecisionTiming(input.decisionTiming),
         tags: normalizeTags(input.mistakeTags),
         rawRef: input.entryId
       });
@@ -147,6 +161,44 @@ function normalizeOutcome(value: string | undefined): TradeRecordOutcome | undef
     normalized === 'unknown'
   ) {
     return normalized;
+  }
+  return undefined;
+}
+
+function normalizeDecisionTiming(value: string | undefined): TradeDecisionTiming | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === 'immediate-entry' ||
+    normalized === 'immediate entry' ||
+    normalized === 'immediate' ||
+    normalized === 'immediately' ||
+    normalized === 'enter now' ||
+    normalized === 'enter-now' ||
+    normalized === 'ape'
+  ) {
+    return 'immediate-entry';
+  }
+  if (
+    normalized === 'waited-confirmation' ||
+    normalized === 'waited confirmation' ||
+    normalized === 'waited' ||
+    normalized === 'wait' ||
+    normalized === 'confirmation' ||
+    normalized === 'confirmed'
+  ) {
+    return 'waited-confirmation';
+  }
+  if (
+    normalized === 'skipped' ||
+    normalized === 'skip' ||
+    normalized === 'passed' ||
+    normalized === 'pass' ||
+    normalized === 'avoided'
+  ) {
+    return 'skipped';
+  }
+  if (normalized === 'unknown') {
+    return 'unknown';
   }
   return undefined;
 }

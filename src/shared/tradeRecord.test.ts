@@ -14,6 +14,7 @@ describe('normalizeTradeRecord', () => {
         notionalUsd: '125.50',
         quantity: '2.5',
         outcome: 'win',
+        decisionTiming: 'Immediate Entry',
         tags: ['breakout', 'good-size']
       })
     ).toEqual({
@@ -25,6 +26,7 @@ describe('normalizeTradeRecord', () => {
       notionalUsd: 125.5,
       quantity: 2.5,
       outcome: 'win',
+      decisionTiming: 'immediate-entry',
       tags: ['breakout', 'good-size'],
       rawRef: 'manual-1'
     });
@@ -93,6 +95,7 @@ describe('normalizeTradeRecord', () => {
         question: 'Should I enter 3 SOL?',
         selectedWindowName: 'Trading Terminal',
         outcome: 'skipped',
+        decisionTiming: 'passed',
         mistakeTags: ['early-entry']
       })
     ).toMatchObject({
@@ -102,6 +105,7 @@ describe('normalizeTradeRecord', () => {
       assetLabel: 'Trading Terminal',
       side: 'unknown',
       outcome: 'skipped',
+      decisionTiming: 'skipped',
       tags: ['early-entry'],
       rawRef: 'entry-1'
     });

@@ -82,6 +82,45 @@ describe('buildHermesPayload', () => {
             recommendation: 'Wait for confirmation.'
           }
         ],
+        tradeBehaviorStats: {
+          tradeCount: 4,
+          recentLossStreak: 2,
+          tradesLastHour: 1,
+          tradesLastDay: 4,
+          commonMistakeTags: [{ tag: 'early-entry', count: 3 }],
+          decisionOutcomeStats: {
+            immediateEntry: {
+              count: 3,
+              wins: 1,
+              losses: 2,
+              breakeven: 0,
+              skipped: 0,
+              unknown: 0,
+              winRate: 1 / 3,
+              lossRate: 2 / 3
+            },
+            waitedConfirmation: {
+              count: 1,
+              wins: 1,
+              losses: 0,
+              breakeven: 0,
+              skipped: 0,
+              unknown: 0,
+              winRate: 1,
+              lossRate: 0
+            },
+            skipped: {
+              count: 0,
+              wins: 0,
+              losses: 0,
+              breakeven: 0,
+              skipped: 0,
+              unknown: 0,
+              winRate: undefined,
+              lossRate: undefined
+            }
+          }
+        },
         recentNotes: []
       }
     });
@@ -95,6 +134,45 @@ describe('buildHermesPayload', () => {
           recommendation: 'Wait for confirmation.'
         }
       ],
+      tradeBehaviorStats: {
+        tradeCount: 4,
+        recentLossStreak: 2,
+        tradesLastHour: 1,
+        tradesLastDay: 4,
+        commonMistakeTags: [{ tag: 'early-entry', count: 3 }],
+        decisionOutcomeStats: {
+          immediateEntry: {
+            count: 3,
+            wins: 1,
+            losses: 2,
+            breakeven: 0,
+            skipped: 0,
+            unknown: 0,
+            winRate: 1 / 3,
+            lossRate: 2 / 3
+          },
+          waitedConfirmation: {
+            count: 1,
+            wins: 1,
+            losses: 0,
+            breakeven: 0,
+            skipped: 0,
+            unknown: 0,
+            winRate: 1,
+            lossRate: 0
+          },
+          skipped: {
+            count: 0,
+            wins: 0,
+            losses: 0,
+            breakeven: 0,
+            skipped: 0,
+            unknown: 0,
+            winRate: undefined,
+            lossRate: undefined
+          }
+        }
+      },
       recentNotes: []
     });
   });

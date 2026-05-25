@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JournalEntry, MemoryPostmortemSummary, WarningFeedbackRecord } from '../shared/types';
-import { buildMemoryContext } from './memoryContext';
+import { buildMemoryContext, withoutCompactTradeSummary } from './memoryContext';
 
 const earlyLossEntry: JournalEntry = {
   id: 'entry-early-loss',
@@ -26,6 +26,40 @@ const confirmationEntry: JournalEntry = {
   question: 'Should I wait for confirmation?',
   response: 'Waiting reduced risk.',
   notes: 'Waited for confirmation and avoided the first drawdown.',
+  selectedWindow: {
+    id: 'window:1',
+    name: 'Trading Window',
+    kind: 'window'
+  },
+  screenshot: {
+    captured: true,
+    imageStored: false
+  }
+};
+
+const waitedWinEntry: JournalEntry = {
+  id: 'entry-waited-win',
+  createdAt: '2026-05-19T01:00:00.000Z',
+  question: 'Should I wait for confirmation?',
+  response: 'Waited for confirmation, then entered.',
+  notes: 'The confirmation entry worked and closed green.',
+  selectedWindow: {
+    id: 'window:1',
+    name: 'Trading Window',
+    kind: 'window'
+  },
+  screenshot: {
+    captured: true,
+    imageStored: false
+  }
+};
+
+const skippedDrawdownEntry: JournalEntry = {
+  id: 'entry-skipped-drawdown',
+  createdAt: '2026-05-19T02:00:00.000Z',
+  question: 'Should I skip this early move?',
+  response: 'Passed on the trade.',
+  notes: 'Skipped the entry and avoided the drawdown.',
   selectedWindow: {
     id: 'window:1',
     name: 'Trading Window',
@@ -163,14 +197,49 @@ describe('buildMemoryContext', () => {
   });
 
   it('adds compact trade behavior stats derived from local journal evidence', () => {
-    const context = buildMemoryContext([earlyLossEntry, confirmationEntry], 'Review this setup');
+    const context = buildMemoryContext(
+      [earlyLossEntry, confirmationEntry, waitedWinEntry, skippedDrawdownEntry],
+      'Review this setup'
+    );
 
     expect(context.tradeBehaviorStats).toMatchObject({
-      tradeCount: 2,
+      tradeCount: 4,
       recentLossStreak: 0,
+      decisionOutcomeStats: {
+        immediateEntry: {
+          count: 1,
+          wins: 0,
+          losses: 1,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 0,
+          winRate: 0,
+          lossRate: 1
+        },
+        waitedConfirmation: {
+          count: 2,
+          wins: 1,
+          losses: 0,
+          breakeven: 0,
+          skipped: 0,
+          unknown: 1,
+          winRate: 1,
+          lossRate: 0
+        },
+        skipped: {
+          count: 1,
+          wins: 0,
+          losses: 0,
+          breakeven: 0,
+          skipped: 1,
+          unknown: 0,
+          winRate: undefined,
+          lossRate: undefined
+        }
+      },
       commonMistakeTags: [
-        { tag: 'confirmation-plan', count: 2 },
-        { tag: 'early-entry', count: 1 },
+        { tag: 'confirmation-plan', count: 3 },
+        { tag: 'early-entry', count: 2 },
         { tag: 'oversized', count: 1 }
       ]
     });
@@ -182,6 +251,17 @@ describe('buildMemoryContext', () => {
     expect(context.matchedPatterns).toEqual([]);
     expect(context.tradeBehaviorStats).toBeUndefined();
     expect(context.recentNotes).toEqual([]);
+  });
+
+  it('strips compact trade stats and trade history when the Hermes sharing toggle is off', () => {
+    const context = buildMemoryContext([earlyLossEntry, waitedWinEntry], 'Review this setup');
+
+    expect(context.tradeBehaviorStats).toBeDefined();
+    expect(context.tradeHistorySummary).toBeDefined();
+    expect(withoutCompactTradeSummary(context)).toEqual({
+      matchedPatterns: [],
+      recentNotes: context.recentNotes
+    });
   });
 
   it('includes recent postmortem summaries in memory context', () => {

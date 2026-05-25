@@ -70,7 +70,7 @@ import {
   readLocalSettings,
   writeLocalSettings
 } from './localSettings';
-import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT } from './memoryContext';
+import { buildMemoryContext, EARLY_ENTRY_WARNING_TEXT, withoutCompactTradeSummary } from './memoryContext';
 import {
   buildPrivacyAwareAskHermesInput,
   canBypassRemoteConsent,
@@ -1414,7 +1414,7 @@ export function App(): ReactElement {
       const requestLocalWarnings = requestLocalWarningCards.map((entry) => entry.text);
       const requestMemoryContextForHermes = settings.dataSharing.sendCompactTradeSummaryToHermes
         ? requestMemoryContext
-        : withoutTradeHistorySummary(requestMemoryContext);
+        : withoutCompactTradeSummary(requestMemoryContext);
       const requestPolicyBlockingWarnings = [
         ...requestSessionRiskAssessment.warnings
           .filter((entry) => entry.policyLevel === 'policy')
@@ -5009,6 +5009,7 @@ function buildHermesRequestPreview(input: {
     memoryContext.recentNotes.length > 0 ||
     (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
     memoryContext.tradeHistorySummary !== undefined ||
+    memoryContext.tradeBehaviorStats !== undefined ||
     (memoryContext.personalRules?.matchedRules.length ?? 0) > 0;
   const payloadClasses = ['Question text'];
   const localOnlyClasses: string[] = [];
@@ -5183,11 +5184,6 @@ function buildMonitoringMetadata(
         }
       : {})
   };
-}
-
-function withoutTradeHistorySummary(memoryContext: MemoryContext): MemoryContext {
-  const { tradeHistorySummary: _tradeHistorySummary, ...rest } = memoryContext;
-  return rest;
 }
 
 function localRuleWarnings(
