@@ -1712,6 +1712,175 @@ textarea:focus {
   background: #f8fafc;
 }
 
+.trade-card {
+  border-color: var(--dh-border-strong);
+  background:
+    linear-gradient(90deg, var(--dh-gold) 0 6px, transparent 6px),
+    var(--dh-white);
+}
+
+.trade-card--low {
+  background:
+    linear-gradient(90deg, var(--dh-blue) 0 6px, transparent 6px),
+    var(--dh-white);
+}
+
+.trade-card--medium,
+.trade-card--high,
+.trade-card--critical {
+  background:
+    linear-gradient(90deg, var(--dh-gold) 0 6px, transparent 6px),
+    var(--dh-white);
+}
+
+.trade-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.trade-card-header h2 {
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.trade-card-header p {
+  color: var(--dh-muted);
+  font-family: var(--dh-font-mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.trade-card-risk {
+  min-width: 88px;
+  border: 1px solid var(--dh-border-strong);
+  padding: 7px 9px;
+  text-align: center;
+  background: var(--dh-blue-paper);
+}
+
+.trade-card-risk span,
+.trade-card-facts dt,
+.trade-card-plan dt {
+  display: block;
+  color: var(--dh-muted);
+  font-family: var(--dh-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.trade-card-risk strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--dh-blue);
+  font-size: 15px;
+}
+
+.trade-card-risk--high,
+.trade-card-risk--critical {
+  background: var(--dh-gold-soft);
+}
+
+.trade-card-risk--high strong,
+.trade-card-risk--critical strong {
+  color: #7a5800;
+}
+
+.trade-card-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.trade-card-facts div,
+.trade-card-plan dl div {
+  min-width: 0;
+  border: 1px solid var(--dh-border-strong);
+  padding: 8px;
+  background: var(--dh-paper-soft);
+}
+
+.trade-card-facts dd,
+.trade-card-plan dd {
+  overflow-wrap: anywhere;
+  margin: 3px 0 0;
+  color: var(--dh-ink);
+  font-weight: 650;
+}
+
+.trade-card-assessment,
+.trade-card-plan,
+.trade-card-boundary,
+.trade-card-raw-response {
+  margin-top: 12px;
+}
+
+.trade-card-assessment p {
+  color: var(--dh-ink);
+}
+
+.trade-card-assessment small {
+  display: block;
+  margin-top: 6px;
+}
+
+.trade-card-plan dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.trade-card-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0 18px;
+  padding: 0;
+  color: #7a5800;
+}
+
+.trade-card-boundary {
+  border: 1px solid var(--dh-border-strong);
+  padding: 8px;
+  color: var(--dh-blue);
+  background: var(--dh-blue-paper);
+  font-weight: 650;
+}
+
+.trade-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.trade-card-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.trade-card-raw-response summary {
+  cursor: pointer;
+  color: var(--dh-muted);
+  font-family: var(--dh-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.trade-card-raw-response p {
+  border-top: 1px solid var(--dh-border-strong);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
 footer {
   color: var(--dh-muted);
   font-family: var(--dh-font-mono);
@@ -1740,5 +1909,15 @@ footer {
   .wizard-actions div,
   .wizard-actions button {
     width: 100%;
+  }
+
+  .trade-card-header,
+  .trade-card-facts,
+  .trade-card-plan dl {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-card-risk {
+    justify-self: start;
   }
 }

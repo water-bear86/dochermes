@@ -95,6 +95,11 @@ import {
   evaluatePersonalRules,
   type PersonalRuleWarningCandidate
 } from './personalRules';
+import {
+  buildTradeCardViewModel,
+  describeTradeCardDecision,
+  type TradeCardActionViewModel
+} from './tradeCardViewModel';
 import { FirstRunWizard } from './FirstRunWizard';
 
 type SpeechRecognitionResult = {
@@ -361,6 +366,7 @@ export function App(): ReactElement {
   const [policyCard, setPolicyCard] = useState<PolicyCard | undefined>();
   const [frictionNoteText, setFrictionNoteText] = useState('');
   const [policyNoteText, setPolicyNoteText] = useState('');
+  const [tradeCardNoteText, setTradeCardNoteText] = useState('');
   const [journalSourceCategory, setJournalSourceCategory] = useState<SourceCategory>('unknown');
   const [journalSourceOutcome, setJournalSourceOutcome] = useState<SourceQualityOutcome>('unknown');
   const [journalSourceTokenHint, setJournalSourceTokenHint] = useState('');
@@ -550,6 +556,30 @@ export function App(): ReactElement {
     [localWarningCards]
   );
   const localWarnings = useMemo(() => localWarningCards.map((warning) => warning.text), [localWarningCards]);
+  const tradeCard = useMemo(() => {
+    if (!response) {
+      return undefined;
+    }
+
+    return buildTradeCardViewModel({
+      question: lastRequestContext?.question ?? question,
+      response,
+      mode: settings.coachMode,
+      monitorSignals,
+      memoryContext,
+      localWarnings,
+      sourceFinding: topSourceQualityFinding
+    });
+  }, [
+    lastRequestContext?.question,
+    localWarnings,
+    memoryContext,
+    monitorSignals,
+    question,
+    response,
+    settings.coachMode,
+    topSourceQualityFinding
+  ]);
   const activePersonalRules = useMemo(
     () => settings.personalRules.filter((rule) => !rule.archived),
     [settings.personalRules]
@@ -1459,6 +1489,7 @@ export function App(): ReactElement {
       setPendingRemoteConsent(undefined);
       setError('');
       setResponse('');
+      setTradeCardNoteText('');
       setScreenshotDataUrl(undefined);
       setRequestMetrics(undefined);
       setLastRequestMonitoringMetadata(undefined);
@@ -1866,6 +1897,7 @@ export function App(): ReactElement {
 
     applySourceContextFromFinding(topSourceQualityFinding);
     sourceContextAutoFillRequestId.current = requestId;
+    setTradeCardNoteText('');
   }, [applySourceContextFromFinding, lastRequestContext?.id, topSourceQualityFinding]);
 
   const saveJournalEntry = useCallback(() => {
@@ -1898,6 +1930,51 @@ export function App(): ReactElement {
     screenshotDataUrl,
     selectedSource
   ]);
+
+  const persistTradeCardDecision = useCallback(
+    (action: TradeCardActionViewModel) => {
+      if (!tradeCard) {
+        return;
+      }
+
+      if (!selectedSource) {
+        setError('A trading window is required before saving this trade-card decision.');
+        return;
+      }
+
+      const note = tradeCardNoteText.trim();
+      if (action.requiresNote && !note) {
+        setError('Add an override note before recording an override.');
+        return;
+      }
+
+      const entry = buildJournalEntry({
+        question: lastRequestContext?.question ?? question.trim(),
+        response: describeTradeCardDecision(action, tradeCard, note || undefined),
+        notes: note,
+        selectedWindow: selectedSource,
+        screenshotCaptured: false,
+        monitoring: lastRequestMonitoringMetadata,
+        sourceContext: buildJournalSourceContext()
+      });
+      const nextEntries = appendJournalEntry(localStorage, entry);
+      setJournalEntries(nextEntries);
+      setJournalSavedMessage('Saved trade-card decision locally.');
+      setTradeCardNoteText('');
+      setError('');
+      resetSourceContextDraft();
+    },
+    [
+      buildJournalSourceContext,
+      lastRequestContext?.question,
+      lastRequestMonitoringMetadata,
+      question,
+      resetSourceContextDraft,
+      selectedSource,
+      tradeCard,
+      tradeCardNoteText
+    ]
+  );
 
   const recordWarningFeedback = useCallback(
     (warningText: string, action: WarningFeedbackAction, notes?: string) => {
@@ -4556,10 +4633,112 @@ export function App(): ReactElement {
         </section>
       ) : null}
 
-      {response ? (
-        <section className="message response" aria-label="Hermes response" role="status" aria-live="polite" aria-atomic="true">
-          <span className="label">Coach assessment</span>
-          <p>{response}</p>
+      {tradeCard ? (
+        <section
+          className={`message trade-card trade-card--${tradeCard.riskTone}`}
+          aria-label="Trade card decision flow"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div className="trade-card-header">
+            <div>
+              <span className="label">Trade card</span>
+              <h2>{tradeCard.token}</h2>
+              <p>
+                {tradeCard.proposedTrade} · {tradeCard.strategy}
+              </p>
+            </div>
+            <div className={`trade-card-risk trade-card-risk--${tradeCard.riskTone}`} aria-label={`Risk ${tradeCard.risk}`}>
+              <span>Risk</span>
+              <strong>{tradeCard.risk}</strong>
+            </div>
+          </div>
+
+          <dl className="trade-card-facts">
+            <div>
+              <dt>Source</dt>
+              <dd>{tradeCard.source}</dd>
+            </div>
+            <div>
+              <dt>Token age</dt>
+              <dd>{tradeCard.tokenAge}</dd>
+            </div>
+            <div>
+              <dt>Liquidity</dt>
+              <dd>{tradeCard.liquidity}</dd>
+            </div>
+            <div>
+              <dt>Holder concentration</dt>
+              <dd>{tradeCard.holderConcentration}</dd>
+            </div>
+            <div>
+              <dt>Wallet behavior</dt>
+              <dd>{tradeCard.recentWalletBehavior}</dd>
+            </div>
+            <div>
+              <dt>Recommended size</dt>
+              <dd>{tradeCard.recommendedSize}</dd>
+            </div>
+          </dl>
+
+          <div className="trade-card-assessment">
+            <span className="label">Coach assessment</span>
+            <p>{tradeCard.reason}</p>
+            {tradeCard.memorySummary ? <small>{tradeCard.memorySummary}</small> : null}
+          </div>
+
+          <div className="trade-card-plan">
+            <span className="label">Suggested plan</span>
+            <dl>
+              <div>
+                <dt>Entry</dt>
+                <dd>{tradeCard.plan.entry}</dd>
+              </div>
+              <div>
+                <dt>Invalidation</dt>
+                <dd>{tradeCard.plan.invalidation}</dd>
+              </div>
+              <div>
+                <dt>Take profit</dt>
+                <dd>{tradeCard.plan.takeProfit}</dd>
+              </div>
+              <div>
+                <dt>Max hold</dt>
+                <dd>{tradeCard.plan.maxHoldTime}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {tradeCard.warnings.length > 0 ? (
+            <ul className="trade-card-warnings" aria-label="Trade-card guardrails">
+              {tradeCard.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          <p className="trade-card-boundary">{tradeCard.advisoryNotice}</p>
+          <label htmlFor="trade-card-note">Decision note</label>
+          <textarea
+            id="trade-card-note"
+            className="notes"
+            value={tradeCardNoteText}
+            onChange={(event) => setTradeCardNoteText(event.target.value)}
+            placeholder="Add sizing, alert, plan, rejection, or override context."
+          />
+          <div className="trade-card-actions">
+            {tradeCard.actions.map((action) => (
+              <button
+                key={action.kind}
+                type="button"
+                className={action.kind === 'accepted-recommended' ? 'primary' : action.kind === 'overrode' ? 'ghost' : undefined}
+                onClick={() => persistTradeCardDecision(action)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
           {requestMetrics ? (
             <small className="timing">
               Local risk checks: {formatTiming(requestMetrics.localRiskMs)} · OCR: {formatTiming(requestMetrics.ocrMs)} · Request build:{' '}
@@ -4567,6 +4746,10 @@ export function App(): ReactElement {
               {formatTiming(requestMetrics.hermesMs)} · Total: {formatTiming(requestMetrics.totalMs)}
             </small>
           ) : null}
+          <details className="trade-card-raw-response">
+            <summary>Raw Hermes response</summary>
+            <p>{response}</p>
+          </details>
         </section>
       ) : null}
 

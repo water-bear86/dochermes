@@ -96,7 +96,12 @@ test.describe('Hermes Coach Electron smoke', () => {
       await page.getByLabel('Question').fill('Should I enter this trade right now?');
       await page.getByRole('button', { name: 'Capture and ask' }).click();
 
-      await expect(page.getByText('E2E Hermes response: placeholder request received.')).toBeVisible();
+      const tradeCard = page.getByLabel('Trade card decision flow');
+      await expect(tradeCard).toBeVisible();
+      await expect(tradeCard.getByText('E2E Hermes response: placeholder request received.', { exact: true })).toBeVisible();
+      await expect(page.getByText('DocHermes records coaching decisions only. It cannot route, sign, or execute trades.')).toBeVisible();
+      await page.getByRole('button', { name: 'Set alert' }).click();
+      await expect(page.getByText('Saved trade-card decision locally.')).toBeVisible();
       await expect(page.getByRole('status').filter({ hasText: 'E2E Hermes response: placeholder request received.' })).toBeVisible();
       await expect(page.getByText(/Withheld from Hermes: Real screenshot/)).toBeVisible();
 
