@@ -35,10 +35,11 @@ export function resolvePackagedAppExecutable({
 
 export async function verifyPackagedAppLaunch({
   executable = resolvePackagedAppExecutable(),
-  timeoutMs = readTimeoutMs(process.env.DOC_HERMES_PACKAGED_LAUNCH_TIMEOUT_MS)
+  timeoutMs = readTimeoutMs(process.env.DOC_HERMES_PACKAGED_LAUNCH_TIMEOUT_MS),
+  disableSandbox = readBooleanFlag(process.env.DOC_HERMES_PACKAGED_LAUNCH_DISABLE_SANDBOX)
 } = {}) {
   const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'dochermes-packaged-launch-'));
-  const child = spawn(executable, [`--user-data-dir=${userDataDir}`], {
+  const child = spawn(executable, buildPackagedAppLaunchArgs({ userDataDir, disableSandbox }), {
     env: {
       ...process.env,
       NODE_ENV: 'test'
@@ -56,6 +57,16 @@ export async function verifyPackagedAppLaunch({
     await stopProcess(child);
     rmSync(userDataDir, { recursive: true, force: true });
   }
+}
+
+export function buildPackagedAppLaunchArgs({ userDataDir, disableSandbox = false }) {
+  const args = [`--user-data-dir=${userDataDir}`];
+
+  if (disableSandbox) {
+    args.push('--no-sandbox');
+  }
+
+  return args;
 }
 
 function packagedExecutableCandidates(platform, arch, distDir) {
@@ -82,6 +93,10 @@ function packagedExecutableCandidates(platform, arch, distDir) {
 function readTimeoutMs(rawValue) {
   const parsed = Number(rawValue);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+}
+
+function readBooleanFlag(rawValue) {
+  return ['1', 'true', 'yes'].includes(String(rawValue ?? '').trim().toLowerCase());
 }
 
 async function waitForStableLaunch(child, output, timeoutMs) {

@@ -71,6 +71,8 @@ jobs:
 
       - name: Verify packaged app launch (Linux)
         if: matrix.platform.name == 'Linux'
+        env:
+          DOC_HERMES_PACKAGED_LAUNCH_DISABLE_SANDBOX: '1'
         run: xvfb-run -a npm run verify:packaged
 
       - name: Validate Linux packages

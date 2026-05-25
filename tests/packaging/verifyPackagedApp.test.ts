@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { resolvePackagedAppExecutable } from '../../scripts/verify-packaged-app.mjs';
+import { buildPackagedAppLaunchArgs, resolvePackagedAppExecutable } from '../../scripts/verify-packaged-app.mjs';
 
 describe('resolvePackagedAppExecutable', () => {
   it('finds the unpacked macOS app executable for the current arch first', () => {
@@ -48,5 +48,20 @@ describe('resolvePackagedAppExecutable', () => {
     } finally {
       rmSync(distDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildPackagedAppLaunchArgs', () => {
+  it('keeps the packaged launch sandboxed by default', () => {
+    expect(buildPackagedAppLaunchArgs({ userDataDir: '/tmp/dochermes-launch' })).toEqual([
+      '--user-data-dir=/tmp/dochermes-launch'
+    ]);
+  });
+
+  it('can disable the sandbox for Linux CI launch smoke checks', () => {
+    expect(buildPackagedAppLaunchArgs({ userDataDir: '/tmp/dochermes-launch', disableSandbox: true })).toEqual([
+      '--user-data-dir=/tmp/dochermes-launch',
+      '--no-sandbox'
+    ]);
   });
 });
