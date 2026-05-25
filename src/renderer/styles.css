@@ -51,6 +51,13 @@ textarea {
   font: inherit;
 }
 
+input,
+select,
+textarea,
+button {
+  min-width: 0;
+}
+
 button {
   border: 1px solid #3a423e;
   border-radius: 8px;
@@ -274,6 +281,11 @@ small {
   margin-top: 10px;
 }
 
+.settings-grid > *,
+.nested-settings-grid > * {
+  min-width: 0;
+}
+
 .settings-wide {
   width: 100%;
 }
@@ -307,6 +319,7 @@ small {
 .privacy-indicator small {
   display: block;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .privacy-indicator .label {
@@ -366,6 +379,7 @@ label {
 input,
 select,
 textarea {
+  max-width: 100%;
   width: 100%;
   border: 1px solid #343b38;
   border-radius: 8px;
@@ -397,6 +411,7 @@ input {
   margin: 0;
   color: #90a099;
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 select {
@@ -627,6 +642,7 @@ textarea:focus {
 
 .button-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1955,5 +1971,56 @@ footer {
 
   .trade-card-risk {
     justify-self: start;
+  }
+}
+
+@media (max-width: 380px) {
+  .shell {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status {
+    max-width: none;
+    text-align: left;
+  }
+
+  .control-strip,
+  .control-strip--multi {
+    grid-template-columns: 1fr;
+  }
+
+  .control-strip button,
+  .section-heading button {
+    width: 100%;
+  }
+
+  .settings-panel,
+  .message,
+  .question-panel,
+  .preview,
+  .window-picker {
+    padding: 10px;
+  }
+
+  .section-heading,
+  .journal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .button-row button,
+  .trade-card-actions button,
+  .journal-actions button {
+    flex: 1 1 140px;
+  }
+
+  .session-risk-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
