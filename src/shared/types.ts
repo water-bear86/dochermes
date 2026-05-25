@@ -512,5 +512,11 @@ export interface WarningFeedbackRecord {
   selectedWindowId: string;
   selectedWindowKind: WindowSourceKind;
   notes?: string;
+  policyOverride?: {
+    required: true;
+    blockers: string[];
+    overrideNote: string;
+    auditSource: 'policy-card';
+  };
   updatedAt?: string;
 }

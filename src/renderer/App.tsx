@@ -56,6 +56,7 @@ import {
   appendWarningFeedback,
   clearWarningFeedbackEntries,
   deleteWarningFeedback,
+  formatPolicyOverrideAuditDetail,
   readWarningFeedbackEntries,
   updateWarningFeedback,
   type WarningFeedbackAction,
@@ -2426,7 +2427,7 @@ export function App(): ReactElement {
   ]);
 
   const persistPreTradeDecision = useCallback(
-    (actionLabel: string, note: string | undefined, source: 'friction' | 'policy') => {
+    (actionLabel: string, note: string | undefined, source: 'friction' | 'policy', policyOverrideBlockers: string[] = []) => {
       if (!selectedSource) {
         setError('A trading window is required before saving this decision.');
         return;
@@ -2434,6 +2435,10 @@ export function App(): ReactElement {
 
       const questionContext = question.trim();
       const notes = note?.trim() || '';
+      if (source === 'policy' && policyOverrideBlockers.length > 0 && !notes) {
+        setError('Add an override note before sending through a policy block.');
+        return;
+      }
       const response = buildFrictionDecision(actionLabel, notes);
 
       const entry = buildJournalEntry({
@@ -2456,6 +2461,24 @@ export function App(): ReactElement {
         notes
       });
       setJournalEntries(nextEntries);
+      if (source === 'policy' && policyOverrideBlockers.length > 0) {
+        const nextFeedbackEntries = appendWarningFeedback(localStorage, {
+          warningText: 'Policy override',
+          action: 'took-it-anyway',
+          question: questionContext,
+          response,
+          selectedWindow: selectedSource,
+          requestId: entry.id,
+          notes,
+          policyOverride: {
+            required: true,
+            blockers: policyOverrideBlockers,
+            overrideNote: notes,
+            auditSource: 'policy-card'
+          }
+        });
+        setWarningFeedbackEntries(nextFeedbackEntries);
+      }
       setJournalSavedMessage('Saved to local journal.');
       if (source === 'friction') {
         setFrictionCard(undefined);
@@ -2487,9 +2510,9 @@ export function App(): ReactElement {
 
   const persistPolicyDecision = useCallback(
     (actionLabel: string, note?: string) => {
-      persistPreTradeDecision(actionLabel, note, 'policy');
+      persistPreTradeDecision(actionLabel, note, 'policy', policyCard?.blockers ?? []);
     },
-    [persistPreTradeDecision]
+    [persistPreTradeDecision, policyCard?.blockers]
   );
 
   const proceedWithFrictionAction = useCallback(
@@ -2525,6 +2548,10 @@ export function App(): ReactElement {
 
   const proceedWithPolicyOverride = useCallback(
     (selected: WindowSourceOption) => {
+      if (!policyNoteText.trim()) {
+        setError('Add an override note before sending through a policy block.');
+        return;
+      }
       setError('');
       persistPolicyDecision('Policy override', policyNoteText.trim() || undefined);
       setPolicyNoteText('');
@@ -4351,6 +4378,11 @@ export function App(): ReactElement {
                   {new Date(entry.createdAt).toLocaleString()} · {entry.selectedWindowName}
                 </small>
                 {entry.notes ? <small>Notes: {entry.notes}</small> : null}
+                {formatPolicyOverrideAuditDetail(entry).map((detail) => (
+                  <small key={`${entry.id}-${detail}`} className="policy-override-audit-detail">
+                    {detail}
+                  </small>
+                ))}
                 {entry.updatedAt ? <small>Updated: {new Date(entry.updatedAt).toLocaleString()}</small> : null}
                 <div className="button-row">
                   <button

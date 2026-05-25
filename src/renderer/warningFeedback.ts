@@ -16,6 +16,7 @@ interface BuildWarningFeedbackInput {
   selectedWindow: WindowSourceOption;
   requestId?: string;
   notes?: string;
+  policyOverride?: WarningFeedbackRecord['policyOverride'];
 }
 
 export type { WarningFeedbackAction, WarningFeedbackRecord };
@@ -31,6 +32,7 @@ export function buildWarningFeedback(
 ): WarningFeedbackRecord {
   const now = options.now ?? (() => new Date());
   const createId = options.createId ?? createRandomId;
+  const policyOverride = sanitizePolicyOverride(input.policyOverride);
 
   return {
     id: createId(),
@@ -43,7 +45,8 @@ export function buildWarningFeedback(
     selectedWindowName: input.selectedWindow.name.trim(),
     selectedWindowId: input.selectedWindow.id,
     selectedWindowKind: input.selectedWindow.kind,
-    notes: input.notes?.trim() || undefined
+    notes: input.notes?.trim() || undefined,
+    ...(policyOverride ? { policyOverride } : {})
   };
 }
 
@@ -121,6 +124,18 @@ export function clearWarningFeedbackEntries(storage: Pick<Storage, 'removeItem'>
   return [];
 }
 
+export function formatPolicyOverrideAuditDetail(entry: WarningFeedbackRecord): string[] {
+  const audit = entry.policyOverride;
+  if (!audit) {
+    return [];
+  }
+
+  return [
+    `Policy override note: ${audit.overrideNote}`,
+    `Blocked conditions: ${audit.blockers.join('; ')}`
+  ];
+}
+
 function isWarningFeedbackRecord(value: unknown): value is WarningFeedbackRecord {
   if (!value || typeof value !== 'object') {
     return false;
@@ -139,7 +154,8 @@ function isWarningFeedbackRecord(value: unknown): value is WarningFeedbackRecord
     typeof record.selectedWindowName === 'string' &&
     typeof record.selectedWindowId === 'string' &&
     (record.selectedWindowKind === 'window' || record.selectedWindowKind === 'screen') &&
-    (typeof record.notes === 'undefined' || typeof record.notes === 'string')
+    (typeof record.notes === 'undefined' || typeof record.notes === 'string') &&
+    (record.policyOverride === undefined || isPolicyOverrideAudit(record.policyOverride))
   );
 }
 
@@ -155,6 +171,44 @@ function isWarningFeedbackAction(value: string): value is WarningFeedbackAction 
 
 function sortNewestFirst(left: WarningFeedbackRecord, right: WarningFeedbackRecord): number {
   return right.createdAt.localeCompare(left.createdAt);
+}
+
+function sanitizePolicyOverride(
+  value: WarningFeedbackRecord['policyOverride'] | undefined
+): WarningFeedbackRecord['policyOverride'] | undefined {
+  if (!value || value.required !== true || value.auditSource !== 'policy-card') {
+    return undefined;
+  }
+
+  const blockers = value.blockers.map((blocker) => blocker.trim()).filter(Boolean).slice(0, 12);
+  const overrideNote = value.overrideNote.trim();
+  if (blockers.length === 0 || !overrideNote) {
+    return undefined;
+  }
+
+  return {
+    required: true,
+    blockers,
+    overrideNote,
+    auditSource: 'policy-card'
+  };
+}
+
+function isPolicyOverrideAudit(value: unknown): value is NonNullable<WarningFeedbackRecord['policyOverride']> {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as NonNullable<WarningFeedbackRecord['policyOverride']>;
+  return (
+    record.required === true &&
+    record.auditSource === 'policy-card' &&
+    typeof record.overrideNote === 'string' &&
+    record.overrideNote.trim().length > 0 &&
+    Array.isArray(record.blockers) &&
+    record.blockers.length > 0 &&
+    record.blockers.every((blocker) => typeof blocker === 'string' && blocker.trim().length > 0)
+  );
 }
 
 function createRandomId(): string {

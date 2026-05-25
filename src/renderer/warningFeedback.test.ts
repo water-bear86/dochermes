@@ -7,6 +7,7 @@ import {
   buildWarningFeedback,
   clearWarningFeedbackEntries,
   deleteWarningFeedback,
+  formatPolicyOverrideAuditDetail,
   parseWarningFeedbackEntries,
   readWarningFeedbackEntries,
   serializeWarningFeedbackEntries,
@@ -109,6 +110,92 @@ describe('buildWarningFeedback', () => {
       notes: 'Reviewed manually.'
     });
   });
+
+  it('builds explicit policy override audit metadata', () => {
+    const source: WindowSourceOption = {
+      id: 'window:1',
+      name: 'Main Terminal',
+      kind: 'window',
+      thumbnailDataUrl: 'data:image/png;base64,noop'
+    };
+
+    const record = buildWarningFeedback(
+      {
+        warningText: 'Policy override',
+        action: 'took-it-anyway' as WarningFeedbackAction,
+        question: 'Should I override this?',
+        response: 'Policy override recorded locally.',
+        selectedWindow: source,
+        notes: 'Size reduced and stop defined.',
+        policyOverride: {
+          required: true,
+          blockers: ['Daily loss limit exceeded.', 'Cooldown active.'],
+          overrideNote: 'Size reduced and stop defined.',
+          auditSource: 'policy-card'
+        }
+      },
+      {
+        now: () => new Date('2026-05-20T00:00:00.000Z'),
+        createId: () => 'override-1'
+      }
+    );
+
+    expect(record.policyOverride).toEqual({
+      required: true,
+      blockers: ['Daily loss limit exceeded.', 'Cooldown active.'],
+      overrideNote: 'Size reduced and stop defined.',
+      auditSource: 'policy-card'
+    });
+    expect(JSON.stringify(record)).not.toContain('thumbnailDataUrl');
+    expect(formatPolicyOverrideAuditDetail(record)).toEqual([
+      'Policy override note: Size reduced and stop defined.',
+      'Blocked conditions: Daily loss limit exceeded.; Cooldown active.'
+    ]);
+  });
+
+  it('sanitizes policy override audit metadata before storing it', () => {
+    const source: WindowSourceOption = {
+      id: 'window:1',
+      name: 'Main Terminal',
+      kind: 'window',
+      thumbnailDataUrl: 'data:image/png;base64,noop'
+    };
+    const blockers = Array.from({ length: 14 }).map((_, index) => ` blocker-${index + 1} `);
+
+    const record = buildWarningFeedback({
+      warningText: 'Policy override',
+      action: 'took-it-anyway' as WarningFeedbackAction,
+      question: 'Should I override this?',
+      response: 'Policy override recorded locally.',
+      selectedWindow: source,
+      policyOverride: {
+        required: true,
+        blockers: ['', ...blockers],
+        overrideNote: '  trimmed note  ',
+        auditSource: 'policy-card'
+      }
+    });
+
+    expect(record.policyOverride?.blockers).toHaveLength(12);
+    expect(record.policyOverride?.blockers[0]).toBe('blocker-1');
+    expect(record.policyOverride?.overrideNote).toBe('trimmed note');
+
+    expect(
+      buildWarningFeedback({
+        warningText: 'Policy override',
+        action: 'took-it-anyway' as WarningFeedbackAction,
+        question: 'Should I override this?',
+        response: 'Policy override recorded locally.',
+        selectedWindow: source,
+        policyOverride: {
+          required: true,
+          blockers: ['Daily loss limit exceeded.'],
+          overrideNote: '   ',
+          auditSource: 'policy-card'
+        }
+      }).policyOverride
+    ).toBeUndefined();
+  });
 });
 
 describe('warning feedback persistence helpers', () => {
@@ -201,6 +288,38 @@ describe('warning feedback persistence helpers', () => {
     });
     const read = readWarningFeedbackEntries(storage);
     expect(read).toHaveLength(1);
+  });
+
+  it('persists and parses policy override audit records', () => {
+    const storage = createMemoryStorage();
+    const source: WindowSourceOption = {
+      id: 'window-1',
+      name: 'Main',
+      kind: 'window',
+      thumbnailDataUrl: 'data:image/png;base64,noop'
+    };
+
+    appendWarningFeedback(storage, {
+      warningText: 'Policy override',
+      action: 'took-it-anyway',
+      question: 'Should I override?',
+      response: 'Policy override recorded locally.',
+      selectedWindow: source,
+      notes: 'Specific override rationale.',
+      policyOverride: {
+        required: true,
+        blockers: ['Daily loss policy requires explicit override.'],
+        overrideNote: 'Specific override rationale.',
+        auditSource: 'policy-card'
+      }
+    });
+
+    const read = readWarningFeedbackEntries(storage);
+    expect(read[0].policyOverride).toMatchObject({
+      blockers: ['Daily loss policy requires explicit override.'],
+      overrideNote: 'Specific override rationale.',
+      auditSource: 'policy-card'
+    });
   });
 
   it('clears all local warning feedback entries', () => {

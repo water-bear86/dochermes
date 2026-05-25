@@ -911,6 +911,10 @@ textarea:focus {
   display: block;
 }
 
+.policy-override-audit-detail {
+  color: #d8c36a;
+}
+
 .feedback-edit-row {
   margin-top: 8px;
   display: grid;
