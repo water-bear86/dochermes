@@ -138,6 +138,7 @@ import {
 } from './monitoringCorrections';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { WindowPicker } from './WindowPicker';
+import { GatewaySettingsPanel } from './GatewaySettingsPanel';
 import {
   FrictionCardPanel,
   LocalGuardrailPanel,
@@ -2993,16 +2994,19 @@ export function App(): ReactElement {
         </div>
         {settingsOpen ? (
           <div className="settings-grid">
-            <div className="settings-section-heading settings-wide">
-              <span className="label">Gateway</span>
-              <small>Connect DocHermes to your Hermes gateway and test route compatibility.</small>
-            </div>
-            <label htmlFor="connection-kind">Hermes gateway</label>
-            <select
-              id="connection-kind"
-              value={settings.connection.connectionKind}
-              onChange={(event) => {
-                const connectionKind = event.target.value as HermesConnectionKind;
+            <GatewaySettingsPanel
+              connection={settings.connection}
+              usesSecureHostedTokenStore={usesSecureHostedTokenStore}
+              hostedTokenDraft={hostedTokenDraft}
+              hostedTokenStatus={hostedTokenStatus}
+              hostedTokenStatusText={hostedTokenStatusText}
+              hostedTokenMessage={hostedTokenMessage}
+              hostedTokenBusy={hostedTokenBusy}
+              testingConnection={testingConnection}
+              connectionReport={connectionReport}
+              copiedReport={copiedReport}
+              onConnectionChange={updateConnection}
+              onConnectionKindChange={(connectionKind) => {
                 setHostedTokenDraft('');
                 setHostedTokenMessage('');
                 updateConnection({
@@ -3010,154 +3014,15 @@ export function App(): ReactElement {
                   ...(connectionKind === 'local' ? {} : { bearerToken: '' })
                 });
               }}
-            >
-              <option value="local">Local gateway</option>
-              <option value="hosted">Hosted gateway</option>
-              <option value="custom">Custom gateway</option>
-            </select>
-
-            <small className="subtle-note settings-wide">
-              DocHermes connects to the Hermes gateway only. Configure all agent routing inside Hermes.
-            </small>
-
-            <label htmlFor="gateway">Gateway URL</label>
-            <input
-              id="gateway"
-              value={settings.connection.baseUrl}
-              onChange={(event) =>
-                updateConnection({
-                  baseUrl: event.target.value
-                })
-              }
-              spellCheck={false}
-            />
-
-            <label htmlFor="bearer-token">{usesSecureHostedTokenStore ? 'Hosted bearer token' : 'Bearer token'}</label>
-            <input
-              id="bearer-token"
-              type="password"
-              value={usesSecureHostedTokenStore ? hostedTokenDraft : settings.connection.bearerToken}
-              placeholder={
-                usesSecureHostedTokenStore
-                  ? hostedTokenStatus?.hasToken
-                    ? 'Saved securely. Enter a new token to replace it.'
-                    : 'Enter a token, then save it securely'
-                  : settings.connection.connectionKind === 'custom'
-                    ? 'Session-only for custom gateways in this beta'
-                    : 'Only if your local Hermes gateway requires one'
-              }
-              onChange={(event) => {
-                if (usesSecureHostedTokenStore) {
-                  setHostedTokenDraft(event.target.value);
-                  setHostedTokenMessage('');
-                  return;
-                }
-
-                updateConnection({
-                  bearerToken: event.target.value
-                });
+              onHostedTokenDraftChange={(value) => {
+                setHostedTokenDraft(value);
+                setHostedTokenMessage('');
               }}
-              spellCheck={false}
+              onSaveHostedToken={saveHostedToken}
+              onClearHostedToken={clearHostedToken}
+              onTestConnection={testConnection}
+              onCopyDebugReport={copyDebugReport}
             />
-
-            {usesSecureHostedTokenStore ? (
-              <div className={`token-storage-card ${hostedTokenStatus?.available ? 'available' : 'unavailable'} settings-wide`}>
-                <div>
-                  <span className="label">Token storage</span>
-                  <strong>{hostedTokenStatusText.title}</strong>
-                  <small>{hostedTokenStatusText.detail}</small>
-                  {hostedTokenMessage ? <small>{hostedTokenMessage}</small> : null}
-                </div>
-                <div className="button-row">
-                  <button type="button" onClick={saveHostedToken} disabled={hostedTokenBusy || !hostedTokenDraft.trim()}>
-                    {hostedTokenBusy ? 'Saving...' : 'Save token'}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={clearHostedToken}
-                    disabled={
-                      hostedTokenBusy ||
-                      (!hostedTokenStatus?.hasToken &&
-                        !settings.connection.bearerToken &&
-                        hostedTokenStatus?.reason !== 'corrupt-token-store')
-                    }
-                  >
-                    Clear token
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="button-row settings-wide">
-              <button type="button" onClick={testConnection} disabled={testingConnection}>
-                {testingConnection ? 'Testing...' : 'Test gateway'}
-              </button>
-            </div>
-            {connectionReport ? (
-              <div
-                className={`connection-report ${connectionReport.status} settings-wide`}
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <strong>{connectionReport.summary}</strong>
-                <small>
-                  Status: {connectionReport.status}
-                  {connectionReport.activeAdapter ? ` / ${connectionReport.activeAdapter}` : ''}
-                </small>
-                <div className="capability-row">
-                  <span>{connectionReport.textCapable ? 'Text route OK' : 'Text route failed'}</span>
-                  <span>{connectionReport.imageCapable ? 'Image route OK' : 'Image route failed'}</span>
-                  <span>
-                    {connectionReport.models.length > 0
-                      ? `${connectionReport.models.length} discovered route/profile${connectionReport.models.length === 1 ? '' : 's'}`
-                      : 'Route discovery unknown'}
-                  </span>
-                </div>
-                <textarea readOnly value={connectionReport.debugReport} aria-label="Copyable Hermes gateway debug report" />
-                <button type="button" onClick={copyDebugReport}>
-                  {copiedReport ? 'Copied' : 'Copy debug report'}
-                </button>
-              </div>
-            ) : null}
-
-            <details className="advanced-settings settings-wide">
-              <summary>Advanced gateway compatibility</summary>
-              <div className="settings-grid nested-settings-grid">
-                <label htmlFor="endpoint-mode">Adapter mode</label>
-                <select
-                  id="endpoint-mode"
-                  value={settings.connection.endpointMode}
-                  onChange={(event) =>
-                    updateConnection({
-                      endpointMode: event.target.value as HermesEndpointMode
-                    })
-                  }
-                >
-                  <option value="auto">Auto</option>
-                  <option value="openai-chat">Hermes API server</option>
-                  <option value="legacy-coach">Legacy /coach</option>
-                  <option value="custom">Exact custom endpoint</option>
-                </select>
-
-                <label htmlFor="gateway-route-profile">Route/profile token</label>
-                <input
-                  id="gateway-route-profile"
-                  value={settings.connection.modelId}
-                  onChange={(event) =>
-                    updateConnection({
-                      modelId: event.target.value
-                    })
-                  }
-                  spellCheck={false}
-                />
-                <small className="subtle-note settings-wide">
-                  This is a compatibility token for gateways that require an OpenAI-style model field. The active provider and
-                  model still live in Hermes.
-                </small>
-              </div>
-            </details>
 
             <div className="settings-section-heading settings-wide">
               <span className="label">Privacy and local data</span>
