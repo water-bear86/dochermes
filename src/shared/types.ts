@@ -275,6 +275,20 @@ export interface WarningEvidenceSummary {
   detectedAt?: string;
 }
 
+export type WarningEvidenceEntry = Omit<WarningEvidenceSummary, 'warningText'>;
+
+export interface WarningCard {
+  text: string;
+  evidences: WarningEvidenceEntry[];
+}
+
+export interface PolicyCard {
+  id: string;
+  question: string;
+  warnings: string[];
+  blockers: string[];
+}
+
 export type SourceCategory =
   | 'telegram'
   | 'discord'

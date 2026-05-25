@@ -1,7 +1,8 @@
 import {
-  ALLOWED_TRADE_DECISION_ACTIONS,
   TRADE_DECISION_SCHEMA_VERSION,
   TRADE_OUTCOME_SCHEMA_VERSION,
+  sanitizeTradeDecisionEvent,
+  sanitizeTradeOutcomeEvent,
   type OutcomeStatus,
   type TradeDecisionAction,
   type TradeDecisionEvent,
@@ -16,8 +17,6 @@ export const TRADE_DECISION_EVENTS_KEY = 'hermes.trade.decisions.v1';
 export const TRADE_OUTCOME_EVENTS_KEY = 'hermes.trade.outcomes.v1';
 export const TRADE_DECISION_EVENT_LIMIT = 300;
 export const TRADE_OUTCOME_EVENT_LIMIT = 300;
-
-const OUTCOME_STATUSES = ['open', 'closed', 'stopped', 'expired', 'skipped', 'unknown'] as const;
 
 export function parseTradeDecisionEvents(rawValue: string | null): TradeDecisionEvent[] {
   if (!rawValue) {
@@ -194,122 +193,8 @@ export function buildTradeOutcomeEventFromPostmortemOutcome(input: {
   };
 }
 
-function sanitizeTradeDecisionEvent(value: unknown): TradeDecisionEvent | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-
-  const record = value as TradeDecisionEvent;
-  if (
-    record.schemaVersion !== TRADE_DECISION_SCHEMA_VERSION ||
-    typeof record.signalId !== 'string' ||
-    typeof record.decidedAt !== 'string' ||
-    !isTradeDecisionAction(record.action) ||
-    !record.override ||
-    typeof record.override.used !== 'boolean' ||
-    typeof record.override.note !== 'string' ||
-    !record.outcomeLink ||
-    record.outcomeLink.schemaVersion !== TRADE_OUTCOME_SCHEMA_VERSION ||
-    record.outcomeLink.signalId !== record.signalId
-  ) {
-    return undefined;
-  }
-
-  const requestedSize = sanitizeTradeSize(record.requestedSize);
-  const finalSize = sanitizeTradeSize(record.finalSize);
-
-  return {
-    schemaVersion: TRADE_DECISION_SCHEMA_VERSION,
-    signalId: record.signalId,
-    decidedAt: record.decidedAt,
-    action: record.action,
-    ...(requestedSize ? { requestedSize } : {}),
-    ...(finalSize ? { finalSize } : {}),
-    override: {
-      used: record.override.used,
-      note: record.override.note.trim(),
-      ...(record.override.reasonCode?.trim() ? { reasonCode: record.override.reasonCode.trim() } : {})
-    },
-    outcomeLink: {
-      schemaVersion: TRADE_OUTCOME_SCHEMA_VERSION,
-      signalId: record.signalId
-    }
-  };
-}
-
-function sanitizeTradeOutcomeEvent(value: unknown): TradeOutcomeEvent | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-
-  const record = value as TradeOutcomeEvent;
-  if (
-    record.schemaVersion !== TRADE_OUTCOME_SCHEMA_VERSION ||
-    typeof record.signalId !== 'string' ||
-    typeof record.closedAt !== 'string' ||
-    !record.outcome ||
-    !isOutcomeStatus(record.outcome.status)
-  ) {
-    return undefined;
-  }
-
-  const review = record.review;
-
-  return {
-    schemaVersion: TRADE_OUTCOME_SCHEMA_VERSION,
-    signalId: record.signalId,
-    ...(record.positionId?.trim() ? { positionId: record.positionId.trim() } : {}),
-    closedAt: record.closedAt,
-    outcome: {
-      status: record.outcome.status,
-      ...(toFiniteNumber(record.outcome.pnlPercent) !== undefined ? { pnlPercent: toFiniteNumber(record.outcome.pnlPercent) } : {}),
-      ...(toFiniteNumber(record.outcome.maxDrawdownPercent) !== undefined
-        ? { maxDrawdownPercent: toFiniteNumber(record.outcome.maxDrawdownPercent) }
-        : {}),
-      ...(toFiniteNumber(record.outcome.maxRunupPercent) !== undefined
-        ? { maxRunupPercent: toFiniteNumber(record.outcome.maxRunupPercent) }
-        : {}),
-      ...(toFiniteNumber(record.outcome.holdTimeMinutes) !== undefined
-        ? { holdTimeMinutes: toFiniteNumber(record.outcome.holdTimeMinutes) }
-        : {})
-    },
-    ...(review
-      ? {
-          review: {
-            ...(typeof review.followedPlan === 'boolean' ? { followedPlan: review.followedPlan } : {}),
-            ...(review.mistakeTags ? { mistakeTags: sanitizeTags(review.mistakeTags) } : {}),
-            ...(review.notes?.trim() ? { notes: review.notes.trim() } : {})
-          }
-        }
-      : {})
-  };
-}
-
-function isTradeDecisionAction(value: string): value is TradeDecisionAction {
-  return ALLOWED_TRADE_DECISION_ACTIONS.some((action) => action === value);
-}
-
-function isOutcomeStatus(value: string): value is OutcomeStatus {
-  return OUTCOME_STATUSES.some((status) => status === value);
-}
-
-function sanitizeTradeSize(size: TradeSize | undefined): TradeSize | undefined {
-  if (!size || typeof size.value !== 'number' || !Number.isFinite(size.value) || size.value <= 0 || typeof size.unit !== 'string') {
-    return undefined;
-  }
-
-  return {
-    value: size.value,
-    unit: size.unit.trim()
-  };
-}
-
 function toTradeSize(size: { value: number; unit: string } | undefined): TradeSize | undefined {
   return size ? { value: size.value, unit: size.unit } : undefined;
-}
-
-function toFiniteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function sanitizeTags(tags: string[]): string[] | undefined {

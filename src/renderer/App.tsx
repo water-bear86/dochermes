@@ -21,6 +21,9 @@ import type {
   MonitoringSignal,
   MonitoringStatus,
   OcrRegionProfileSettings,
+  PolicyCard,
+  WarningCard,
+  WarningEvidenceEntry,
   WarningEvidenceSummary,
   WindowSourceOption
 } from '../shared/types';
@@ -150,29 +153,9 @@ import {
   SessionRiskStatusPanel
 } from './RiskGuardrailPanels';
 
-interface WarningEvidenceEntry {
-  source: string;
-  detail: string;
-  confidence: SourceQualityConfidence;
-  provenance?: string;
-  detectedAt?: string;
-}
-
 interface WarningCandidate {
   text: string;
   evidence: WarningEvidenceEntry;
-}
-
-interface WarningCard {
-  text: string;
-  evidences: WarningEvidenceEntry[];
-}
-
-interface PolicyCard {
-  id: string;
-  question: string;
-  warnings: string[];
-  blockers: string[];
 }
 
 interface WalletSyncState {

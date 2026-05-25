@@ -5,13 +5,12 @@ import type {
   SourceQualityConfidence,
   SourceQualityFinding
 } from '../shared/types';
+import type { TradeDecisionAction } from '../shared/tradeDecision';
 
-export type TradeCardActionKind =
-  | 'accepted-recommended'
-  | 'set-alert'
-  | 'created-plan'
-  | 'rejected'
-  | 'overrode';
+export type TradeCardActionKind = Extract<
+  TradeDecisionAction,
+  'accepted-recommended' | 'set-alert' | 'created-plan' | 'rejected' | 'overrode'
+>;
 
 export interface TradeCardActionViewModel {
   kind: TradeCardActionKind;

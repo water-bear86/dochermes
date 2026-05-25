@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_TRADE_DECISION_ACTIONS,
   createTradeCard,
-  createTradeDecisionEvent
+  createTradeDecisionEvent,
+  sanitizeTradeDecisionEvent,
+  sanitizeTradeOutcomeEvent
 } from './tradeDecision';
 import type { CoachAssessment, TradeSignalInput } from './tradeDecision';
 
@@ -290,5 +292,109 @@ describe('trade decision domain model', () => {
         createdAt: '2026-05-23T15:01:00.000Z'
       })
     ).toThrow(/wallet-control/i);
+  });
+
+  it('sanitizes persisted decision and outcome events through the shared contract', () => {
+    expect(
+      sanitizeTradeDecisionEvent({
+        schemaVersion: 'dochermes.decision.v1',
+        signalId: 'sig_123',
+        decidedAt: '2026-05-23T15:03:00.000Z',
+        action: 'overrode',
+        requestedSize: { value: 0.5, unit: ' SOL ' },
+        finalSize: { value: -1, unit: 'SOL' },
+        override: {
+          used: true,
+          note: '  Manual review accepted. ',
+          reasonCode: ' manual-override '
+        },
+        outcomeLink: {
+          schemaVersion: 'dochermes.outcome.v1',
+          signalId: 'sig_123'
+        }
+      })
+    ).toEqual({
+      schemaVersion: 'dochermes.decision.v1',
+      signalId: 'sig_123',
+      decidedAt: '2026-05-23T15:03:00.000Z',
+      action: 'overrode',
+      requestedSize: { value: 0.5, unit: 'SOL' },
+      override: {
+        used: true,
+        note: 'Manual review accepted.',
+        reasonCode: 'manual-override'
+      },
+      outcomeLink: {
+        schemaVersion: 'dochermes.outcome.v1',
+        signalId: 'sig_123'
+      }
+    });
+
+    expect(
+      sanitizeTradeOutcomeEvent({
+        schemaVersion: 'dochermes.outcome.v1',
+        signalId: 'sig_123',
+        positionId: ' position-1 ',
+        closedAt: '2026-05-23T15:45:00.000Z',
+        outcome: {
+          status: 'stopped',
+          pnlPercent: -12.5,
+          maxDrawdownPercent: 31,
+          maxRunupPercent: Number.NaN,
+          holdTimeMinutes: 44
+        },
+        review: {
+          followedPlan: false,
+          mistakeTags: [' FOMO ', 'fomo', 'Oversize'],
+          notes: '  Broke plan. '
+        }
+      })
+    ).toEqual({
+      schemaVersion: 'dochermes.outcome.v1',
+      signalId: 'sig_123',
+      positionId: 'position-1',
+      closedAt: '2026-05-23T15:45:00.000Z',
+      outcome: {
+        status: 'stopped',
+        pnlPercent: -12.5,
+        maxDrawdownPercent: 31,
+        holdTimeMinutes: 44
+      },
+      review: {
+        followedPlan: false,
+        mistakeTags: ['fomo', 'oversize'],
+        notes: 'Broke plan.'
+      }
+    });
+  });
+
+  it('rejects persisted decision and outcome events outside the shared contract', () => {
+    expect(
+      sanitizeTradeDecisionEvent({
+        schemaVersion: 'dochermes.decision.v1',
+        signalId: 'sig_123',
+        decidedAt: '2026-05-23T15:03:00.000Z',
+        action: 'execute',
+        override: {
+          used: false,
+          note: ''
+        },
+        outcomeLink: {
+          schemaVersion: 'dochermes.outcome.v1',
+          signalId: 'sig_123'
+        }
+      })
+    ).toBeUndefined();
+
+    expect(
+      sanitizeTradeOutcomeEvent({
+        schemaVersion: 'dochermes.outcome.v1',
+        signalId: 'sig_123',
+        closedAt: '2026-05-23T15:45:00.000Z',
+        outcome: {
+          status: 'filled'
+        }
+      })
+    ).toBeUndefined();
   });
 });

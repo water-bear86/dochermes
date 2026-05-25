@@ -1,4 +1,5 @@
 import { MAX_PRIVACY_SCREENSHOT_PLACEHOLDER_DATA_URL, MAX_PRIVACY_SELECTED_WINDOW_PLACEHOLDER } from '../shared/privacy';
+import { hasMemoryContextContent } from '../shared/memoryModel';
 import type {
   AskHermesInput,
   DataSharingScope,
@@ -134,7 +135,7 @@ export function buildRemoteConsentMetadata(input: AskHermesInput): RemoteConsent
 export function summarizePrivacyRequestPolicy(input: AskHermesInput): HermesRequestPrivacySummary {
   const preset = input.privacy?.preset ?? 'balanced';
   const profile = inferDataSharingScope(input.connection);
-  const hasMemoryContext = input.memoryContext !== undefined && hasMemoryContent(input.memoryContext);
+  const hasMemoryContext = input.memoryContext !== undefined && hasMemoryContextContent(input.memoryContext);
   const hasMonitoringContext =
     (input.monitoringContext?.localWarnings.length ?? 0) > 0 ||
     (input.monitoringContext?.warningEvidence?.length ?? 0) > 0 ||
@@ -203,17 +204,6 @@ function originFromBaseUrl(baseUrl: string): string {
   } catch {
     return 'unconfigured endpoint';
   }
-}
-
-function hasMemoryContent(memoryContext: NonNullable<AskHermesInput['memoryContext']>): boolean {
-  return (
-    memoryContext.matchedPatterns.length > 0 ||
-    memoryContext.recentNotes.length > 0 ||
-    (memoryContext.postmortemSummaries?.length ?? 0) > 0 ||
-    memoryContext.tradeHistorySummary !== undefined ||
-    memoryContext.tradeBehaviorStats !== undefined ||
-    (memoryContext.personalRules?.matchedRules.length ?? 0) > 0
-  );
 }
 
 function addClass(

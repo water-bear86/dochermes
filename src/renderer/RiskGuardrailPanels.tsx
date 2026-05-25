@@ -1,29 +1,9 @@
 import type { ReactElement } from 'react';
 
-import type { SourceQualityConfidence } from '../shared/types';
+import type { PolicyCard, SourceQualityConfidence, WarningCard } from '../shared/types';
 import type { FrictionCard } from './frictionCards';
 import type { PolicyBlockUiCopy } from './policyBlockUi';
 import type { WarningFeedbackAction } from './warningFeedback';
-
-export interface WarningEvidenceEntry {
-  source: string;
-  detail: string;
-  confidence: SourceQualityConfidence;
-  provenance?: string;
-  detectedAt?: string;
-}
-
-export interface WarningCard {
-  text: string;
-  evidences: WarningEvidenceEntry[];
-}
-
-export interface PolicyCard {
-  id: string;
-  question: string;
-  warnings: string[];
-  blockers: string[];
-}
 
 interface SessionRiskStatusPanelProps {
   statusClass: string;

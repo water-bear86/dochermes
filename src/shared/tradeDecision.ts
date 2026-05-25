@@ -16,6 +16,8 @@ export const ALLOWED_TRADE_DECISION_ACTIONS = [
   'overrode'
 ] as const;
 
+export const ALLOWED_OUTCOME_STATUSES = ['open', 'closed', 'stopped', 'expired', 'skipped', 'unknown'] as const;
+
 export type TradeDecisionAction = (typeof ALLOWED_TRADE_DECISION_ACTIONS)[number];
 
 export type TradeSignalSourceConfidence = 'low' | 'medium' | 'high';
@@ -361,7 +363,7 @@ export function createTradeCard(input: CreateTradeCardInput): TradeCard {
 }
 
 export function createTradeDecisionEvent(input: CreateTradeDecisionEventInput): TradeDecisionEvent {
-  if (!isAllowedDecisionAction(input.action)) {
+  if (!isTradeDecisionAction(input.action)) {
     throw new Error(`Trade decision action "${String(input.action)}" is not allowed by the contract.`);
   }
 
@@ -387,6 +389,132 @@ export function createTradeDecisionEvent(input: CreateTradeDecisionEventInput): 
   };
 }
 
+export function sanitizeTradeDecisionEvent(value: unknown): TradeDecisionEvent | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as TradeDecisionEvent;
+  if (
+    record.schemaVersion !== TRADE_DECISION_SCHEMA_VERSION ||
+    typeof record.signalId !== 'string' ||
+    typeof record.decidedAt !== 'string' ||
+    !isTradeDecisionAction(record.action) ||
+    !record.override ||
+    typeof record.override.used !== 'boolean' ||
+    typeof record.override.note !== 'string' ||
+    !record.outcomeLink ||
+    record.outcomeLink.schemaVersion !== TRADE_OUTCOME_SCHEMA_VERSION ||
+    record.outcomeLink.signalId !== record.signalId
+  ) {
+    return undefined;
+  }
+
+  const requestedSize = sanitizeTradeSize(record.requestedSize);
+  const finalSize = sanitizeTradeSize(record.finalSize);
+  const reasonCode =
+    typeof record.override.reasonCode === 'string' ? record.override.reasonCode.trim() : '';
+
+  return {
+    schemaVersion: TRADE_DECISION_SCHEMA_VERSION,
+    signalId: record.signalId,
+    decidedAt: record.decidedAt,
+    action: record.action,
+    ...(requestedSize ? { requestedSize } : {}),
+    ...(finalSize ? { finalSize } : {}),
+    override: {
+      used: record.override.used,
+      note: record.override.note.trim(),
+      ...(reasonCode ? { reasonCode } : {})
+    },
+    outcomeLink: {
+      schemaVersion: TRADE_OUTCOME_SCHEMA_VERSION,
+      signalId: record.signalId
+    }
+  };
+}
+
+export function sanitizeTradeOutcomeEvent(value: unknown): TradeOutcomeEvent | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as TradeOutcomeEvent;
+  if (
+    record.schemaVersion !== TRADE_OUTCOME_SCHEMA_VERSION ||
+    typeof record.signalId !== 'string' ||
+    typeof record.closedAt !== 'string' ||
+    !record.outcome ||
+    !isOutcomeStatus(record.outcome.status)
+  ) {
+    return undefined;
+  }
+
+  const review = record.review;
+  const positionId = typeof record.positionId === 'string' ? record.positionId.trim() : '';
+  const reviewNotes = typeof review?.notes === 'string' ? review.notes.trim() : '';
+
+  return {
+    schemaVersion: TRADE_OUTCOME_SCHEMA_VERSION,
+    signalId: record.signalId,
+    ...(positionId ? { positionId } : {}),
+    closedAt: record.closedAt,
+    outcome: {
+      status: record.outcome.status,
+      ...(toFiniteNumber(record.outcome.pnlPercent) !== undefined ? { pnlPercent: toFiniteNumber(record.outcome.pnlPercent) } : {}),
+      ...(toFiniteNumber(record.outcome.maxDrawdownPercent) !== undefined
+        ? { maxDrawdownPercent: toFiniteNumber(record.outcome.maxDrawdownPercent) }
+        : {}),
+      ...(toFiniteNumber(record.outcome.maxRunupPercent) !== undefined
+        ? { maxRunupPercent: toFiniteNumber(record.outcome.maxRunupPercent) }
+        : {}),
+      ...(toFiniteNumber(record.outcome.holdTimeMinutes) !== undefined
+        ? { holdTimeMinutes: toFiniteNumber(record.outcome.holdTimeMinutes) }
+        : {})
+    },
+    ...(review
+      ? {
+          review: {
+            ...(typeof review.followedPlan === 'boolean' ? { followedPlan: review.followedPlan } : {}),
+            ...(review.mistakeTags ? { mistakeTags: sanitizeTradeOutcomeTags(review.mistakeTags) } : {}),
+            ...(reviewNotes ? { notes: reviewNotes } : {})
+          }
+        }
+      : {})
+  };
+}
+
+export function sanitizeTradeSize(size: unknown): TradeSize | undefined {
+  const candidate = size as TradeSize | undefined;
+  if (
+    !candidate ||
+    typeof candidate.value !== 'number' ||
+    !Number.isFinite(candidate.value) ||
+    candidate.value <= 0 ||
+    typeof candidate.unit !== 'string'
+  ) {
+    return undefined;
+  }
+
+  const unit = candidate.unit.trim();
+  if (!unit) {
+    return undefined;
+  }
+
+  return {
+    value: candidate.value,
+    unit
+  };
+}
+
+export function isTradeDecisionAction(value: unknown): value is TradeDecisionAction {
+  return typeof value === 'string' && ALLOWED_TRADE_DECISION_ACTIONS.some((allowedAction) => allowedAction === value);
+}
+
+export function isOutcomeStatus(value: unknown): value is OutcomeStatus {
+  return typeof value === 'string' && ALLOWED_OUTCOME_STATUSES.some((status) => status === value);
+}
+
 function buildMarketEvidence(signal: TradeSignalInput): MarketEvidence {
   const market = signal.market ?? {};
   const analysis = signal.analysisContext ?? {};
@@ -404,10 +532,6 @@ function buildMarketEvidence(signal: TradeSignalInput): MarketEvidence {
       : {}),
     providerEvidence: [...(analysis.providerEvidence ?? [])]
   };
-}
-
-function isAllowedDecisionAction(action: string): action is TradeDecisionAction {
-  return ALLOWED_TRADE_DECISION_ACTIONS.some((allowedAction) => allowedAction === action);
 }
 
 function hasExplicitOverrideMetadata(override: TradeDecisionOverride): boolean {
@@ -449,4 +573,19 @@ function scanForForbiddenFields(value: unknown, path: string[]): void {
 
 function isAllowedReadonlyBotField(path: string[]): boolean {
   return path.length === 2 && path[0] === 'botContext' && (path[1] === 'executionCapability' || path[1] === 'routePreview');
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function sanitizeTradeOutcomeTags(tags: unknown): string[] | undefined {
+  if (!Array.isArray(tags)) {
+    return undefined;
+  }
+
+  const cleaned = Array.from(
+    new Set(tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim().toLowerCase()).filter(Boolean))
+  ).slice(0, 8);
+  return cleaned.length > 0 ? cleaned : undefined;
 }
