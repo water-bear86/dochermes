@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
+import packageJson from '../../package.json';
 
 import type {
+  BetaFeedbackConsent,
+  BetaFeedbackSeverity,
   MemoryContext,
   JournalMonitoringMetadata,
   CoachBridgeApi,
@@ -37,6 +40,12 @@ import {
   clearRequestDiagnostics,
   createRequestDiagnostic
 } from './requestDiagnostics';
+import {
+  DEFAULT_BETA_FEEDBACK_CONSENT,
+  buildBetaFeedbackBundle,
+  formatBetaFeedbackJson,
+  formatBetaFeedbackMarkdown
+} from './betaFeedback';
 import {
   appendPostmortemOutcomeRecord,
   appendPostmortemSummary,
@@ -138,6 +147,7 @@ import {
   CORRECTABLE_MONITORING_SIGNAL_KINDS
 } from './monitoringCorrections';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
+import { BetaFeedbackPanel, type BetaFeedbackPreviewFormat } from './BetaFeedbackPanel';
 import { WindowPicker } from './WindowPicker';
 import { GatewaySettingsPanel } from './GatewaySettingsPanel';
 import {
@@ -327,6 +337,12 @@ export function App(): ReactElement {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [copiedDiagnosticId, setCopiedDiagnosticId] = useState<string | undefined>();
+  const [betaFeedbackOpen, setBetaFeedbackOpen] = useState(false);
+  const [betaFeedbackContext, setBetaFeedbackContext] = useState('');
+  const [betaFeedbackSeverity, setBetaFeedbackSeverity] = useState<BetaFeedbackSeverity>('medium');
+  const [betaFeedbackConsent, setBetaFeedbackConsent] = useState<BetaFeedbackConsent>(DEFAULT_BETA_FEEDBACK_CONSENT);
+  const [betaFeedbackPreviewFormat, setBetaFeedbackPreviewFormat] = useState<BetaFeedbackPreviewFormat>('markdown');
+  const [copiedBetaFeedbackFormat, setCopiedBetaFeedbackFormat] = useState<BetaFeedbackPreviewFormat | undefined>();
   const [requestMetrics, setRequestMetrics] = useState<{
     captureMs?: number;
     localRiskMs?: number;
@@ -440,6 +456,26 @@ export function App(): ReactElement {
     () => getVoiceHotkeyPlatformNote(settings.voice.hotkey, platformKey),
     [platformKey, settings.voice.hotkey]
   );
+  const betaFeedbackBundle = useMemo(
+    () =>
+      buildBetaFeedbackBundle({
+        app: {
+          name: packageJson.productName ?? packageJson.name,
+          version: packageJson.version,
+          platform: platformKey
+        },
+        review: {
+          freeformContext: betaFeedbackContext,
+          severity: betaFeedbackSeverity
+        },
+        consent: betaFeedbackConsent,
+        diagnostics: requestDiagnostics
+      }),
+    [betaFeedbackConsent, betaFeedbackContext, betaFeedbackSeverity, platformKey, requestDiagnostics]
+  );
+  const betaFeedbackMarkdown = useMemo(() => formatBetaFeedbackMarkdown(betaFeedbackBundle), [betaFeedbackBundle]);
+  const betaFeedbackJson = useMemo(() => formatBetaFeedbackJson(betaFeedbackBundle), [betaFeedbackBundle]);
+  const betaFeedbackPreviewText = betaFeedbackPreviewFormat === 'json' ? betaFeedbackJson : betaFeedbackMarkdown;
 
   const hasQuestion = question.trim().length > 0;
   const canAsk = requestState === 'idle' && hasQuestion && Boolean(bridge);
@@ -1884,6 +1920,18 @@ export function App(): ReactElement {
       setCopiedDiagnosticId((nextId) => (nextId === entry.id ? undefined : nextId));
     }, 2200);
   }, []);
+
+  const copyBetaFeedbackBundle = useCallback(
+    async (format: BetaFeedbackPreviewFormat) => {
+      await navigator.clipboard.writeText(format === 'json' ? betaFeedbackJson : betaFeedbackMarkdown);
+      setCopiedBetaFeedbackFormat(format);
+
+      setTimeout(() => {
+        setCopiedBetaFeedbackFormat((nextFormat) => (nextFormat === format ? undefined : nextFormat));
+      }, 2200);
+    },
+    [betaFeedbackJson, betaFeedbackMarkdown]
+  );
 
   const clearDiagnosticsHistory = useCallback(() => {
     if (requestDiagnostics.length === 0) {
@@ -3832,6 +3880,26 @@ export function App(): ReactElement {
         onToggleHistory={() => setDiagnosticsOpen((open) => !open)}
         onCopyReport={(diagnostic) => {
           void copyDiagnosticReport(diagnostic);
+        }}
+      />
+
+      <BetaFeedbackPanel
+        open={betaFeedbackOpen}
+        diagnosticsCount={requestDiagnostics.length}
+        consent={betaFeedbackConsent}
+        severity={betaFeedbackSeverity}
+        freeformContext={betaFeedbackContext}
+        previewFormat={betaFeedbackPreviewFormat}
+        previewText={betaFeedbackPreviewText}
+        copiedFormat={copiedBetaFeedbackFormat}
+        onToggleOpen={() => setBetaFeedbackOpen((open) => !open)}
+        onClose={() => setBetaFeedbackOpen(false)}
+        onConsentChange={setBetaFeedbackConsent}
+        onSeverityChange={setBetaFeedbackSeverity}
+        onFreeformContextChange={setBetaFeedbackContext}
+        onPreviewFormatChange={setBetaFeedbackPreviewFormat}
+        onCopy={(format) => {
+          void copyBetaFeedbackBundle(format);
         }}
       />
 

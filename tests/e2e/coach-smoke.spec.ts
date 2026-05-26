@@ -85,6 +85,67 @@ test.describe('Hermes Coach Electron smoke', () => {
     }
   });
 
+  test('previews and copies a local beta feedback bundle without screenshot data', async () => {
+    const app = await launchDocHermes();
+
+    try {
+      const page = await firstCoachWindow(app);
+      const rendererFailures = collectRendererFailures(page, { ignoreSandboxedPreloadFailure: true });
+      const skipSetupButton = page.getByRole('button', { name: 'Skip for dev/testing' });
+
+      await page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __dochermesFeedbackWrites?: string[];
+        };
+        testWindow.__dochermesFeedbackWrites = [];
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: async (value: string) => {
+              testWindow.__dochermesFeedbackWrites?.push(value);
+            }
+          }
+        });
+      });
+
+      if (await skipSetupButton.isVisible()) {
+        await skipSetupButton.click();
+      }
+
+      await page.getByRole('button', { name: 'Review bundle' }).click();
+      await expect(page.getByLabel('Beta feedback review')).toBeVisible();
+      await expect(page.getByText('No network send. No screenshot bytes.')).toBeVisible();
+
+      await page.getByLabel('Freeform context').fill('Copy state was unclear. Token sk-secret and data:image/png;base64,AAAA.');
+      await page.getByLabel(/Include request diagnostics/i).uncheck();
+
+      await expect(page.getByText('# DocHermes beta feedback')).toBeVisible();
+      await expect(page.getByText('Network submission: no')).toBeVisible();
+      await expect(page.getByText('Screenshot bytes included: no')).toBeVisible();
+
+      await page.getByRole('button', { name: 'Copy Markdown' }).click();
+      await expect(page.getByRole('button', { name: 'Markdown copied' })).toBeVisible();
+
+      const writes = await page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __dochermesFeedbackWrites?: string[];
+        };
+        return testWindow.__dochermesFeedbackWrites ?? [];
+      });
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toContain('# DocHermes beta feedback');
+      expect(writes[0]).toContain('Network submission: no');
+      expect(writes[0]).toContain('Diagnostics: withheld');
+      expect(writes[0]).toContain('_No diagnostics included._');
+      expect(writes[0]).not.toContain('data:image');
+      expect(writes[0]).not.toContain('sk-secret');
+      expect(rendererFailures).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('sends placeholder-only maximum privacy requests without capturing the real window', async () => {
     const app = await launchDocHermes();
 

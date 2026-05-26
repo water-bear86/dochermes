@@ -378,6 +378,66 @@ export interface HermesRequestDiagnostic {
   debugNotes?: string;
 }
 
+export type BetaFeedbackSeverity = 'low' | 'medium' | 'high' | 'blocking';
+
+export interface BetaFeedbackConsent {
+  includeDiagnostics: boolean;
+  includeConnectionInfo: boolean;
+  includeWindowInfo: boolean;
+  includeTimings: boolean;
+  includePrivacySummary: boolean;
+}
+
+export interface BetaFeedbackReview {
+  freeformContext: string;
+  severity: BetaFeedbackSeverity;
+}
+
+export interface BetaFeedbackAppInfo {
+  name: string;
+  version: string;
+  platform: string;
+}
+
+export interface BetaFeedbackDiagnosticEntry {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  status: HermesRequestDiagnostic['status'];
+  questionPreview: string;
+  window: {
+    kind: WindowSourceKind;
+    name: string;
+    id: string;
+  };
+  request: {
+    redactionEnabled: boolean;
+    usedFallbackImage: boolean;
+  };
+  requestContext?: HermesRequestDiagnostic['requestContext'];
+  connectionStatus?: HermesConnectionStatus;
+  connection?: HermesRequestDiagnostic['connection'];
+  privacySummary?: HermesRequestPrivacySummary;
+  timings?: HermesRequestTiming;
+  failure?: HermesFailureDetail;
+  debugNotes?: string;
+}
+
+export interface BetaFeedbackBundle {
+  schemaVersion: 'dochermes.beta-feedback.v1';
+  createdAt: string;
+  app: BetaFeedbackAppInfo;
+  review: BetaFeedbackReview;
+  consent: BetaFeedbackConsent;
+  localOnly: {
+    networkSubmission: false;
+    screenshotIncluded: false;
+    advisoryOnly: true;
+  };
+  diagnostics: BetaFeedbackDiagnosticEntry[];
+  omitted: string[];
+}
+
 export interface HostedHermesTokenSaveInput {
   token: string;
 }
